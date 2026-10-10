@@ -1,0 +1,67 @@
+# Known schema drift between a PostgreSQL database upgraded from an older
+# release and a fresh install, as found when scripts/check_postgres_upgrade.py
+# was introduced (2026-10-10). Each line is an object and exactly how it
+# differs ("<object> | fresh install: ...; upgraded: ..."), as the check prints
+# it. The check fails on drift not listed here (also a listed object that now
+# differs in another way) and on a line that no longer drifts: a fix that brings
+# an upgraded database in line with the models removes its line.
+# Comment lines start with "#".
+
+# constraints
+constraint print_archives: FOREIGN KEY (library_file_id) REFERENCES library_files(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
+constraint print_log_entries: FOREIGN KEY (archive_id) REFERENCES print_archives(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
+constraint print_log_entries: FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
+
+# columns
+column active_print_spoolman.tray_remain_start | fresh install: json (udt json) NULL default None; upgraded: text (udt text) NULL default None
+column api_keys.can_access_cloud | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column api_keys.can_manage_archives | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column api_keys.can_manage_inventory | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column api_keys.can_manage_library | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column api_keys.can_manage_maintenance | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column api_keys.can_manage_projects | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column api_keys.can_send_notifications | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column api_keys.can_update_energy_cost | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column github_backup_config.allow_insecure_http | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column github_backup_config.provider | fresh install: character varying (udt varchar, length 30) NOT NULL default None; upgraded: character varying (udt varchar, length 30) NULL default 'github'::character varying
+column groups.restrict_printers | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column library_files.variant_position | fresh install: integer (udt int4, precision 32, scale 0) NOT NULL default 0; upgraded: integer (udt int4, precision 32, scale 0) NULL default 0
+column library_folders.shared | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column notification_providers.attach_photo | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default true
+column notification_providers.on_ai_failure_detection | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_ams_drying_suspended | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default true
+column notification_providers.on_app_message | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_billing_charge_failed | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default true
+column notification_providers.on_ha_sensor_alert | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_location_ha_sensor_alert | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_plate_clear_required | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_print_confirm_request | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default true
+column notification_providers.on_stock_break_alert | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.on_stock_reorder_alert | fresh install: boolean (udt bool) NULL default None; upgraded: boolean (udt bool) NULL default false
+column notification_providers.telegram_verdict_mode | fresh install: character varying (udt varchar, length 16) NULL default None; upgraded: character varying (udt varchar, length 16) NULL default 'buttons'::character varying
+column oidc_providers.email_claim | fresh install: character varying (udt varchar, length 64) NOT NULL default None; upgraded: character varying (udt varchar, length 64) NULL default 'email'::character varying
+column oidc_providers.is_autologin | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column oidc_providers.is_env_managed | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column oidc_providers.require_email_verified | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
+column print_archives.bambuddy_forced_timelapse | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column print_archives.wallet_charge_skipped | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column print_queue.bed_levelling | fresh install: character varying (udt varchar, length 8) NOT NULL default None; upgraded: character varying (udt varchar, length 8) NOT NULL default 'auto'::character varying
+column print_queue.cleanup_library_after_dispatch | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column print_queue.confirm_outcome | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column print_queue.dispatch_attempts | fresh install: integer (udt int4, precision 32, scale 0) NOT NULL default 0; upgraded: integer (udt int4, precision 32, scale 0) NULL default 0
+column print_queue.filament_short | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column print_queue.flow_cali | fresh install: character varying (udt varchar, length 8) NOT NULL default None; upgraded: character varying (udt varchar, length 8) NOT NULL default 'auto'::character varying
+column print_queue.gate_acknowledged | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column print_queue.nozzle_offset_cali | fresh install: character varying (udt varchar, length 8) NOT NULL default None; upgraded: character varying (udt varchar, length 8) NULL default 'auto'::character varying
+column print_queue.preheat_override | fresh install: character varying (udt varchar, length 10) NOT NULL default None; upgraded: character varying (udt varchar, length 10) NULL default 'inherit'::character varying
+column print_queue.skip_filament_check | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column printers.camera_light_auto | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
+column smart_plugs.auto_off_after_drying | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column smart_plugs.controls_printer_power | fresh install: boolean (udt bool) NOT NULL default true; upgraded: boolean (udt bool) NULL default true
+column smart_plugs.off_delay_after_drying_minutes | fresh install: integer (udt int4, precision 32, scale 0) NOT NULL default 10; upgraded: integer (udt int4, precision 32, scale 0) NULL default 10
+column smart_plugs.rest_energy_total_multiplier | fresh install: double precision (udt float8, precision 53) NOT NULL default '1'::double precision; upgraded: real (udt float4, precision 24) NULL default 1.0
+column spool.weight_used_baseline | fresh install: double precision (udt float8, precision 53) NOT NULL default None; upgraded: real (udt float4, precision 24) NULL default 0
+column virtual_printers.gcode_injection | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column virtual_printers.queue_force_color_match | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column virtual_printers.save_ams_mapping | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
+column virtual_printers.tailscale_disabled | fresh install: boolean (udt bool) NOT NULL default true; upgraded: boolean (udt bool) NULL default true

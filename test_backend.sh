@@ -42,6 +42,36 @@ else
 echo "Skipping the type check: no .typecheck-venv (see CONTRIBUTING.md)."
 fi
 
+# PostgreSQL upgrade check, as CI runs it, in a throwaway container (the tests
+# below run on SQLite only). Needs Docker and the release tags.
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+echo "Skipping the PostgreSQL upgrade check: Docker is not available."
+elif [ -z "$(git tag --list v0.2.3)" ]; then
+echo "Skipping the PostgreSQL upgrade check: no release tags in this clone (git fetch --tags)."
+else
+(
+    cd .. || exit 1
+    name="bambuddy-pg-check-$$"
+    port=$(venv/bin/python -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])') || exit 1
+    docker run -d --rm --name "$name" --tmpfs /var/lib/postgresql/data -e POSTGRES_PASSWORD=check \
+        -p "127.0.0.1:$port:5432" postgres:16-alpine >/dev/null || exit 1
+    # dash runs no EXIT trap when interrupted, so remove the container on a
+    # signal too (and then exit as interrupted).
+    trap 'docker rm -f "$name" >/dev/null 2>&1' EXIT
+    trap 'docker rm -f "$name" >/dev/null 2>&1; exit 130' INT TERM
+    ready=0
+    for _ in $(seq 60); do
+        if docker exec "$name" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then ready=1; break; fi
+        sleep 1
+    done
+    if [ "$ready" != 1 ]; then
+        echo "PostgreSQL upgrade check: the container did not become ready."
+        exit 1
+    fi
+    venv/bin/python scripts/check_postgres_upgrade.py --url "postgresql://postgres:check@127.0.0.1:$port/postgres"
+) || exit 1
+fi
+
 if [ "$1" = "--full" ]; then
 ../venv/bin/python3 -m pytest tests/ -v -n 30
 else

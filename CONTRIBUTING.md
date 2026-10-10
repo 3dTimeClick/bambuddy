@@ -348,7 +348,7 @@ The easiest way to run tests is with the provided scripts in the project root:
 
 ```bash
 ./test_frontend.sh    # TypeScript check + ESLint + Vitest
-./test_backend.sh     # Ruff lint/format + type check (if .typecheck-venv exists) + pytest (parallel)
+./test_backend.sh     # Ruff lint/format + type check (if .typecheck-venv exists) + PostgreSQL upgrade check (if Docker is available) + pytest (parallel)
 ./test_docker.sh      # Full Docker build, unit tests, and integration tests
 ./test_all.sh         # All of the above (frontend → backend → docker)
 ./test_security.sh    # Security scans (bandit, pip-audit, npm-audit)
@@ -375,6 +375,27 @@ against — it exercises code paths that open their own sessions, and some of th
 write. Don't undo that override to "test against real data": point `DATABASE_URL`
 at a copy instead.
 
+### Database migrations (PostgreSQL)
+
+The test suite runs on SQLite only. `scripts/check_postgres_upgrade.py` covers
+PostgreSQL: it builds a database with older releases' code (the first release
+with PostgreSQL support and the newest stable one), upgrades it with the current
+code twice, and compares its schema with a fresh install. `test_backend.sh`
+runs it in a throwaway `postgres:16-alpine` container when Docker is available
+and the clone has the release tags (`git fetch --tags`); CI runs it too.
+
+A fresh install gets every table and column straight from the models, while an
+existing database only gets what the migrations in `backend/app/core/database.py`
+add. So a new column, constraint or index needs a migration that builds it
+exactly as the model does, including nullability and default; the check fails
+when an upgraded database ends up different.
+
+`scripts/postgres_schema_drift.txt` lists the drift that already existed when
+the check was introduced, each line an object and exactly how it differs. A
+listed object that starts to differ in another way fails like new drift. The
+list only shrinks: the check also fails on a line that no longer drifts, so a
+fix removes its line.
+
 **Frontend** — tests use [Vitest](https://vitest.dev/) and are in `frontend/src/__tests__/`:
 
 ```bash
@@ -388,7 +409,7 @@ npm run test:coverage  # With coverage
 
 Pull requests trigger automated CI checks via GitHub Actions (`.github/workflows/ci.yml`):
 
-- **Backend**: Ruff lint + format check, basedpyright type check (against the baseline), unit/integration tests, pip-audit
+- **Backend**: Ruff lint + format check, basedpyright type check (against the baseline), unit/integration tests, PostgreSQL upgrade check, pip-audit
 - **Frontend**: ESLint, TypeScript type check, Vitest tests, production build
 - **Docker**: Full image build, backend/frontend tests in Docker, integration health checks
 - **Security**: CodeQL analysis, dependency audits
