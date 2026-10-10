@@ -289,6 +289,23 @@ class TestLogErrorPatterns:
         assert not capture_logs.has_errors(), f"Errors during MQTT processing:\n{capture_logs.format_errors()}"
 
 
+def _load_all_models():
+    """Import every model module and return the declarative Base.
+
+    The package __init__ does not import every model module; without this a
+    table outside it would never be checked.
+    """
+    import importlib
+    import pkgutil
+
+    import backend.app.models
+    from backend.app.core.database import Base
+
+    for module in pkgutil.iter_modules(backend.app.models.__path__):
+        importlib.import_module(f"backend.app.models.{module.name}")
+    return Base
+
+
 class TestDateTimeColumns:
     """No model column may be DateTime(timezone=True).
 
@@ -299,19 +316,9 @@ class TestDateTimeColumns:
     """
 
     def test_no_timezone_aware_datetime_columns(self):
-        import importlib
-        import pkgutil
-
         from sqlalchemy import DateTime
 
-        import backend.app.models
-        from backend.app.core.database import Base
-
-        # The package __init__ does not import every model module, so load them
-        # all here; otherwise a table outside it would never be checked.
-        for module in pkgutil.iter_modules(backend.app.models.__path__):
-            importlib.import_module(f"backend.app.models.{module.name}")
-
+        Base = _load_all_models()
         offenders = [
             f"{table.name}.{column.name}"
             for table in Base.metadata.sorted_tables
@@ -319,3 +326,43 @@ class TestDateTimeColumns:
             if isinstance(column.type, DateTime) and column.type.timezone
         ]
         assert not offenders, f"DateTime(timezone=True) columns: {offenders}"
+
+
+class TestMappedColumns:
+    """Every model column is declared with Mapped[], and its type says whether it can be NULL.
+
+    A column assigned as ``x = Column(...)`` reaches the type checker as a
+    Column, not as the value it holds, so every use of it is unchecked (or a
+    false error in the type-check baseline). And a Mapped[] annotation that
+    disagrees with the column's nullability lies to every reader: Mapped[str]
+    on a nullable column hides the None the code must handle; Mapped[str | None]
+    on a NOT NULL column asks for checks that can never matter.
+    """
+
+    def test_columns_are_mapped_and_nullability_matches(self):
+        import typing
+
+        Base = _load_all_models()
+        models = {mapper.class_.__name__: mapper.class_ for mapper in Base.registry.mappers}
+        legacy, mismatched = [], []
+        for mapper in Base.registry.mappers:
+            hints: dict = {}
+            for klass in reversed(mapper.class_.__mro__):
+                hints.update(typing.get_type_hints(klass, localns=models))
+            for column in mapper.local_table.columns:
+                if column.primary_key:
+                    continue
+                key = mapper.get_property_by_column(column).key
+                name = f"{mapper.class_.__name__}.{key}"
+                hint = hints.get(key)
+                if hint is None:
+                    legacy.append(name)
+                    continue
+                optional = type(None) in typing.get_args(typing.get_args(hint)[0])
+                if optional != column.nullable:
+                    mismatched.append(
+                        f"{name}: annotated {'optional' if optional else 'required'}, "
+                        f"column {'nullable' if column.nullable else 'NOT NULL'}"
+                    )
+        assert not legacy, f"declare these with Mapped[...] = mapped_column(...): {legacy}"
+        assert not mismatched, f"Mapped[] annotation disagrees with the column: {mismatched}"
