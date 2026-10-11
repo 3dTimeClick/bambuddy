@@ -225,7 +225,8 @@ Then regenerate the type-check lock (command in `requirements-typecheck.txt`), i
 
 ### Frontend (TypeScript/React)
 
-We use ESLint for linting and TypeScript for type checking:
+We use ESLint for linting, TypeScript for type checking and knip for unused
+files and dependencies:
 
 ```bash
 cd frontend
@@ -235,7 +236,16 @@ npm run lint
 
 # Type check
 npm run typecheck
+
+# Unused files and dependencies
+npm run check:knip
 ```
+
+knip follows imports from the entry points (`index.html`, the Vite and Vitest
+configs, and `public/sw.js`, which the browser loads by URL). A file nothing
+imports, or a package nothing uses, fails the check: delete it, or add it to
+`frontend/knip.jsonc` with a comment saying why if something loads it in a way
+knip can't see.
 
 ### Pre-commit Hooks
 
@@ -347,7 +357,7 @@ reprint eligibility. Archive reprint still needs `queue:create` before it can en
 The easiest way to run tests is with the provided scripts in the project root:
 
 ```bash
-./test_frontend.sh    # TypeScript check + ESLint + Vitest
+./test_frontend.sh    # TypeScript check + ESLint + knip + Vitest
 ./test_backend.sh     # Ruff lint/format + type check (if .typecheck-venv exists) + PostgreSQL upgrade check (if Docker is available) + pytest (parallel)
 ./test_docker.sh      # Full Docker build, unit tests, and integration tests
 ./test_all.sh         # All of the above (frontend → backend → docker)
@@ -415,7 +425,7 @@ npm run test:coverage  # With coverage
 Pull requests trigger automated CI checks via GitHub Actions (`.github/workflows/ci.yml`):
 
 - **Backend**: Ruff lint + format check, basedpyright type check (against the baseline), unit/integration tests, PostgreSQL upgrade check, pip-audit
-- **Frontend**: ESLint, TypeScript type check, Vitest tests, production build
+- **Frontend**: ESLint, knip (unused files and dependencies), TypeScript type check, Vitest tests, production build
 - **Docker**: Full image build, backend/frontend tests in Docker, integration health checks
 - **Security**: CodeQL analysis, dependency audits
 

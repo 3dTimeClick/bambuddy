@@ -441,7 +441,7 @@ def _check_apikey_permissions(
     ``resolve_apikey_owner``.
 
     By default ALL requested permissions must pass (mirrors
-    ``require_permission`` / ``require_permission_if_auth_enabled``).
+    ``require_permission_if_auth_enabled``).
     When ``require_any=True``, only one needs to pass (mirrors
     ``require_any_permission_if_auth_enabled``).
     """
@@ -1658,20 +1658,6 @@ async def require_auth_if_enabled(
         )
 
 
-def require_role(required_role: str):
-    """Dependency factory for role-based access control."""
-
-    async def role_checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
-        if current_user.role != required_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires {required_role} role",
-            )
-        return current_user
-
-    return role_checker
-
-
 def require_admin_if_auth_enabled():
     """Dependency factory that requires admin role if auth is enabled.
 
@@ -2160,92 +2146,11 @@ def require_printer_permission_if_auth_enabled(*permissions: str | Permission):
 
 
 # Convenience dependencies - these are functions that return Depends objects
-def RequireAdmin():
-    """Dependency that requires admin role."""
-    return Depends(require_role("admin"))
 
 
 def RequireAdminIfAuthEnabled():
     """Dependency that requires admin role if auth is enabled."""
     return Depends(require_admin_if_auth_enabled())
-
-
-def require_permission(*permissions: str | Permission):
-    """Dependency factory that requires user to have ALL specified permissions.
-
-    Accepts both JWT tokens (via Authorization: Bearer header) and API keys
-    (via X-API-Key header or Authorization: Bearer bb_xxx).
-
-    Args:
-        *permissions: Permission strings or Permission enum values to require
-
-    Returns:
-        A dependency function that validates permissions
-    """
-    # Convert Permission enums to strings
-    perm_strings = [p.value if isinstance(p, Permission) else p for p in permissions]
-
-    async def permission_checker(
-        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
-        x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    ) -> User | None:
-        async with async_session() as db:
-            # Check for API key first (X-API-Key header)
-            if x_api_key:
-                api_key = await _validate_api_key(db, x_api_key)
-                if api_key:
-                    await authorize_api_key(db, api_key, perm_strings)
-                    return None  # API key valid, allow access
-
-            credentials_exception = HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-            if credentials is None:
-                raise credentials_exception
-
-            token = credentials.credentials
-            # Check if it's an API key (starts with bb_)
-            if token.startswith("bb_"):
-                api_key = await _validate_api_key(db, token)
-                if api_key:
-                    await authorize_api_key(db, api_key, perm_strings)
-                    return None  # API key valid, allow access
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid API key",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-
-            # Otherwise treat as JWT
-            try:
-                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-                username: str = payload.get("sub")
-                if username is None:
-                    raise credentials_exception
-                jti: str | None = payload.get("jti")
-                if not jti or await is_jti_revoked(jti, db):
-                    raise credentials_exception
-                iat: int | float | None = payload.get("iat")
-            except JWTError:
-                raise credentials_exception
-
-            user = await get_user_by_username(db, username)
-            if user is None or not user.is_active:
-                raise credentials_exception
-            if not _is_token_fresh(iat, user):
-                raise credentials_exception
-
-            if not user.has_all_permissions(*perm_strings):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Missing required permissions: {', '.join(perm_strings)}",
-                )
-            return user
-
-    return permission_checker
 
 
 def require_permission_if_auth_enabled(*permissions: str | Permission):
@@ -2357,11 +2262,6 @@ def require_permission_if_auth_enabled(*permissions: str | Permission):
             )
 
     return permission_checker
-
-
-def RequirePermission(*permissions: str | Permission):
-    """Convenience dependency that requires ALL specified permissions."""
-    return Depends(require_permission(*permissions))
 
 
 def RequirePermissionIfAuthEnabled(*permissions: str | Permission):

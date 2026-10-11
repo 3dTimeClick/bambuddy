@@ -189,11 +189,3 @@ def api_key_own_scope(api_key) -> PrinterScope:
     if api_key.printer_ids is None:
         return ALL_PRINTERS
     return PrinterScope(frozenset(int(pid) for pid in api_key.printer_ids))
-
-
-async def group_restricts_printers(db: AsyncSession, group_ids: Iterable[int]) -> bool:
-    ids = list(group_ids)
-    if not ids:
-        return False
-    result = await db.execute(select(Group.id).where(Group.id.in_(ids), Group.restrict_printers.is_(True)).limit(1))
-    return result.first() is not None

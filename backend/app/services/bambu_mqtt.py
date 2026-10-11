@@ -5937,20 +5937,6 @@ class BambuMQTTClient:
         # The correct nozzle data comes from push_status response.
         return True
 
-    def _request_accessories(self):
-        """Request accessories info (nozzle type, etc.) from printer."""
-        if self._client:
-            self._sequence_id += 1
-            message = {
-                "system": {
-                    "sequence_id": str(self._sequence_id),
-                    "command": "get_accessories",
-                    "accessory_type": "none",
-                }
-            }
-            logger.debug("[%s] Requesting accessories info", self.serial_number)
-            self._client.publish(self.topic_publish, json.dumps(message), qos=1)
-
     def _prime_kprofile_request(self):
         """Send a priming K-profile request on connect.
 
@@ -7502,22 +7488,6 @@ class BambuMQTTClient:
         speed = max(0, min(255, speed))  # Clamp to 0-255
         return self.send_gcode(f"M106 P{fan} S{speed}")
 
-    def set_part_fan(self, speed: int) -> bool:
-        """Set part cooling fan speed (0-255)."""
-        return self.set_fan_speed(1, speed)
-
-    def set_aux_fan(self, speed: int) -> bool:
-        """Set auxiliary fan speed (0-255)."""
-        return self.set_fan_speed(2, speed)
-
-    def set_chamber_fan(self, speed: int) -> bool:
-        """Set chamber fan speed (0-255)."""
-        return self.set_fan_speed(3, speed)
-
-    def set_left_aux_fan(self, speed: int) -> bool:
-        """Set left auxiliary part cooling fan speed (0-255). P2S/X2D accessory."""
-        return self.set_fan_speed(10, speed)
-
     def set_airduct_mode(self, mode: str) -> bool:
         """Set air conditioning mode (cooling or heating).
 
@@ -7609,56 +7579,6 @@ class BambuMQTTClient:
             "[%s] Sent select_extruder command: extruder_index=%s (0=right, 1=left)", self.serial_number, extruder
         )
         return True
-
-    def home_axes(self, axes: str = "XYZ") -> bool:
-        """Run the printer's full auto-home sequence.
-
-        The ``axes`` argument is ignored: a bare ``G28`` is always sent so
-        Bambu firmware runs its safe multi-step routine (park toolhead →
-        home XY → home Z). Partial-axis variants like ``G28 Z`` skip the
-        toolhead-park step and can crash the bed into the toolhead on H2C
-        / H2D / H2S / X1 where Z-home moves the bed UP — see #1052.
-        """
-        return self.send_gcode("G28")
-
-    def move_axis(self, axis: str, distance: float, speed: int = 3000) -> bool:
-        """Move an axis by a relative distance.
-
-        Args:
-            axis: Axis to move ("X", "Y", or "Z")
-            distance: Distance to move in mm (positive or negative)
-            speed: Movement speed in mm/min
-
-        Returns:
-            True if command was sent, False otherwise
-        """
-        axis = axis.upper()
-        if axis not in ("X", "Y", "Z"):
-            logger.warning("[%s] Invalid axis: %s", self.serial_number, axis)
-            return False
-
-        # G91 = relative mode, G0 = rapid move, G90 = back to absolute
-        gcode = f"G91\nG0 {axis}{distance:.2f} F{speed}\nG90"
-        return self.send_gcode(gcode)
-
-    def disable_motors(self) -> bool:
-        """Disable all stepper motors.
-
-        Warning: This will cause the printer to lose its position.
-        A homing operation will be required before printing.
-
-        Returns:
-            True if command was sent, False otherwise
-        """
-        return self.send_gcode("M18")
-
-    def enable_motors(self) -> bool:
-        """Enable all stepper motors.
-
-        Returns:
-            True if command was sent, False otherwise
-        """
-        return self.send_gcode("M17")
 
     def ams_load_filament(self, tray_id: int, extruder_id: int | None = None) -> bool:
         """Load filament from a specific AMS tray.
@@ -8313,53 +8233,6 @@ class BambuMQTTClient:
         logger.info("[%s] Publishing extrusion_cali_set: tray %s, k_value=%s", self.serial_number, tray_id, k_value)
         logger.debug("[%s] extrusion_cali_set command: %s", self.serial_number, command_json)
         self._client.publish(self.topic_publish, command_json, qos=1)
-        return True
-
-    def set_timelapse(self, enable: bool) -> bool:
-        """Enable or disable timelapse recording.
-
-        Args:
-            enable: True to enable, False to disable
-
-        Returns:
-            True if command was sent, False otherwise
-        """
-        if not self._client or not self.state.connected:
-            logger.warning("[%s] Cannot set timelapse: not connected", self.serial_number)
-            return False
-
-        command = {"pushing": {"command": "pushall", "sequence_id": "0"}}
-        # First send the timelapse setting
-        timelapse_cmd = {
-            "print": {"command": "gcode_line", "param": f"M981 S{1 if enable else 0} P20000", "sequence_id": "0"}
-        }
-        self._client.publish(self.topic_publish, json.dumps(timelapse_cmd), qos=1)
-        # Request status update
-        self._client.publish(self.topic_publish, json.dumps(command), qos=1)
-        logger.info("[%s] Set timelapse %s", self.serial_number, "enabled" if enable else "disabled")
-        return True
-
-    def set_liveview(self, enable: bool) -> bool:
-        """Enable or disable live view / camera streaming.
-
-        Args:
-            enable: True to enable, False to disable
-
-        Returns:
-            True if command was sent, False otherwise
-        """
-        if not self._client or not self.state.connected:
-            logger.warning("[%s] Cannot set liveview: not connected", self.serial_number)
-            return False
-
-        command = {
-            "xcam": {"command": "ipcam_record_set", "control": "enable" if enable else "disable", "sequence_id": "0"}
-        }
-        self._client.publish(self.topic_publish, json.dumps(command), qos=1)
-        # Request status update
-        pushall = {"pushing": {"command": "pushall", "sequence_id": "0"}}
-        self._client.publish(self.topic_publish, json.dumps(pushall), qos=1)
-        logger.info("[%s] Set liveview %s", self.serial_number, "enabled" if enable else "disabled")
         return True
 
     def execute_hms_action(self, print_error: str, action: str, job_id: str | None = None) -> bool:

@@ -1057,7 +1057,7 @@ def _read_backup_manifest(temp_path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-async def _import_sqlite_to_postgres(sqlite_path: Path, postgres_url: str):
+async def _import_sqlite_to_postgres(sqlite_path: Path):
     """Import data from a SQLite database file into the current PostgreSQL database.
 
     Used for cross-database restore (SQLite backup → PostgreSQL).
@@ -1534,7 +1534,7 @@ async def restore_backup(
             else:
                 # Import SQLite backup into PostgreSQL
                 logger.info("Importing SQLite backup into PostgreSQL...")
-                await _import_sqlite_to_postgres(backup_db, app_settings.database_url)
+                await _import_sqlite_to_postgres(backup_db)
 
             # 6. Replace data directories
             # For Docker compatibility: clear contents then copy (don't delete mount points)

@@ -330,80 +330,6 @@ BamBuddy Team
     return subject, text_body, html_body
 
 
-def create_password_reset_email(username: str, password: str, login_url: str) -> tuple[str, str, str]:
-    """Create password reset email content.
-
-    Args:
-        username: Username of the user
-        password: New auto-generated password
-        login_url: URL to login page
-
-    Returns:
-        Tuple of (subject, text_body, html_body)
-    """
-    subject = "BamBuddy - Your Password Has Been Reset"
-
-    text_body = f"""Your BamBuddy password has been reset.
-
-Your login details:
-
-Username: {username}
-New Password: {password}
-
-You can login at: {login_url}
-
-For security reasons, please change your password after logging in.
-
-If you did not request this password reset, please contact your administrator immediately.
-
-Best regards,
-BamBuddy Team
-"""
-
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">Password Reset</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <p style="font-size: 16px;">Your BamBuddy password has been reset.</p>
-
-        <div style="background: white; padding: 20px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #667eea;">
-            <p style="margin: 0 0 10px 0;"><strong>Username:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{username}</code></p>
-            <p style="margin: 0;"><strong>New Password:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{password}</code></p>
-        </div>
-
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
-
-        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 14px; color: #856404;">
-                <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
-            </p>
-        </div>
-
-        <p style="font-size: 14px; color: #666; border-top: 1px solid #ddd; padding-top: 20px; margin-top: 20px;">
-            <strong>Security Note:</strong> For security reasons, please change your password after logging in.
-        </p>
-
-        <p style="font-size: 14px; color: #999; margin-top: 30px;">
-            Best regards,<br>
-            BamBuddy Team
-        </p>
-    </div>
-</body>
-</html>
-"""
-
-    return subject, text_body, html_body
-
-
 def create_password_reset_link_email(username: str, reset_url: str) -> tuple[str, str, str]:
     """Create a password-reset email that contains a secure link (not a plaintext password)."""
     subject = "BamBuddy - Password Reset Request"
@@ -455,17 +381,11 @@ BamBuddy Team
 async def create_password_reset_link_email_from_template(
     db: AsyncSession, username: str, reset_url: str
 ) -> tuple[str, str, str]:
-    """Create password-reset link email, using DB template if configured."""
-    template = await get_notification_template(db, "password_reset_link")
-    if template:
-        variables = {"username": username, "reset_url": reset_url}
-        subject = render_template(template.subject or "BamBuddy - Password Reset Request", variables)
-        text_body = render_template(template.body or "", variables)
-        html_body = render_template(template.html_body or "", variables) if template.html_body else None
-        if not html_body:
-            _, text_body, html_body = create_password_reset_link_email(username, reset_url)
-            return subject, text_body, html_body
-        return subject, text_body, html_body
+    """Create the password-reset link email.
+
+    There is no notification template for it (the seeded "password_reset" one is
+    for the old emailed-password flow), so this is always the built-in email.
+    """
     return create_password_reset_link_email(username, reset_url)
 
 
@@ -529,74 +449,6 @@ async def create_welcome_email_from_template(
         # Fallback to hardcoded template
         logger.warning("No welcome email template found in database, using default")
         return create_welcome_email(username, password, login_url)
-
-
-async def create_password_reset_email_from_template(
-    db: AsyncSession, username: str, password: str, login_url: str, app_name: str = "BamBuddy"
-) -> tuple[str, str, str]:
-    """Create password reset email content using notification template from database.
-
-    Args:
-        db: Database session
-        username: Username of the user
-        password: New auto-generated password
-        login_url: URL to login page
-        app_name: Application name (default: BamBuddy)
-
-    Returns:
-        Tuple of (subject, text_body, html_body)
-    """
-    # Try to get template from database
-    template = await get_notification_template(db, "password_reset")
-
-    if template:
-        # Render template with variables
-        variables = {
-            "app_name": app_name,
-            "username": username,
-            "password": password,
-            "login_url": login_url,
-        }
-
-        subject = render_template(template.title_template, variables)
-        text_body = render_template(template.body_template, variables)
-
-        # Create HTML version with embedded login button
-        # Escape text_body to prevent XSS vulnerabilities and convert newlines to <br> tags
-        escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
-        html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 30px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>
-
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
-
-        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 14px; color: #856404;">
-                <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
-            </p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-        logger.info("Using custom password reset email template from database")
-        return subject, text_body, html_body
-    else:
-        # Fallback to hardcoded template
-        logger.warning("No password reset email template found in database, using default")
-        return create_password_reset_email(username, password, login_url)
 
 
 async def send_user_print_notification(

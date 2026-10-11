@@ -250,7 +250,7 @@ async def test_the_import_refuses_before_it_drops_anything(tmp_path):
         patch("backend.app.core.database._create_engine", new=create_engine),
         pytest.raises(BackupSchemaIncompatible),
     ):
-        await settings_module._import_sqlite_to_postgres(path, "postgresql+asyncpg://test/test")
+        await settings_module._import_sqlite_to_postgres(path)
 
     assert executed == [], f"SQL ran against the destination before the refusal: {executed}"
     create_engine.assert_not_called()
@@ -272,7 +272,7 @@ async def test_a_missing_defaulted_column_is_inserted_with_its_default(tmp_path)
 
     engine, executed = _mock_engine()
     with patch("backend.app.core.database._create_engine", new=MagicMock(return_value=engine)):
-        await settings_module._import_sqlite_to_postgres(path, "postgresql+asyncpg://test/test")
+        await settings_module._import_sqlite_to_postgres(path)
 
     inserts = [(sql, params) for sql, params in executed if sql.startswith("INSERT INTO cost_centers")]
     assert inserts, f"no INSERT was emitted: {[sql[:60] for sql, _ in executed]}"

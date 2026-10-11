@@ -31,10 +31,10 @@ from backend.app.main import app
 # Substring patterns identifying auth-bearing callable qualnames in the
 # resolved Depends() tree. Inner functions returned by factories carry
 # the outer factory's name in their qualname (e.g.
-# ``require_permission.<locals>.permission_checker``), so a substring
+# ``require_permission_if_auth_enabled.<locals>.permission_checker``), so a substring
 # check is enough; we don't have to enumerate the inner names.
 _AUTH_QUALNAME_PATTERNS: tuple[str, ...] = (
-    "require_",  # require_permission, require_permission_if_auth_enabled, require_role, require_admin_*, require_auth_*, require_any_*, require_ownership_*, require_camera_stream_token_*, require_energy_cost_update
+    "require_",  # require_permission_if_auth_enabled, require_admin_*, require_auth_*, require_any_*, require_ownership_*, require_camera_stream_token_*, require_energy_cost_update
     "cloud_caller",  # cloud.py route-level dep
     "_cloud_api_key_gate",  # cloud.py router-level dep
     "resolve_api_key_cloud_owner",  # used by slicer routes that need the API key's owner

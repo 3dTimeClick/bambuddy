@@ -270,6 +270,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Unused files and dependencies (knip)
+        working-directory: frontend
+        run: npm run check:knip
+
   frontend-security:
     name: Frontend Security
     runs-on: ubuntu-latest

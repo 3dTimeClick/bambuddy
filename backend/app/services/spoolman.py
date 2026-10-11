@@ -37,34 +37,6 @@ BAMBU_WEIGHT_USED_BASELINE_KEY = "bambu_weight_used_baseline"
 
 
 @dataclass
-class SpoolmanSpool:
-    """Represents a spool in Spoolman."""
-
-    id: int
-    filament_id: int | None
-    remaining_weight: float | None
-    used_weight: float
-    first_used: str | None
-    last_used: str | None
-    location: str | None
-    lot_nr: str | None
-    comment: str | None
-    extra: dict | None  # Contains tag_uid in extra.tag
-
-
-@dataclass
-class SpoolmanFilament:
-    """Represents a filament type in Spoolman."""
-
-    id: int
-    name: str
-    vendor_id: int | None
-    material: str | None
-    color_hex: str | None
-    weight: float | None  # Net weight in grams
-
-
-@dataclass
 class AMSTray:
     """Represents an AMS tray with filament data from Bambu printer."""
 
@@ -1117,15 +1089,6 @@ class SpoolmanClient:
                     if normalized_tag == search_tag:
                         logger.debug("Found spool %s matching tag %s", spool["id"], tag_uid)
                         return spool
-        return None
-
-    def _find_spool_by_location(self, location: str, cached_spools: list[dict] | None) -> dict | None:
-        """Return the spool at the exact location string, or None; fallback when RFID is unavailable."""
-        if not cached_spools:
-            return None
-        for spool in cached_spools:
-            if spool.get("location") == location:
-                return spool
         return None
 
     async def find_spools_by_location_prefix(

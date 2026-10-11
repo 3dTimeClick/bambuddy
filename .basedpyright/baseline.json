@@ -3366,14 +3366,6 @@
             {
                 "code": "reportAssignmentType",
                 "range": {
-                    "startColumn": 32,
-                    "endColumn": 50,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAssignmentType",
-                "range": {
                     "startColumn": 36,
                     "endColumn": 54,
                     "lineCount": 1
@@ -4261,38 +4253,6 @@
             }
         ],
         "./backend/app/services/email_service.py": [
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 43,
-                    "endColumn": 50,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 45,
-                    "endColumn": 49,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 45,
-                    "endColumn": 54,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 85,
-                    "endColumn": 94,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportArgumentType",
                 "range": {
@@ -6810,14 +6770,6 @@
         ],
         "./backend/app/services/virtual_printer/mqtt_server.py": [
             {
-                "code": "reportMissingImports",
-                "range": {
-                    "startColumn": 17,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportGeneralTypeIssues",
                 "range": {
                     "startColumn": 26,
@@ -6827,14 +6779,6 @@
             }
         ],
         "./backend/app/services/virtual_printer/tcp_proxy.py": [
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 25,
-                    "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportArgumentType",
                 "range": {
@@ -6896,30 +6840,6 @@
                 "range": {
                     "startColumn": 50,
                     "endColumn": 56,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 97,
-                    "endColumn": 108,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 93,
-                    "endColumn": 104,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 49,
-                    "endColumn": 73,
                     "lineCount": 1
                 }
             },
