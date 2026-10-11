@@ -4681,11 +4681,20 @@ async def _run_migrations(conn):
     # Step 1: link old log entries to their archive via print_name + printer_id.
     # Picks the highest-id matching archive when multiple share the same key
     # (newest archive wins — closest to the log's overwrite-then-leave shape).
+    # One-shot: since #1378 a NULL archive_id is a real answer (no archive, or
+    # its archive was deleted: ON DELETE SET NULL), and running this on every
+    # start linked such runs to whichever archive shares the name.
     from sqlalchemy import text as _text
 
+    link_flag = "_backfill_1390_log_archive_link_done"
     async with conn.begin_nested():
-        await conn.execute(
-            _text("""
+        linked = (
+            await conn.execute(_text('SELECT value FROM settings WHERE "key" = :k'), {"k": link_flag})
+        ).scalar_one_or_none()
+    if linked is None:
+        async with conn.begin_nested():
+            await conn.execute(
+                _text("""
             UPDATE print_log_entries
             SET archive_id = (
                 SELECT a.id
@@ -4700,7 +4709,10 @@ async def _run_migrations(conn):
             )
             WHERE archive_id IS NULL AND print_name IS NOT NULL
             """)
-        )
+            )
+            await conn.execute(
+                _text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": link_flag, "v": "true"}
+            )
 
     # Step 2: backfill cost / energy_kwh / energy_cost onto the latest linked
     # log entry per archive — the row whose creation time best matches the
@@ -5062,10 +5074,8 @@ async def _run_migrations(conn):
 
     # Migration: per-file print progress inside a project (#1897).
     # - print_archives.library_file_id: which library file a queued run was
-    #   dispatched from; nullable, no FK constraint added to existing tables
-    #   (SQLite can't ADD CONSTRAINT; the application uses SET NULL semantics
-    #   via the ORM on fresh installs and tolerates dangling ids by matching
-    #   hash/filename as fallback anyway).
+    #   dispatched from; nullable. Added without its foreign key (SQLite can't
+    #   ADD CONSTRAINT); on PostgreSQL _migrate_add_missing_set_null_fks adds it.
     # - projects.target_sets: optional copies-per-file target. INTEGER is
     #   spelled identically on SQLite and Postgres — no dialect branch.
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN library_file_id INTEGER")
@@ -5412,6 +5422,59 @@ async def _run_migrations(conn):
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN timelapse_plate_id INTEGER")
 
     await _migrate_auth_datetimes_to_timestamp(conn)
+    await _migrate_add_missing_set_null_fks(conn)
+
+
+# Foreign keys that the migrations adding these columns left out, so a
+# PostgreSQL database older than the column has none: (table, column, parent).
+# All ON DELETE SET NULL, as the models declare them.
+_MISSING_SET_NULL_FKS = (
+    ("print_log_entries", "archive_id", "print_archives"),
+    ("print_log_entries", "created_by_id", "users"),
+    ("print_archives", "library_file_id", "library_files"),
+)
+
+
+async def _migrate_add_missing_set_null_fks(conn) -> None:
+    """Add the foreign keys in _MISSING_SET_NULL_FKS where they are missing.
+
+    PostgreSQL only; SQLite can't add a constraint to a table and doesn't
+    enforce foreign keys anyway (PRAGMA foreign_keys is off). A column that
+    already has a foreign key to the parent table, whatever its name, is left
+    alone. Ids left behind by deletes without the constraint are cleared first,
+    which is what ON DELETE SET NULL would have done, and without which the
+    constraint can't be added.
+    """
+    from sqlalchemy import text
+
+    if is_sqlite():
+        return
+    for table, column, parent in _MISSING_SET_NULL_FKS:
+        result = await conn.execute(
+            text(
+                "SELECT 1 FROM pg_constraint c "
+                "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) "
+                "WHERE c.contype = 'f' AND c.conrelid = CAST(:t AS regclass) "
+                "AND c.confrelid = CAST(:p AS regclass) "
+                "AND array_length(c.conkey, 1) = 1 AND a.attname = :c"
+            ),
+            {"t": table, "p": parent, "c": column},
+        )
+        if result.first():
+            continue
+        cleared = await conn.execute(
+            text(
+                f"UPDATE {table} SET {column} = NULL WHERE {column} IS NOT NULL "
+                f"AND NOT EXISTS (SELECT 1 FROM {parent} WHERE {parent}.id = {table}.{column})"
+            )
+        )
+        if cleared.rowcount:
+            logger.info("Cleared %d %s.%s id(s) of deleted %s rows", cleared.rowcount, table, column, parent)
+        await _safe_execute(
+            conn,
+            f"ALTER TABLE {table} ADD CONSTRAINT {table}_{column}_fkey "
+            f"FOREIGN KEY ({column}) REFERENCES {parent}(id) ON DELETE SET NULL",
+        )
 
 
 # Columns that used to be declared DateTime(timezone=True). Every bound datetime

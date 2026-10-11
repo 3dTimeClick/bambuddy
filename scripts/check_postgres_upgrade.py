@@ -13,6 +13,9 @@ many of each constraint and index there are. Constraints and indexes are
 compared by definition, so only a name differing is not drift. A restart must
 leave every schema, fresh or upgraded, exactly as the first start left it.
 
+Some upgrades only go wrong with data in the database; SCENARIOS builds those
+along a fixed chain of releases, adds the rows, upgrades and checks the data.
+
 Drift that existed when this check was introduced is listed in
 scripts/postgres_schema_drift.txt, each line the object and exactly how it
 differs. Drift not listed there fails, including a listed object that now
@@ -36,6 +39,7 @@ import sys
 import tarfile
 import tempfile
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -43,6 +47,66 @@ REPO = Path(__file__).resolve().parents[1]
 ALLOWLIST = REPO / "scripts" / "postgres_schema_drift.txt"
 # The first release with PostgreSQL support: the oldest schema an install can have.
 FIRST_PG_RELEASE = "v0.2.3"
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """An upgrade that needs data to go wrong.
+
+    The database is built along ``chain`` (old releases, pinned: a newer one may
+    no longer produce the state this needs), then ``seed`` runs and the current
+    code upgrades it twice. ``check`` must then return no rows; each row it
+    returns is a problem.
+    """
+
+    name: str
+    chain: tuple[str, ...]
+    seed: str
+    check: str
+
+
+SCENARIOS = (
+    Scenario(
+        name="orphaned references",
+        # v1.2.5.7 adds these columns to a v0.2.3 database without their foreign
+        # keys, so deleting an archive, user or library file left ids behind.
+        # Run 2 is such a leftover; its print_name matches archive 1, which an
+        # every-start backfill that fills in a NULL archive_id would link it to.
+        chain=("v0.2.3", "v1.2.5.7"),
+        seed="""
+            INSERT INTO users (id, username, role, is_active, auth_source) VALUES (1, 'kept', 'user', true, 'local');
+            INSERT INTO library_files (id, filename, file_path, file_type, file_size, print_count, is_external)
+            VALUES (1, 'kept.3mf', 'l/kept.3mf', '3mf', 1, 0, false);
+            INSERT INTO print_archives (id, filename, file_path, file_size, status, quantity, is_favorite,
+                                        print_name, library_file_id)
+            VALUES (1, 'kept.3mf', 'a/kept.3mf', 1, 'completed', 1, false, 'Benchy', 1),
+                   (2, 'gone.3mf', 'a/gone.3mf', 1, 'completed', 1, false, 'Other', 999999);
+            INSERT INTO print_log_entries (id, status, print_name, archive_id, created_by_id)
+            VALUES (1, 'completed', 'Benchy', 1, 1),
+                   (2, 'completed', 'Benchy', 999999, 999999);
+        """,
+        check="""
+            SELECT 'print_archives.library_file_id still points at a missing file'
+            FROM print_archives WHERE library_file_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM library_files WHERE id = library_file_id)
+            UNION ALL
+            SELECT 'print_log_entries.archive_id still points at a missing archive'
+            FROM print_log_entries WHERE archive_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM print_archives WHERE id = archive_id)
+            UNION ALL
+            SELECT 'print_log_entries.created_by_id still points at a missing user'
+            FROM print_log_entries WHERE created_by_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM users WHERE id = created_by_id)
+            UNION ALL
+            SELECT 'the run of a deleted archive was linked to archive ' || archive_id
+            FROM print_log_entries WHERE id = 2 AND archive_id IS NOT NULL
+            UNION ALL
+            SELECT 'a valid reference was changed'
+            WHERE NOT EXISTS (SELECT 1 FROM print_log_entries WHERE id = 1 AND archive_id = 1 AND created_by_id = 1)
+                OR NOT EXISTS (SELECT 1 FROM print_archives WHERE id = 1 AND library_file_id = 1)
+        """,
+    ),
+)
 
 _INIT_DB = """
 import asyncio
@@ -65,10 +129,12 @@ def newest_stable_release() -> str:
 
 def extract_release(tag: str, into: Path) -> Path:
     """The release's backend/ as a directory to run init_db from (git archive, read-only)."""
+    target = into / tag
+    if target.exists():
+        return target
     archive = into / f"{tag}.tar"
     with archive.open("wb") as out:
         subprocess.run(["git", "archive", tag, "backend"], cwd=REPO, check=True, stdout=out)
-    target = into / tag
     with tarfile.open(archive) as tar:
         tar.extractall(target, filter="data")
     return target
@@ -176,6 +242,27 @@ def start_twice(url: str, label: str) -> tuple[dict[str, str], list[str]]:
     return second, [f"{label}: a restart changed the schema: {line}" for line in sorted(changed)]
 
 
+def run_scenario(scenario: Scenario, url: str, releases_dir: Path) -> list[str]:
+    """Build, seed and upgrade the scenario's database; its problems."""
+    for release in scenario.chain:
+        run_init_db(extract_release(release, releases_dir), url, f"{scenario.name}: {release} install")
+    plain_url = with_database(url, urlsplit(url).path.lstrip("/"))
+    asyncio.run(_admin(plain_url, scenario.seed))
+    _, problems = start_twice(url, f"{scenario.name} (via {', '.join(scenario.chain)})")
+    rows = asyncio.run(_fetch(plain_url, scenario.check))
+    return problems + [f"{scenario.name}: {row[0]}" for row in rows]
+
+
+async def _fetch(url: str, query: str) -> list:
+    import asyncpg
+
+    conn = await asyncpg.connect(url)
+    try:
+        return await conn.fetch(query)
+    finally:
+        await conn.close()
+
+
 async def _admin(url: str, *statements: str) -> None:
     import asyncpg
 
@@ -197,7 +284,11 @@ def main() -> int:
     releases = args.from_release or sorted({FIRST_PG_RELEASE, newest_stable_release()})
     admin_url = with_database(args.url, urlsplit(args.url).path.lstrip("/") or "postgres")
 
-    databases = {"fresh": "bambuddy_check_fresh"} | {r: "bambuddy_check_" + re.sub(r"\W", "_", r) for r in releases}
+    databases = (
+        {"fresh": "bambuddy_check_fresh"}
+        | {r: "bambuddy_check_" + re.sub(r"\W", "_", r) for r in releases}
+        | {s.name: f"bambuddy_check_scenario_{i}" for i, s in enumerate(SCENARIOS)}
+    )
     asyncio.run(_admin(admin_url, *(f"DROP DATABASE IF EXISTS {db}" for db in databases.values())))
     asyncio.run(_admin(admin_url, *(f"CREATE DATABASE {db}" for db in databases.values())))
     try:
@@ -212,6 +303,12 @@ def main() -> int:
                 problems += changed
                 found[release] = drift(fresh, upgraded)
                 print(f"{release}: upgrade ok, {len(found[release])} object(s) differ from a fresh install")
+
+            for scenario in SCENARIOS:
+                url = with_database(args.url, databases[scenario.name], "asyncpg")
+                scenario_problems = run_scenario(scenario, url, Path(tmp))
+                problems += scenario_problems
+                print(f"{scenario.name}: {'ok' if not scenario_problems else 'FAILED'}")
     finally:
         asyncio.run(_admin(admin_url, *(f"DROP DATABASE IF EXISTS {db}" for db in databases.values())))
 

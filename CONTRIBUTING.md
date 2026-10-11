@@ -390,6 +390,11 @@ add. So a new column, constraint or index needs a migration that builds it
 exactly as the model does, including nullability and default; the check fails
 when an upgraded database ends up different.
 
+A migration that only fails with data in the database, such as a constraint
+that existing rows violate, gets a scenario in `SCENARIOS` in the same script:
+a fixed chain of old releases to build the database, rows to add, and a query
+that must find nothing wrong after the upgrade.
+
 `scripts/postgres_schema_drift.txt` lists the drift that already existed when
 the check was introduced, each line an object and exactly how it differs. A
 listed object that starts to differ in another way fails like new drift. The

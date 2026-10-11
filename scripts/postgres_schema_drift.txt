@@ -7,11 +7,6 @@
 # an upgraded database in line with the models removes its line.
 # Comment lines start with "#".
 
-# constraints
-constraint print_archives: FOREIGN KEY (library_file_id) REFERENCES library_files(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
-constraint print_log_entries: FOREIGN KEY (archive_id) REFERENCES print_archives(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
-constraint print_log_entries: FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL | fresh install: 1x; upgraded: missing
-
 # columns
 column active_print_spoolman.tray_remain_start | fresh install: json (udt json) NULL default None; upgraded: text (udt text) NULL default None
 column api_keys.can_access_cloud | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
