@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.utils.printer_models import MAX_CHAMBER_TEMP_C
 
 
@@ -137,7 +138,8 @@ class PrintQueueItemCreate(BaseModel):
     variants: list[QueueVariantCreate] | None = None
 
 
-class PrintQueueItemUpdate(BaseModel):
+class PrintQueueItemUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "print_queue"
     printer_id: int | None = None
     target_model: str | None = None  # Target printer model (mutually exclusive with printer_id)
     target_location: str | None = None  # Target location filter (only used with target_model)
@@ -328,8 +330,10 @@ class PrintQueueReorder(BaseModel):
         return self
 
 
-class PrintQueueBulkUpdate(BaseModel):
+class PrintQueueBulkUpdate(IgnoresNullForRequiredColumns):
     """Bulk update multiple queue items with the same values."""
+
+    __orm_table__ = "print_queue"
 
     item_ids: list[int]
     # Fields to update (all optional - only set fields are applied)
@@ -412,12 +416,14 @@ class PrintBatchCreate(BaseModel):
         return self
 
 
-class PrintBatchUpdate(BaseModel):
+class PrintBatchUpdate(IgnoresNullForRequiredColumns):
     """Edit an order's header or its per-plate targets while it runs.
 
     Every field is optional; ``plates`` replaces the full target set when
     given, so a plate omitted from the list has its target row removed.
     """
+
+    __orm_table__ = "print_batches"
 
     name: str | None = None
     status: Literal["active", "cancelled"] | None = None

@@ -10,6 +10,7 @@ from backend.app.core.auth import RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.user import User
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.virtual_printer import VPDiagnosticResult
 
 # Imported at module scope so tests can patch
@@ -45,7 +46,8 @@ class VirtualPrinterCreate(BaseModel):
     remote_interface_ip: str | None = None
 
 
-class VirtualPrinterUpdate(BaseModel):
+class VirtualPrinterUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "virtual_printers"
     name: str | None = None
     enabled: bool | None = None
     mode: str | None = None

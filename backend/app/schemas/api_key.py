@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
+
 
 class APIKeyCreate(BaseModel):
     """Schema for creating a new API key."""
@@ -24,8 +26,10 @@ class APIKeyCreate(BaseModel):
     expires_at: datetime | None = None
 
 
-class APIKeyUpdate(BaseModel):
+class APIKeyUpdate(IgnoresNullForRequiredColumns):
     """Schema for updating an API key."""
+
+    __orm_table__ = "api_keys"
 
     name: str | None = None
     can_queue: bool | None = None

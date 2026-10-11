@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.printer_location import normalize_location_name
 from backend.app.utils.printer_models import supports_nozzle_flow_type
 
@@ -63,7 +64,8 @@ class PlateDetectionROI(BaseModel):
     h: float = Field(..., ge=0.0, le=1.0)  # Height %
 
 
-class PrinterUpdate(BaseModel):
+class PrinterUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "printers"
     name: str | None = None
     ip_address: str | None = Field(
         default=None,

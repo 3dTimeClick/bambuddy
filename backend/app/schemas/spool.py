@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.supplier import SpoolSupplierResponse
 
 # Visual variant applied to a spool's swatch — purely cosmetic, does not
@@ -174,7 +175,8 @@ class SpoolBulkCreate(BaseModel):
     quantity: int = Field(default=1, ge=1, le=100)
 
 
-class SpoolUpdate(BaseModel):
+class SpoolUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "spool"
     material: str | None = None
     subtype: str | None = None
     color_name: str | None = None

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
+
 
 class SmartPlugBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -121,7 +123,8 @@ class SmartPlugCreate(SmartPlugBase):
     pass
 
 
-class SmartPlugUpdate(BaseModel):
+class SmartPlugUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "smart_plugs"
     name: str | None = None
     plug_type: Literal["tasmota", "homeassistant", "mqtt", "rest"] | None = None
     ip_address: str | None = None

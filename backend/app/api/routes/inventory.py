@@ -35,6 +35,7 @@ from backend.app.models.spool_k_profile import SpoolKProfile
 from backend.app.models.supplier import SpoolmanSpoolSupplier, SpoolSupplier, Supplier, supplier_name_key
 from backend.app.models.user import User
 from backend.app.schemas.location import LocationCreate, LocationResponse, LocationUpdate
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.spool import (
     MaterialNumberStats,
     SpoolAssignmentCreate,
@@ -423,7 +424,8 @@ class CatalogEntryCreate(BaseModel):
     weight: int
 
 
-class CatalogEntryUpdate(BaseModel):
+class CatalogEntryUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "spool_catalog"
     name: str
     weight: int
 
@@ -471,7 +473,8 @@ class ColorEntryCreate(BaseModel):
         return normalize_effect_type(v)
 
 
-class ColorEntryUpdate(BaseModel):
+class ColorEntryUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "color_catalog"
     manufacturer: str
     color_name: str
     hex_color: str = Field(..., pattern=_HEX_COLOR_PATTERN)
