@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.core.database import Base
@@ -76,7 +76,7 @@ class NotificationProvider(Base):
     # Attach a camera snapshot when one was captured for the event. Defaults
     # True so ntfy/Pushover/Telegram/Discord keep behaving as they always
     # did; this is the opt-out for whoever doesn't want it.
-    attach_photo: Mapped[bool | None] = mapped_column(Boolean, default=True)
+    attach_photo: Mapped[bool | None] = mapped_column(Boolean, default=True, server_default=true())
 
     # Event triggers - print lifecycle
     on_print_start: Mapped[bool | None] = mapped_column(Boolean, default=False)
@@ -88,14 +88,14 @@ class NotificationProvider(Base):
         Boolean, default=False
     )  # Print started with unassigned required tray(s)
     on_billing_charge_failed: Mapped[bool | None] = mapped_column(
-        Boolean, default=True
+        Boolean, default=True, server_default=true()
     )  # A completed/stopped print could not be charged
 
     # Event triggers - printer status
     on_printer_offline: Mapped[bool | None] = mapped_column(Boolean, default=False)
     on_printer_error: Mapped[bool | None] = mapped_column(Boolean, default=False)  # AMS issues, etc.
     on_ai_failure_detection: Mapped[bool | None] = mapped_column(
-        Boolean, default=False
+        Boolean, default=False, server_default=false()
     )  # Obico spaghetti / failure detection (#1794)
     on_filament_low: Mapped[bool | None] = mapped_column(Boolean, default=False)
     on_maintenance_due: Mapped[bool | None] = mapped_column(Boolean, default=False)  # Maintenance reminder
@@ -107,7 +107,7 @@ class NotificationProvider(Base):
     )  # AMS temperature above threshold
     # Auto-drying gave up on a unit (#2770). Defaults True: it reports that
     # Bambuddy has stopped acting, which nothing else in the UI would say.
-    on_ams_drying_suspended: Mapped[bool | None] = mapped_column(Boolean, default=True)
+    on_ams_drying_suspended: Mapped[bool | None] = mapped_column(Boolean, default=True, server_default=true())
 
     # Event triggers - AMS-HT environmental alarms (single slot heated AMS)
     on_ams_ht_humidity_high: Mapped[bool | None] = mapped_column(
@@ -119,7 +119,7 @@ class NotificationProvider(Base):
 
     # Event triggers - Home Assistant sensors bound to a printer (#1148)
     on_ha_sensor_alert: Mapped[bool | None] = mapped_column(
-        Boolean, default=False
+        Boolean, default=False, server_default=false()
     )  # Bound HA sensor entered its alert state
 
     # Event triggers - Home Assistant sensors bound to a storage location (#2824)
@@ -127,7 +127,7 @@ class NotificationProvider(Base):
     # be scoped to a single printer, and a location alert has no printer to
     # scope by, so sharing it would leak drybox alerts to a provider narrowed
     # to one printer's sensors.
-    on_location_ha_sensor_alert: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    on_location_ha_sensor_alert: Mapped[bool | None] = mapped_column(Boolean, default=False, server_default=false())
 
     # Event triggers - Build plate detection
     on_plate_not_empty: Mapped[bool | None] = mapped_column(
@@ -135,19 +135,19 @@ class NotificationProvider(Base):
     )  # Objects detected on plate before print
     # Off by default: fires after every print, alongside the print-complete alert (#2525)
     on_plate_clear_required: Mapped[bool | None] = mapped_column(
-        Boolean, default=False
+        Boolean, default=False, server_default=false()
     )  # Print ended, queue gated until plate is confirmed clear
 
     # Print asked for an outcome verdict (#1898). Defaults ON: it only ever
     # fires for prints where the user opted in per-job, so the provider-level
     # toggle exists to silence a channel, not to enable the feature.
-    on_print_confirm_request: Mapped[bool | None] = mapped_column(Boolean, default=True)
+    on_print_confirm_request: Mapped[bool | None] = mapped_column(Boolean, default=True, server_default=true())
     # How a Telegram provider collects that verdict (#3046): inline URL
     # buttons ("buttons", the original behaviour), a thumbs-up/down reaction
     # on the message ("reactions"), or both. Reactions need no inbound
     # connectivity — the poller fetches them — so they work without an
     # external_url. Ignored for every other provider type.
-    telegram_verdict_mode: Mapped[str | None] = mapped_column(String(16), default="buttons")
+    telegram_verdict_mode: Mapped[str | None] = mapped_column(String(16), default="buttons", server_default="buttons")
 
     # Event triggers - Bed cooled after print
     on_bed_cooled: Mapped[bool | None] = mapped_column(Boolean, default=False)  # Bed cooled below threshold after print
@@ -156,12 +156,14 @@ class NotificationProvider(Base):
     )  # First layer finished printing
     # Messages another application sends through Bambuddy (POST /notifications/app-message),
     # e.g. Bambuddy Orders' "an order needs you". Off by default: nothing new arrives on upgrade.
-    on_app_message: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    on_app_message: Mapped[bool | None] = mapped_column(Boolean, default=False, server_default=false())
 
     # Event triggers - Inventory stock alerts
-    on_stock_reorder_alert: Mapped[bool | None] = mapped_column(Boolean, default=False)  # SKU hits reorder point
+    on_stock_reorder_alert: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )  # SKU hits reorder point
     on_stock_break_alert: Mapped[bool | None] = mapped_column(
-        Boolean, default=False
+        Boolean, default=False, server_default=false()
     )  # Stock will run out before replenishment
 
     # Event triggers - Print queue

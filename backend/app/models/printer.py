@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, String, func
+from sqlalchemy import Boolean, DateTime, Float, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.core.database import Base
@@ -41,7 +41,7 @@ class Printer(Base):
     camera_rotation: Mapped[int] = mapped_column(default=0)  # 0, 90, 180, 270 degrees
     # Picked for the chamber light while the camera is in use (#1655). Only
     # counts when the app setting camera_light_mode is "selected".
-    camera_light_auto: Mapped[bool] = mapped_column(Boolean, default=False)
+    camera_light_auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Plate detection - check if build plate is empty before starting print
     plate_detection_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # ROI for plate detection (percentages: 0.0-1.0)

@@ -36,7 +36,7 @@ class Spool(Base):
     # usage to 0" action stamps baseline = weight_used so the counter zeroes
     # without disturbing remaining (= label_weight - weight_used). Matches
     # Spoolman's split between used_weight and remaining_weight (#1390).
-    weight_used_baseline: Mapped[float] = mapped_column(Float, default=0)
+    weight_used_baseline: Mapped[float] = mapped_column(Float, default=0, server_default="0")
     weight_locked: Mapped[bool] = mapped_column(Boolean, default=False)  # Lock weight from AMS auto-sync
     last_scale_weight: Mapped[int | None] = mapped_column(Integer)  # Last gross weight from scale (g)
     last_weighed_at: Mapped[datetime | None] = mapped_column(DateTime)  # When last weighed

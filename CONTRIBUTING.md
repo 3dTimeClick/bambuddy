@@ -395,11 +395,11 @@ that existing rows violate, gets a scenario in `SCENARIOS` in the same script:
 a fixed chain of old releases to build the database, rows to add, and a query
 that must find nothing wrong after the upgrade.
 
-`scripts/postgres_schema_drift.txt` lists the drift that already existed when
-the check was introduced, each line an object and exactly how it differs. A
-listed object that starts to differ in another way fails like new drift. The
-list only shrinks: the check also fails on a line that no longer drifts, so a
-fix removes its line.
+`scripts/postgres_schema_drift.txt` can list known drift, each line an object
+and exactly how it differs; a listed object that starts to differ in another
+way fails like new drift, and so does a line that no longer drifts. The drift
+found when the check was introduced has been fixed and the list is empty: fix
+new drift with a migration rather than listing it.
 
 **Frontend** — tests use [Vitest](https://vitest.dev/) and are in `frontend/src/__tests__/`:
 

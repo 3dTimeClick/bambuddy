@@ -5424,6 +5424,113 @@ async def _run_migrations(conn):
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_pg_column_types(conn)
+    await _migrate_pg_columns_to_model(conn)
+
+
+# Columns that migrations added nullable or with a server default the model
+# didn't have, so on a PostgreSQL database older than them they differ from a
+# fresh install. Default and nullability are taken from the model itself.
+_PG_COLUMNS_SET_FROM_MODEL = (
+    ("api_keys", "can_access_cloud"),
+    ("api_keys", "can_manage_archives"),
+    ("api_keys", "can_manage_inventory"),
+    ("api_keys", "can_manage_library"),
+    ("api_keys", "can_manage_maintenance"),
+    ("api_keys", "can_manage_projects"),
+    ("api_keys", "can_send_notifications"),
+    ("api_keys", "can_update_energy_cost"),
+    ("github_backup_config", "allow_insecure_http"),
+    ("github_backup_config", "provider"),
+    ("groups", "restrict_printers"),
+    ("library_files", "variant_position"),
+    ("library_folders", "shared"),
+    ("notification_providers", "attach_photo"),
+    ("notification_providers", "on_ai_failure_detection"),
+    ("notification_providers", "on_ams_drying_suspended"),
+    ("notification_providers", "on_app_message"),
+    ("notification_providers", "on_billing_charge_failed"),
+    ("notification_providers", "on_ha_sensor_alert"),
+    ("notification_providers", "on_location_ha_sensor_alert"),
+    ("notification_providers", "on_plate_clear_required"),
+    ("notification_providers", "on_print_confirm_request"),
+    ("notification_providers", "on_stock_break_alert"),
+    ("notification_providers", "on_stock_reorder_alert"),
+    ("notification_providers", "telegram_verdict_mode"),
+    ("oidc_providers", "require_email_verified"),
+    ("oidc_providers", "email_claim"),
+    ("oidc_providers", "is_autologin"),
+    ("oidc_providers", "is_env_managed"),
+    ("print_archives", "bambuddy_forced_timelapse"),
+    ("print_archives", "wallet_charge_skipped"),
+    ("print_queue", "bed_levelling"),
+    ("print_queue", "cleanup_library_after_dispatch"),
+    ("print_queue", "confirm_outcome"),
+    ("print_queue", "dispatch_attempts"),
+    ("print_queue", "filament_short"),
+    ("print_queue", "flow_cali"),
+    ("print_queue", "gate_acknowledged"),
+    ("print_queue", "nozzle_offset_cali"),
+    ("print_queue", "preheat_override"),
+    ("print_queue", "skip_filament_check"),
+    ("printers", "camera_light_auto"),
+    ("smart_plugs", "auto_off_after_drying"),
+    ("smart_plugs", "controls_printer_power"),
+    ("smart_plugs", "off_delay_after_drying_minutes"),
+    ("smart_plugs", "rest_energy_total_multiplier"),
+    ("spool", "weight_used_baseline"),
+    ("virtual_printers", "gcode_injection"),
+    ("virtual_printers", "queue_force_color_match"),
+    ("virtual_printers", "save_ams_mapping"),
+    ("virtual_printers", "tailscale_disabled"),
+)
+
+
+async def _migrate_pg_columns_to_model(conn) -> None:
+    """Give the columns in _PG_COLUMNS_SET_FROM_MODEL the model's default and NOT NULL.
+
+    PostgreSQL only; SQLite can't change either, and its ADD COLUMN ... DEFAULT
+    filled every existing row. The default is set every start (a catalog
+    change, no rewrite); NOT NULL only while the column is still nullable, after
+    filling its NULLs with the model's default. Two exceptions keep what the
+    code made of a NULL rather than granting more:
+
+    - an API key's permissions are filled with false: the code reads NULL as
+      denied, and several default to true;
+    - an OIDC provider whose email_claim is filled gets auto-linking off. With
+      no email claim it never resolved an email, so it never linked an
+      account; with 'email' it would start to (and with require_email_verified
+      false, in the combination the CHECK constraint forbids).
+    """
+    from sqlalchemy import text
+
+    if is_sqlite():
+        return
+    compiler = conn.dialect.ddl_compiler(conn.dialect, None)
+    for table, column in _PG_COLUMNS_SET_FROM_MODEL:
+        model_column = Base.metadata.tables[table].c[column]
+        default = compiler.get_column_default_string(model_column)
+        await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} SET DEFAULT {default}")
+        if model_column.nullable:
+            continue
+        nullable = (
+            await conn.execute(
+                text(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :t AND column_name = :c"
+                ),
+                {"t": table, "c": column},
+            )
+        ).scalar_one()
+        if nullable != "YES":
+            continue
+        fill = "false" if table == "api_keys" else default
+        extra = ""
+        if (table, column) == ("oidc_providers", "email_claim"):
+            extra = ", auto_link_existing_accounts = false"
+        filled = await conn.execute(text(f"UPDATE {table} SET {column} = {fill}{extra} WHERE {column} IS NULL"))
+        if filled.rowcount:
+            logger.info("Filled %d NULL %s.%s value(s) with %s", filled.rowcount, table, column, fill)
+        await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL")
 
 
 # Columns a migration added with another type than the model declares, so a

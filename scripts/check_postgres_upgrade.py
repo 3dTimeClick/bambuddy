@@ -16,11 +16,11 @@ leave every schema, fresh or upgraded, exactly as the first start left it.
 Some upgrades only go wrong with data in the database; SCENARIOS builds those
 along a fixed chain of releases, adds the rows, upgrades and checks the data.
 
-Drift that existed when this check was introduced is listed in
-scripts/postgres_schema_drift.txt, each line the object and exactly how it
-differs. Drift not listed there fails, including a listed object that now
-differs in another way, and so does a listed line that no longer drifts:
-remove it.
+scripts/postgres_schema_drift.txt can list known drift, each line the object
+and exactly how it differs. Drift not listed there fails, including a listed
+object that now differs in another way, and so does a listed line that no
+longer drifts. The drift found when this check was introduced has been fixed
+and the list is empty: fix new drift with a migration rather than listing it.
 
 Usage (needs git with the release tags and a PostgreSQL server the given user
 may create databases on; every database it creates is dropped again):
@@ -158,6 +158,53 @@ SCENARIOS = (
             UNION ALL
             SELECT 'spool.weight_used_baseline is ' || weight_used_baseline::text
             FROM spool WHERE id = 1 AND weight_used_baseline IS DISTINCT FROM CAST(1234.567 AS double precision)
+        """,
+    ),
+    Scenario(
+        name="NULLs in columns that become NOT NULL",
+        # A v0.2.3 database upgraded by v1.2.5.7 has these columns nullable.
+        # A NULL is filled with the model's default, except an API key's
+        # permissions: the code reads NULL as denied, and that must stay so
+        # rather than become the default (granted). An OIDC provider with no
+        # email claim never resolved an email, so it never linked an account:
+        # filling the claim must not start that, so auto-linking goes off.
+        chain=("v0.2.3", "v1.2.5.7"),
+        seed="""
+            INSERT INTO api_keys (id, name, key_hash, key_prefix, enabled, can_queue, can_control_printer,
+                                  can_read_status, can_manage_archives, can_access_cloud)
+            VALUES (1, 'k', 'hash', 'bb_', true, false, false, true, NULL, NULL);
+            INSERT INTO library_files (id, filename, file_path, file_type, file_size, print_count, is_external,
+                                       variant_position)
+            VALUES (1, 'f.3mf', 'l/f.3mf', '3mf', 1, 0, false, NULL);
+            INSERT INTO oidc_providers (id, name, issuer_url, client_id, client_secret, scopes, is_enabled,
+                                        auto_create_users, auto_link_existing_accounts, email_claim,
+                                        require_email_verified)
+            VALUES (1, 'unsafe once filled', 'https://idp.example', 'c', 's', 'openid', true, false, true, NULL,
+                    false),
+                   (2, 'strict once filled', 'https://idp2.example', 'c', 's', 'openid', true, false, true, NULL,
+                    NULL),
+                   (3, 'has a claim', 'https://idp3.example', 'c', 's', 'openid', true, false, true, 'upn', NULL);
+        """,
+        check="""
+            SELECT 'api_keys.can_manage_archives is ' || coalesce(can_manage_archives::text, 'NULL')
+            FROM api_keys WHERE id = 1 AND can_manage_archives IS DISTINCT FROM false
+            UNION ALL
+            SELECT 'api_keys.can_access_cloud is ' || coalesce(can_access_cloud::text, 'NULL')
+            FROM api_keys WHERE id = 1 AND can_access_cloud IS DISTINCT FROM false
+            UNION ALL
+            SELECT 'library_files.variant_position is ' || coalesce(variant_position::text, 'NULL')
+            FROM library_files WHERE id = 1 AND variant_position IS DISTINCT FROM 0
+            UNION ALL
+            SELECT 'oidc_providers ' || id || ': ' || coalesce(email_claim, 'NULL') || ', verified '
+                   || coalesce(require_email_verified::text, 'NULL') || ', auto-link '
+                   || auto_link_existing_accounts::text
+            FROM oidc_providers
+            WHERE (id = 1 AND (email_claim IS DISTINCT FROM 'email' OR require_email_verified IS DISTINCT FROM false
+                               OR auto_link_existing_accounts))
+               OR (id = 2 AND (email_claim IS DISTINCT FROM 'email' OR require_email_verified IS DISTINCT FROM true
+                               OR auto_link_existing_accounts))
+               OR (id = 3 AND (email_claim IS DISTINCT FROM 'upn' OR require_email_verified IS DISTINCT FROM true
+                               OR NOT auto_link_existing_accounts))
         """,
     ),
 )
@@ -366,7 +413,8 @@ def main() -> int:
     finally:
         asyncio.run(_admin(admin_url, *(f"DROP DATABASE IF EXISTS {db}" for db in databases.values())))
 
-    problems += compare(found, read_allowlist(ALLOWLIST))
+    allowed = read_allowlist(ALLOWLIST)
+    problems += compare(found, allowed)
     if problems:
         print("\nSchema problems:\n  " + "\n  ".join(problems))
         print(
@@ -374,7 +422,7 @@ def main() -> int:
             "model does. See the docstring of scripts/check_postgres_upgrade.py."
         )
         return 1
-    print("Upgraded schemas match a fresh install (apart from the listed known drift).")
+    print("Upgraded schemas match a fresh install" + (" (apart from the listed known drift)." if allowed else "."))
     return 0
 
 
