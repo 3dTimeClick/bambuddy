@@ -39,16 +39,6 @@ class IgnoresNullForRequiredColumns(BaseModel):
 
 
 def _table(name: str):
-    from backend.app.core.database import Base
+    from backend.app.core.database import load_all_models
 
-    if name not in Base.metadata.tables:
-        # Every route imports the model it writes, so this only happens when a
-        # schema is validated on its own (a test, a script).
-        import importlib
-        import pkgutil
-
-        import backend.app.models
-
-        for module in pkgutil.iter_modules(backend.app.models.__path__):
-            importlib.import_module(f"backend.app.models.{module.name}")
-    return Base.metadata.tables[name]
+    return load_all_models().tables[name]

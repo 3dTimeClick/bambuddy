@@ -8319,6 +8319,11 @@ class PrintScheduler:
                         # Read while the row is still here; the photos move
                         # below, once the delete has actually committed.
                         consumed_photos = list(library_file.photos or [])
+                        # The delete clears the link on the earlier archives of
+                        # this file (ON DELETE SET NULL; core/sqlite_fk on
+                        # SQLite). This one is loaded, so set it here too, or it
+                        # keeps the stale id in the session.
+                        archive.library_file_id = None
                         await db.delete(library_file)
                         file_path = settings.base_dir / archive.file_path
                         filename = archive.filename

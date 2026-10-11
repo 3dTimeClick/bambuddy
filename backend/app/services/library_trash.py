@@ -418,7 +418,9 @@ async def release_queue_references(db: AsyncSession, file_ids: list[int]) -> int
 
     Rows already printing are left in place. One of those is a job on a machine
     right now; the file being deleted is the copy in the library, not the copy
-    the printer is working from. Returns the number of items cancelled.
+    the printer is working from. The files' remaining ON DELETE rules (archives
+    printed from them lose the link) apply at the delete itself, on SQLite
+    through core/sqlite_fk. Returns the number of items cancelled.
     """
     if not file_ids:
         return 0

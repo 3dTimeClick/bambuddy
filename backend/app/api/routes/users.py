@@ -4,7 +4,7 @@ from typing import Annotated
 import jwt as _jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +33,7 @@ from backend.app.models.library import LibraryFile
 from backend.app.models.long_lived_token import LongLivedToken
 from backend.app.models.oidc_provider import UserOIDCLink
 from backend.app.models.print_batch import PrintBatch
+from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
@@ -460,7 +461,13 @@ async def delete_user(
         doomed_library_file_ids = list(
             (await db.execute(select(LibraryFile.id).where(LibraryFile.created_by_id == user_id))).scalars().all()
         )
-        # Delete all items created by this user
+        # Delete all items created by this user. The print log stays, without
+        # the archives it pointed at; archives of other users printed from
+        # these library files lose that link (both SET NULL on PostgreSQL).
+        from backend.app.services.library_trash import delete_dependent_variants, release_queue_references
+
+        await delete_dependent_variants(db, doomed_library_file_ids)
+        await release_queue_references(db, doomed_library_file_ids)
         await db.execute(delete(PrintArchive).where(PrintArchive.created_by_id == user_id))
         await db.execute(delete(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id))
         await db.execute(delete(LibraryFile).where(LibraryFile.created_by_id == user_id))
@@ -494,6 +501,10 @@ async def delete_user(
         )
         await db.execute(update(LibraryFile).where(LibraryFile.created_by_id == user_id).values(created_by_id=None))
         await db.execute(update(PrintBatch).where(PrintBatch.created_by_id == user_id).values(created_by_id=None))
+
+    # The print log keeps who started each run as long as the user exists, and
+    # outlives them either way (ON DELETE SET NULL, which SQLite doesn't apply).
+    await db.execute(sql_update(PrintLogEntry).where(PrintLogEntry.created_by_id == user_id).values(created_by_id=None))
 
     # Drop API keys owned by this user. The model declares ON DELETE CASCADE
     # so Postgres handles this automatically, but SQLite ships with FK

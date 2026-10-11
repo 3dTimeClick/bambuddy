@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse as FastAPIFileResponse
-from sqlalchemy import distinct, func, select, update
+from sqlalchemy import delete, distinct, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -2146,6 +2146,7 @@ async def scan_external_folder(
     # every scan even though the file is still there. os.path.exists keeps
     # such records; genuinely-deleted files (absent from disk) are still
     # cleaned up. External file_path is the absolute on-disk path.
+    vanished_ids: list[int] = []
     for path_str, db_file in existing_files.items():
         if path_str not in found_paths and not os.path.exists(path_str):
             # Clean up thumbnail if we generated one
@@ -2160,8 +2161,17 @@ async def scan_external_folder(
             # its photos go with it rather than being orphaned under an id
             # nothing points at any more (#3077).
             remove_library_photos_dir(db_file.id)
-            await db.delete(db_file)
-            removed += 1
+            vanished_ids.append(db_file.id)
+    if vanished_ids:
+        # Same clean-up as every other hard delete of library rows, once for
+        # all of them: a share that lost thousands of files must not run it
+        # per file while holding the SQLite write lock.
+        from backend.app.services.library_trash import delete_dependent_variants, release_queue_references
+
+        await delete_dependent_variants(db, vanished_ids)
+        await release_queue_references(db, vanished_ids)
+        await db.execute(delete(LibraryFile).where(LibraryFile.id.in_(vanished_ids)))
+        removed += len(vanished_ids)
 
     # Remove empty subfolders whose directories no longer exist on disk
     # Process deepest-first by sorting on path depth (descending)

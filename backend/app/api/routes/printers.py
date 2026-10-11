@@ -474,6 +474,27 @@ async def delete_printer(
     if not printer:
         raise HTTPException(404, "Printer not found")
 
+    if delete_archives:
+        # Deleting an archive removes its queue items; one that is printing
+        # (a reprint on another printer, say) must not go from under the
+        # dispatcher -- the same 409 as DELETE /archives/{id} (#1734).
+        from backend.app.models.print_queue import PrintQueueItem
+
+        printing = await db.scalar(
+            select(func.count())
+            .select_from(PrintQueueItem)
+            .where(
+                PrintQueueItem.status == "printing",
+                PrintQueueItem.archive_id.in_(select(PrintArchive.id).where(PrintArchive.printer_id == printer_id)),
+            )
+        )
+        if printing:
+            raise HTTPException(
+                409,
+                f"Cannot delete this printer's archives — {printing} queue item(s) using them are "
+                f"currently printing. Stop the print first, or keep the archives.",
+            )
+
     printer_manager.disconnect_printer(printer_id)
 
     if delete_archives:

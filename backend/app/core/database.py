@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import re
 
@@ -312,6 +313,63 @@ async def get_db() -> AsyncSession:
                 pass
 
 
+@functools.cache
+def load_all_models():
+    """Import every model module and return Base.metadata.
+
+    The models package __init__ doesn't import them all, so code that walks the
+    metadata (every table, every foreign key) needs this to see the whole
+    schema, whatever has happened to be imported before. Cached: it is called
+    per request (schemas/not_null.py) and the models don't change at runtime.
+    """
+    import importlib
+    import pkgutil
+
+    import backend.app.models
+
+    for module in pkgutil.iter_modules(backend.app.models.__path__):
+        importlib.import_module(f"backend.app.models.{module.name}")
+    return Base.metadata
+
+
+async def _repair_sqlite_orphans(conn) -> None:
+    """Repair rows that earlier deletes left pointing at a row that is gone (SQLite only).
+
+    SQLite runs with foreign keys off, so before core/sqlite_fk applied the ON
+    DELETE rules at every delete, none were applied. This applies them now to
+    what was left (sweep_orphans), after the one domain rule that deviates from
+    the model's. PostgreSQL enforces the rules itself.
+    """
+    from sqlalchemy import exists, select
+
+    from backend.app.core.sqlite_fk import sweep_orphans
+    from backend.app.models.library import LibraryFile
+    from backend.app.models.print_queue import PrintQueueItem
+    from backend.app.services.library_trash import release_queue_references
+
+    if not is_sqlite():
+        return
+    # print_queue.library_file_id is ON DELETE CASCADE in the model, but a library
+    # delete keeps the rows (release_queue_references): finished plates count
+    # towards a batch, a printing job stays, a waiting one is cancelled. Rows the
+    # old external rescan and pre-#2819 deletes left behind get the same.
+    vanished = (
+        (
+            await conn.execute(
+                select(PrintQueueItem.library_file_id)
+                .where(PrintQueueItem.library_file_id.is_not(None))
+                .where(~exists().where(LibraryFile.id == PrintQueueItem.library_file_id))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if vanished:
+        await release_queue_references(conn, list(vanished))
+    await sweep_orphans(conn)
+
+
 async def init_db():
     # Import models to register them with SQLAlchemy
     from backend.app.models import (  # noqa: F401
@@ -384,6 +442,10 @@ async def init_db():
 
         # Run migrations for new columns (SQLite doesn't auto-add columns)
         await run_migrations(conn)
+
+        # SQLite applies no ON DELETE rules (foreign keys off): repair rows that
+        # earlier deletes left pointing at nothing. Not a migration.
+        await _repair_sqlite_orphans(conn)
 
     # Re-encrypt any legacy plaintext OIDC client_secret / TOTP secret rows
     # that exist from before the encryption key was configured.
@@ -2194,6 +2256,23 @@ async def _run_migrations(conn):
             )
         except (OperationalError, ProgrammingError):
             pass  # Already applied
+
+        # One-shot: index the archives that existed before archive_fts did. Its
+        # creation above runs no rebuild, so on such installs those rows were
+        # never indexed, and the AFTER UPDATE trigger's FTS 'delete' on one of
+        # them fails with "database disk image is malformed" -- any UPDATE of an
+        # old archive, including the start-up cleanup in
+        # _migrate_add_missing_set_null_fks, which would then fail every start.
+        # The two backfills below rebuilt only when they had work of their own.
+        fts_flag = "_archive_fts_rebuilt_once"
+        already = (
+            await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": fts_flag})
+        ).scalar_one_or_none()
+        if already is None:
+            await conn.execute(text("INSERT INTO archive_fts(archive_fts) VALUES('rebuild')"))
+            await conn.execute(
+                text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": fts_flag, "v": "true"}
+            )
 
     # Migration: Add auto_off_pending columns to smart_plugs (for restart recovery)
     await _safe_execute(conn, "ALTER TABLE smart_plugs ADD COLUMN auto_off_pending BOOLEAN DEFAULT 0")
@@ -5506,8 +5585,9 @@ async def _migrate_pg_columns_to_model(conn) -> None:
     if is_sqlite():
         return
     compiler = conn.dialect.ddl_compiler(conn.dialect, None)
+    tables = load_all_models().tables
     for table, column in _PG_COLUMNS_SET_FROM_MODEL:
-        model_column = Base.metadata.tables[table].c[column]
+        model_column = tables[table].c[column]
         default = compiler.get_column_default_string(model_column)
         await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} SET DEFAULT {default}")
         if model_column.nullable:
@@ -5626,11 +5706,11 @@ async def _migrate_add_missing_set_null_fks(conn) -> None:
     """Add the foreign keys in _MISSING_SET_NULL_FKS where they are missing.
 
     PostgreSQL only; SQLite can't add a constraint to a table and doesn't
-    enforce foreign keys anyway (PRAGMA foreign_keys is off). A column that
-    already has a foreign key to the parent table, whatever its name, is left
-    alone. Ids left behind by deletes without the constraint are cleared first,
-    which is what ON DELETE SET NULL would have done, and without which the
-    constraint can't be added.
+    enforce foreign keys (PRAGMA foreign_keys is off; init_db sweeps orphans
+    there instead, core/sqlite_fk). A column that already has a foreign key to
+    the parent table, whatever its name, is left alone. Ids left behind by
+    deletes without the constraint are cleared first, which is what ON DELETE
+    SET NULL would have done, and without which the constraint can't be added.
     """
     from sqlalchemy import text
 
@@ -7127,3 +7207,7 @@ async def repair_wallet_ledger_internal(session: AsyncSession):
 
     await session.flush()
     return updated_count
+
+
+# The ON DELETE rules SQLite doesn't apply itself: hooks on every ORM delete.
+from backend.app.core import sqlite_fk  # noqa: E402, F401
