@@ -821,6 +821,19 @@ def _build_status_print_keys(printer_id: int, state: PrinterState) -> list[tuple
     return possible_keys
 
 
+async def _print_user_id_if_still_there(db, print_user: dict | None) -> int | None:
+    """The id of who started the print, unless that user has been deleted since.
+
+    Deleting a user forgets them in printer_manager, but a print that ended a
+    moment before still holds them.
+    """
+    if not print_user or print_user.get("user_id") is None:
+        return None
+    from backend.app.models.user import User
+
+    return await db.scalar(select(User.id).where(User.id == print_user["user_id"]))
+
+
 def _is_bambuddy_authorized_print_in_memory(printer_id: int, state: PrinterState) -> bool:
     """Check the cheap, process-local print ownership signals."""
 
@@ -1019,6 +1032,13 @@ async def _record_energy_start(archive, printer_id: int, db, *, context: str = "
     except Exception as e:
         _logger.warning("[ENERGY] Failed to record starting energy for archive %s: %s", archive.id, e)
         return False
+
+
+def forget_print_creator(user_id: int) -> None:
+    """The print-start emails of a deleted user's jobs go to nobody, not to
+    whoever is given the id next (SQLite reuses it)."""
+    for key in [key for key, creator in _expected_print_creators.items() if creator == user_id]:
+        del _expected_print_creators[key]
 
 
 def register_expected_print(
@@ -8029,7 +8049,7 @@ async def on_print_complete(printer_id: int, data: dict):
                 if archive and billing_run_id is None:
                     billing_run_id = getattr(archive, "billing_run_id", None)
                 if archive and archive.created_by_id is None and _print_user_info:
-                    archive.created_by_id = _print_user_info.get("user_id")
+                    archive.created_by_id = await _print_user_id_if_still_there(db, _print_user_info)
                     await db.flush()
 
                 run_status = data.get("status", "completed")
@@ -8124,7 +8144,7 @@ async def on_print_complete(printer_id: int, data: dict):
                 # has no attribution yet, credit the current user. Never
                 # overwrite an existing attribution — the original uploader
                 # keeps ownership.
-                _print_user_id = _print_user_info.get("user_id") if _print_user_info else None
+                _print_user_id = await _print_user_id_if_still_there(db, _print_user_info)
                 if archive.created_by_id is None and _print_user_id is not None:
                     archive.created_by_id = _print_user_id
                 p_info = printer_manager.get_printer(printer_id)

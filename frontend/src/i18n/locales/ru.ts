@@ -199,6 +199,7 @@ export default {
     costCenter: "Центр затрат",
     balanceAfter: "Баланс после операции",
     userWithId: "Пользователь №{{id}}",
+    deletedUser: "Удалённый пользователь",
     partial: "Частично",
     editTransaction: "Изменить операцию",
     selectCostCenter: "Выберите центр затрат...",

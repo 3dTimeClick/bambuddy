@@ -203,6 +203,7 @@ export default {
     costCenter: 'Cost center',
     balanceAfter: 'Balance after',
     userWithId: 'User #{{id}}',
+    deletedUser: 'Deleted user',
     partial: 'Partial',
     editTransaction: 'Edit Transaction',
     selectCostCenter: 'Select cost center...',

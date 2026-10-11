@@ -203,6 +203,7 @@ export default {
     costCenter: 'Kostenplaats',
     balanceAfter: 'Saldo na',
     userWithId: 'Gebruiker #{{id}}',
+    deletedUser: 'Verwijderde gebruiker',
     partial: 'Gedeeltelijk',
     editTransaction: 'Transactie bewerken',
     selectCostCenter: 'Kostenplaats selecteren...',

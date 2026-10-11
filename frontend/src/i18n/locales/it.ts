@@ -203,6 +203,7 @@ export default {
     costCenter: 'Centro di costo',
     balanceAfter: 'Saldo successivo',
     userWithId: 'Utente #{{id}}',
+    deletedUser: 'Utente eliminato',
     partial: 'Parziale',
     editTransaction: 'Modifica transazione',
     selectCostCenter: 'Seleziona centro di costo...',

@@ -29,6 +29,7 @@ from backend.app.core.auth import (
     QueueReviewRequired,
     RequestActor,
     RequestPrinterScope,
+    require_actor_still_exists,
     require_media_token_ownership,
     require_ownership_permission,
     require_permission_if_auth_enabled,
@@ -2633,6 +2634,9 @@ async def extract_zip_file(
     folders_created = 0
     folder_cache: dict[str, int] = {}  # path -> folder_id
 
+    # The upload may have taken a while; and again before each file below.
+    await require_actor_still_exists(db, actor)
+
     # If create_folder_from_zip is True, create a folder named after the ZIP file
     zip_folder_id = folder_id
     logger.info(
@@ -2685,6 +2689,9 @@ async def extract_zip_file(
             ]
 
             for zip_path in file_list:
+                # An extract can run for minutes; a user deleted meanwhile must
+                # not have the rest saved under their id (SQLite reuses it).
+                await require_actor_still_exists(db, actor)
                 try:
                     # Determine target folder (use zip_folder_id as base if create_folder_from_zip was used)
                     target_folder_id = zip_folder_id
@@ -2874,6 +2881,8 @@ async def extract_zip_file(
 
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("ZIP extraction failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"ZIP extraction failed: {str(e)}")
@@ -3097,6 +3106,7 @@ async def combine_files(
     # The preview is embedded as Metadata/thumbnail.png by combine_parts_to_3mf,
     # so ThreeMFParser picks it up here like any other 3MF's thumbnail. Loading
     # the combined file back to render one would expand every copy.
+    await require_actor_still_exists(db, actor)  # the combine may have taken a while
     library_file, _ = await save_3mf_bytes_to_library(
         db,
         file_bytes=content,
@@ -4896,6 +4906,10 @@ async def slice_and_persist(
     if extra_metadata:
         metadata.update(extra_metadata)
 
+    from backend.app.services.slice_dispatch import slice_dispatch as _dispatch
+
+    # Nobody's, when the user was deleted while it sliced: the id may be someone else's now.
+    current_user_id = _dispatch.owner_now(job_id, current_user_id)
     new_file = LibraryFile(
         folder_id=folder_id,
         is_external=out_is_external,
@@ -5081,6 +5095,10 @@ async def slice_and_persist_as_archive(
     )
     new_printer_id = None if is_cross_model_reslice else source_archive.printer_id
 
+    from backend.app.services.slice_dispatch import slice_dispatch as _dispatch
+
+    # Nobody's, when the user was deleted while it sliced: the id may be someone else's now.
+    current_user_id = _dispatch.owner_now(job_id, current_user_id)
     new_archive = PrintArchive(
         printer_id=new_printer_id,
         project_id=source_archive.project_id,

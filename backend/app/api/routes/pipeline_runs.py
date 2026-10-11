@@ -40,6 +40,7 @@ from backend.app.core.auth import (
     RequestActor,
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
+    is_auth_enabled,
 )
 from backend.app.core.config import settings as app_settings
 from backend.app.core.database import async_session, get_db
@@ -356,8 +357,12 @@ async def _materialise_run(db: AsyncSession, run: PipelineRun) -> PipelineRunRes
 async def _publish_run_event(db: AsyncSession, run: PipelineRun) -> None:
     """Broadcast a ``pipeline_run_updated`` event with the full materialised
     run. Per-user routing via ``broadcast_to_user`` falls back to a global
-    broadcast when ``created_by`` is None (auth-disabled installs)."""
+    broadcast when ``created_by`` is None on auth-disabled installs."""
     try:
+        # Without a user, broadcast_to_user would send it to everyone. With auth
+        # on, a run whose user was deleted is nobody's to watch (the runs page polls).
+        if run.created_by is None and await is_auth_enabled(db):
+            return
         payload = await _materialise_run(db, run)
         await ws_manager.broadcast_to_user(
             run.created_by,
@@ -593,11 +598,23 @@ def _make_orchestration_callable(
                     printer_id=printer_id,
                     target_model=target_model,
                     library_file_id=slice_response.library_file_id,
-                    created_by_id=creator_user_id,
+                    # From the run as refreshed after the slice, not the id the
+                    # request started with: a user deleted meanwhile is gone
+                    # from it, and SQLite may have given the id to someone else.
+                    created_by_id=run.created_by,
                     status="pending",
                     confirm_outcome=confirm_outcome,
                     # The copies wait for review like any other job of theirs (#1620)
-                    manual_start=review_required,
+                    # A restricted user deleted while it sliced: as delete_user
+                    # stages their ownerless "any model" jobs, or these would run
+                    # on every printer of the model, not only on theirs (#1727).
+                    manual_start=review_required
+                    or (
+                        run.created_by is None
+                        and creator_user_id is not None
+                        and printer_id is None
+                        and not printer_scope.is_unrestricted
+                    ),
                 )
                 session.add(queue_item)
                 await session.flush()

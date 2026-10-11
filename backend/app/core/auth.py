@@ -2071,6 +2071,27 @@ async def get_request_actor(
 RequestActor = Depends(get_request_actor)
 
 
+async def actor_still_exists(db: AsyncSession, actor: User | ApiKeyActor | None) -> bool:
+    """Whether the user a request started as still exists.
+
+    A request that downloads or extracts for seconds to minutes writes the id
+    it started with. A user deleted meanwhile leaves it pointing at nobody, or
+    on SQLite, which gives a freed id to the next user created, at someone
+    else; the name tells them apart. No actor (auth off) or a key without an
+    owner has no user to lose.
+    """
+    if actor is None or actor.id is None:
+        return True
+    found = await db.scalar(select(User.id).where(User.id == actor.id, User.username == actor.username))
+    return found is not None
+
+
+async def require_actor_still_exists(db: AsyncSession, actor: User | ApiKeyActor | None) -> None:
+    """Stop a request whose user was deleted while it ran, before it saves anything as theirs."""
+    if not await actor_still_exists(db, actor):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account was deleted")
+
+
 async def get_media_or_request_printer_scope(
     token: str | None = None,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,

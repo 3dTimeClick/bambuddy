@@ -207,3 +207,38 @@ def test_every_listed_reference_is_a_model_foreign_key_with_a_rule():
     }
     assert sqlite_fk.APPLIED - with_rule == set()
     assert len(sqlite_fk._applied_foreign_keys()) == len(sqlite_fk.APPLIED)
+
+
+def test_every_listed_set_null_column_can_hold_null():
+    """A SET NULL rule on a NOT NULL column would make the delete itself fail."""
+    not_nullable = {
+        (table.name, fk.parent.name)
+        for table in load_all_models().sorted_tables
+        for fk in table.foreign_keys
+        if (table.name, fk.parent.name) in sqlite_fk.APPLIED and fk.ondelete == "SET NULL" and not fk.parent.nullable
+    }
+    assert not_nullable == set()
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_skips_a_set_null_its_column_still_refuses():
+    """If a migration couldn't drop a NOT NULL, the sweep must not stop the app from starting."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+            await conn.execute(
+                text(
+                    "CREATE TABLE wallet_transactions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, "
+                    "cost_center_id INTEGER, created_by_user_id INTEGER, print_archive_id INTEGER, print_queue_id INTEGER)"
+                )
+            )
+            await conn.execute(text("INSERT INTO wallet_transactions (id, user_id) VALUES (1, 7)"))
+
+            await sqlite_fk.sweep_orphans(conn)
+
+            assert (await conn.execute(text("SELECT user_id FROM wallet_transactions"))).scalar_one() == 7
+    finally:
+        await engine.dispose()

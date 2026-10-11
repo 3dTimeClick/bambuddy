@@ -8060,6 +8060,15 @@ class PrintScheduler:
             logger.debug("filament_missing notification failed for item %s: %s", item.id, e)
         return True
 
+    @staticmethod
+    async def _queue_owner_id(db: AsyncSession, item: PrintQueueItem) -> int | None:
+        """The queue item's owner as the row has it now.
+
+        item.created_by_id was read before preheat and upload, which can take
+        minutes; deleting the user clears the row, not this session's copy.
+        """
+        return await db.scalar(select(PrintQueueItem.created_by_id).where(PrintQueueItem.id == item.id))
+
     async def _propagate_owner_to_printer_manager(self, db: AsyncSession, item: PrintQueueItem) -> None:
         """Hand the queue item's owner to printer_manager so the
         print-complete callback can credit the user in PrintLogEntry (#1670).
@@ -8069,11 +8078,18 @@ class PrintScheduler:
         in that case the print log row falls back to the existing un-credited
         behaviour rather than crashing the dispatch).
         """
-        if not item.created_by_id:
-            return
         from backend.app.models.user import User
 
-        owner = await db.get(User, item.created_by_id)
+        # Read from the row, not item.created_by_id or db.get: both can still
+        # hold a user deleted during the upload, after delete_user forgot them
+        # (on SQLite the id may be someone new's by the time the print ends).
+        owner = (
+            await db.execute(
+                select(User.id, User.username)
+                .join(PrintQueueItem, PrintQueueItem.created_by_id == User.id)
+                .where(PrintQueueItem.id == item.id)
+            )
+        ).first()
         if owner:
             printer_manager.set_current_print_user(item.printer_id, owner.id, owner.username)
 
@@ -8576,6 +8592,8 @@ class PrintScheduler:
         # (reporter @Jostxxl). expire_on_commit=False keeps item/printer/archive
         # readable; the status writes below (upload-failure path and the
         # pending->printing CAS) transparently open a fresh transaction.
+        # The owner is read here, after preheat, so the commit releases this read too.
+        toast_uid = await self._queue_owner_id(db, item)
         await db.commit()
 
         # Delete existing file if present (avoids 553 error on overwrite)
@@ -8601,7 +8619,6 @@ class PrintScheduler:
 
         # Dispatch toast — announce the upload start with the total byte
         # count so the frontend can render an honest progress bar.
-        toast_uid = item.created_by_id
         toast_file_name = filename.replace(".gcode.3mf", "").replace(".3mf", "")
         try:
             total_bytes = file_path.stat().st_size
@@ -8674,6 +8691,10 @@ class PrintScheduler:
         if injected_path and injected_path.exists():
             injected_path.unlink(missing_ok=True)
 
+        # Again after the upload, which can take minutes: an owner deleted
+        # meanwhile gets no more toasts, and neither does whoever has their id.
+        toast_uid = await self._queue_owner_id(db, item)
+
         if not uploaded:
             # This used to be one string for every upload failure, telling
             # everyone to check the SD card. The client knows which of seven
@@ -8739,7 +8760,9 @@ class PrintScheduler:
                 remote_filename,
                 archive.id,
                 ams_mapping=ams_mapping,
-                created_by_id=item.created_by_id,
+                # Read after the upload (toast_uid): a user deleted meanwhile gets
+                # no print-start email, and neither does whoever has their id.
+                created_by_id=toast_uid,
                 cost_center_id=item.cost_center_id,
                 # The plate actually dispatched, not the queue item's raw
                 # column: on None, `register_expected_print` stores nothing,

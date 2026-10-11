@@ -199,6 +199,7 @@ export default {
     costCenter: '비용 센터',
     balanceAfter: '거래 후 잔액',
     userWithId: '사용자 #{{id}}',
+    deletedUser: '삭제된 사용자',
     partial: '일부',
     editTransaction: '거래 편집',
     selectCostCenter: '비용 센터 선택...',

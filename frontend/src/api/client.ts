@@ -4378,7 +4378,7 @@ export type WalletTransactionType = 'print_charge' | 'deposit' | 'withdraw' | 'm
 
 export interface WalletTransaction {
   id: number;
-  user_id: number;
+  user_id: number | null; // null once the user is deleted
   cost_center_id: number | null;
   transaction_type: WalletTransactionType;
   amount: number;

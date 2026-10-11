@@ -109,6 +109,21 @@ class ConnectionManager:
                 if conn in self.active_connections:
                     self.active_connections.remove(conn)
 
+    async def close_user(self, user_id: int):
+        """Close a deleted user's sockets, which would otherwise keep receiving
+        the messages of whoever is given their id next."""
+        async with self._lock:
+            theirs = [
+                c for c in self.active_connections if getattr(c.state, "bambuddy_principal_user_id", None) == user_id
+            ]
+            for connection in theirs:
+                self.active_connections.remove(connection)
+        for connection in theirs:
+            try:
+                await connection.close(code=4401)
+            except Exception:  # noqa: BLE001 -- already gone
+                pass
+
     async def refresh_printer_scopes(self):
         """Recompute every connection's printer scope (#1727).
 

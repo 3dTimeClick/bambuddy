@@ -203,6 +203,7 @@ export default {
     costCenter: 'Kostenstelle',
     balanceAfter: 'Kontostand danach',
     userWithId: 'Benutzer #{{id}}',
+    deletedUser: 'Gelöschter Benutzer',
     partial: 'Teilweise',
     editTransaction: 'Transaktion bearbeiten',
     selectCostCenter: 'Kostenstelle auswählen...',

@@ -126,6 +126,23 @@ class SliceDispatchService:
     def get(self, job_id: int) -> SliceJob | None:
         return self._jobs.get(job_id)
 
+    def forget_owner(self, user_id: int) -> None:
+        """A deleted user's jobs lose their owner (only READ_ALL pollers see them)."""
+        for job in self._jobs.values():
+            if job.owner_id == user_id:
+                job.owner_id = None
+
+    def owner_now(self, job_id: int | None, user_id: int | None) -> int | None:
+        """*user_id*, unless job *job_id* lost that owner while it ran.
+
+        A slice takes minutes. When its user is deleted meanwhile (forget_owner),
+        the result belongs to nobody: the id may already be another user's.
+        """
+        if job_id is None or user_id is None:
+            return user_id
+        job = self._jobs.get(job_id)
+        return user_id if job is not None and job.owner_id == user_id else None
+
     def set_progress(self, job_id: int, progress: dict[str, Any] | None) -> None:
         """Update the live-progress snapshot for a running job.
 

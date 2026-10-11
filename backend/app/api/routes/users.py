@@ -54,6 +54,8 @@ from backend.app.services.email_service import (
     send_email,
 )
 from backend.app.services.finance_defaults import ensure_user_finance_defaults
+from backend.app.services.printer_manager import printer_manager
+from backend.app.services.slice_dispatch import slice_dispatch
 from backend.app.utils.library_paths import remove_library_photos_dir
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -547,8 +549,19 @@ async def delete_user(
     )
     await db.execute(_update(ConnectedApp).where(ConnectedApp.created_by_id == user_id).values(created_by_id=None))
 
+    # Email 2FA is a settings key named after the id, which no foreign key covers.
+    await db.execute(delete(Settings).where(Settings.key == f"user_{user_id}_email_2fa_enabled"))
+
     await db.delete(user)
     await db.commit()
+    # What still runs for them must not be credited to whoever gets the id next
+    # (SQLite reuses it): a print, a slice, an open dashboard.
+    printer_manager.forget_user(user_id)
+    from backend.app.main import forget_print_creator
+
+    forget_print_creator(user_id)
+    slice_dispatch.forget_owner(user_id)
+    await ws_manager.close_user(user_id)
     await ws_manager.refresh_printer_scopes()
 
     for file_id in doomed_library_file_ids:

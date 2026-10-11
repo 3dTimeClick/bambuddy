@@ -15,7 +15,7 @@ class WalletBalanceResponse(BaseModel):
 
 class WalletTransactionResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: int | None  # None once the user is deleted
     cost_center_id: int | None = None
     transaction_type: Literal["print_charge", "deposit", "withdraw", "manual_adjustment"]
     amount: float

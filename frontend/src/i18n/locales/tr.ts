@@ -203,6 +203,7 @@ export default {
     costCenter: 'Masraf merkezi',
     balanceAfter: 'İşlem sonrası bakiye',
     userWithId: 'Kullanıcı #{{id}}',
+    deletedUser: 'Silinmiş kullanıcı',
     partial: 'Kısmi',
     editTransaction: 'İşlemi düzenle',
     selectCostCenter: 'Masraf merkezi seç...',

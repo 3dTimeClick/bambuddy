@@ -434,6 +434,12 @@ class PrinterManager:
         """Clear the current print user when print completes (Issue #206)."""
         self._current_print_user.pop(printer_id, None)
 
+    def forget_user(self, user_id: int) -> None:
+        """A deleted user is credited with none of the prints still running."""
+        for printer_id, user in list(self._current_print_user.items()):
+            if user.get("user_id") == user_id:
+                del self._current_print_user[printer_id]
+
     def is_awaiting_plate_clear(self, printer_id: int) -> bool:
         """Return True when the printer finished/failed a print and is waiting for the
         user to acknowledge the plate is cleared before the queue may dispatch the next job.

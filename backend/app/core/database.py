@@ -340,11 +340,13 @@ async def _repair_sqlite_orphans(conn) -> None:
     what was left (sweep_orphans), after the one domain rule that deviates from
     the model's. PostgreSQL enforces the rules itself.
     """
-    from sqlalchemy import exists, select
+    from sqlalchemy import delete, exists, select
 
     from backend.app.core.sqlite_fk import sweep_orphans
     from backend.app.models.library import LibraryFile
     from backend.app.models.print_queue import PrintQueueItem
+    from backend.app.models.settings import Settings
+    from backend.app.models.user import User
     from backend.app.services.library_trash import release_queue_references
 
     if not is_sqlite():
@@ -368,6 +370,20 @@ async def _repair_sqlite_orphans(conn) -> None:
     if vanished:
         await release_queue_references(conn, list(vanished))
     await sweep_orphans(conn)
+
+    # Email 2FA is a settings key named after the user id, which no foreign key
+    # covers; the next user given a deleted user's id would be asked for a code.
+    keys = (
+        await conn.execute(
+            select(Settings.key).where(Settings.key.like("user\\_%\\_email\\_2fa\\_enabled", escape="\\"))
+        )
+    ).scalars()
+    user_ids = set((await conn.execute(select(User.id))).scalars().all())
+    gone = [
+        key for key in keys if (m := re.fullmatch(r"user_(\d+)_email_2fa_enabled", key)) and int(m[1]) not in user_ids
+    ]
+    if gone:
+        await conn.execute(delete(Settings).where(Settings.key.in_(gone)))
 
 
 async def init_db():
@@ -1468,7 +1484,7 @@ async def _migrate_create_finance_tables(conn) -> None:
             """
             CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 cost_center_id INTEGER REFERENCES cost_centers(id) ON DELETE SET NULL,
                 transaction_type VARCHAR(40) NOT NULL,
                 amount NUMERIC(14,2) NOT NULL,
@@ -1536,7 +1552,7 @@ async def _migrate_create_finance_tables(conn) -> None:
             """
             CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 cost_center_id INTEGER REFERENCES cost_centers(id) ON DELETE SET NULL,
                 transaction_type VARCHAR(40) NOT NULL,
                 amount NUMERIC(14,2) NOT NULL,
@@ -5502,6 +5518,7 @@ async def _run_migrations(conn):
 
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
+    await _migrate_wallet_transactions_keep_deleted_users(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -5690,6 +5707,71 @@ async def _migrate_pg_column_types(conn) -> None:
             await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} TYPE {new_type} USING {using}")
         finally:
             await conn.execute(text("SELECT set_config('extra_float_digits', :d, true)"), {"d": digits})
+
+
+async def _migrate_wallet_transactions_keep_deleted_users(conn) -> None:
+    """wallet_transactions.user_id: nullable, ON DELETE SET NULL, as the model says.
+
+    It was NOT NULL with ON DELETE CASCADE, so deleting a user deleted their
+    ledger entries and freed what they had spent of a shared cost centre's
+    budget. SQLite can't alter a column, so the table's SQL in sqlite_master is
+    edited, as for users.password_hash; its foreign keys are off, but the NOT
+    NULL would make the user delete fail on the SET NULL. PostgreSQL drops the
+    NOT NULL and replaces the CASCADE constraint.
+    """
+    from sqlalchemy import text
+
+    if is_sqlite():
+        select_sql = text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wallet_transactions'")
+        sql = (await conn.execute(select_sql)).scalar()
+        if not isinstance(sql, str):
+            return
+        # created_by_user_id has no word boundary before "user_id", so stays as it is.
+        new_sql = re.sub(r"(\buser_id\s+INTEGER)\s+NOT\s+NULL", r"\1", sql)
+        new_sql = re.sub(
+            r"(\buser_id\s*\)?\s+(?:INTEGER\s+)?REFERENCES\s+users\s*\(\s*id\s*\)\s+ON\s+DELETE)\s+CASCADE",
+            r"\1 SET NULL",
+            new_sql,
+        )
+        if new_sql == sql:
+            return
+        try:
+            schema_version = (await conn.execute(text("PRAGMA schema_version"))).scalar() or 0
+            await conn.execute(text("PRAGMA writable_schema = ON"))
+            await conn.execute(
+                text("UPDATE sqlite_master SET sql = :sql WHERE type = 'table' AND name = 'wallet_transactions'"),
+                {"sql": new_sql},
+            )
+            # Makes this connection reload the table definition.
+            await conn.execute(text(f"PRAGMA schema_version = {schema_version + 1}"))
+            await conn.execute(text("PRAGMA writable_schema = OFF"))
+        except (OperationalError, ProgrammingError) as exc:
+            logger.error(
+                "Could not make wallet_transactions.user_id nullable; deleting a user with wallet "
+                "transactions will fail on this install: %s",
+                exc,
+                exc_info=True,
+            )
+        return
+
+    await _safe_execute(conn, "ALTER TABLE wallet_transactions ALTER COLUMN user_id DROP NOT NULL")
+    cascading = await conn.execute(
+        text(
+            "SELECT c.conname FROM pg_constraint c "
+            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) "
+            "WHERE c.contype = 'f' AND c.conrelid = CAST('wallet_transactions' AS regclass) "
+            "AND c.confrelid = CAST('users' AS regclass) AND array_length(c.conkey, 1) = 1 "
+            "AND a.attname = 'user_id' AND c.confdeltype <> 'n'"
+        )
+    )
+    for name in cascading.scalars().all():
+        await conn.execute(text(f'ALTER TABLE wallet_transactions DROP CONSTRAINT "{name}"'))
+        await conn.execute(
+            text(
+                f'ALTER TABLE wallet_transactions ADD CONSTRAINT "{name}" '
+                "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL"
+            )
+        )
 
 
 # Foreign keys that the migrations adding these columns left out, so a
@@ -7171,12 +7253,17 @@ async def repair_wallet_ledger_internal(session: AsyncSession):
                 owner_user_id=center_owner_user_id,
             )
             if cost_center_id is None:
+                if user_id is None:
+                    # A deleted user's own wallet entry: the wallet is gone, and
+                    # running every deleted user's entries together would
+                    # rewrite their balances with each other's.
+                    continue
                 new_balance = round(user_personal_balances.get(user_id, 0.0) + amount_value, 2)
                 user_personal_balances[user_id] = new_balance
             else:
                 new_balance = round(cc_running_balances.get(cost_center_id, 0.0) + amount_value, 2)
                 cc_running_balances[cost_center_id] = new_balance
-                if affects_personal:
+                if affects_personal and user_id is not None:
                     user_personal_balances[user_id] = round(
                         user_personal_balances.get(user_id, 0.0) + amount_value,
                         2,

@@ -203,6 +203,7 @@ export default {
     costCenter: '成本中心',
     balanceAfter: '調整後餘額',
     userWithId: '使用者 #{{id}}',
+    deletedUser: '已刪除的使用者',
     partial: '部分',
     editTransaction: '編輯交易',
     selectCostCenter: '選擇成本中心...',

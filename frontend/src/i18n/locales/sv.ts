@@ -203,6 +203,7 @@ export default {
     costCenter: 'Kostnadsställe',
     balanceAfter: 'Saldo efter',
     userWithId: 'Användare #{{id}}',
+    deletedUser: 'Borttagen användare',
     partial: 'Delvis',
     editTransaction: 'Redigera transaktion',
     selectCostCenter: 'Välj kostnadsställe...',

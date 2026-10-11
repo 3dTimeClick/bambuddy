@@ -78,6 +78,36 @@ APPLIED: frozenset[tuple[str, str]] = frozenset(
         ("print_batches", "project_id"),
         ("print_queue", "project_id"),
         ("project_bom_items", "project_id"),
+        # users: everything a user owns goes with them or loses its owner, or a
+        # new user given the freed id inherits it (wallet, cost centres, private
+        # folders). Without an owner, folders and private cost centres are left
+        # to admins, not opened to everyone.
+        ("announcement_reads", "user_id"),
+        ("api_keys", "user_id"),
+        ("connected_app_grants", "user_id"),
+        ("connected_apps", "created_by_id"),
+        ("cost_center_members", "user_id"),
+        ("cost_centers", "owner_user_id"),
+        ("file_variant_groups", "created_by_id"),
+        ("library_files", "created_by_id"),
+        ("library_folders", "created_by_id"),
+        ("long_lived_tokens", "user_id"),
+        ("pipeline_runs", "created_by"),
+        ("print_archives", "created_by_id"),
+        ("print_batches", "created_by_id"),
+        ("print_log_entries", "created_by_id"),
+        ("print_queue", "created_by_id"),
+        ("scheduled_dryings", "created_by_id"),
+        ("slicer_pipelines", "created_by"),
+        ("sponsor_toast_state", "user_id"),
+        ("user_email_preferences", "user_id"),
+        ("user_groups", "user_id"),
+        ("user_oidc_links", "user_id"),
+        ("user_otp_codes", "user_id"),
+        ("user_totp", "user_id"),
+        ("user_wallets", "user_id"),
+        ("wallet_transactions", "created_by_user_id"),
+        ("wallet_transactions", "user_id"),
     }
 )
 
@@ -212,6 +242,12 @@ def _before_bulk_delete(state: ORMExecuteState) -> None:
     _apply(connection, table.name, select(key).where(where) if where is not None else select(key))
 
 
+def _still_not_null(connection: Connection, column: Column) -> bool:
+    """Whether the column is NOT NULL in the database, whatever the model says."""
+    rows = connection.execute(text(f'PRAGMA table_info("{column.table.name}")'))
+    return any(row[1] == column.name and row[3] for row in rows)
+
+
 async def sweep_orphans(conn: Any) -> None:
     """Repair APPLIED references to rows that no longer exist (SQLite only).
 
@@ -229,6 +265,12 @@ async def sweep_orphans(conn: Any) -> None:
         rules = [
             fk for fk in _applied_foreign_keys() if fk.parent.table.name in tables and fk.column.table.name in tables
         ]
+        refused = {fk for fk in rules if fk.ondelete == "SET NULL" and _still_not_null(connection, fk.parent)}
+        for fk in refused:
+            # A migration that would have dropped it failed (and said so); clearing
+            # the column would fail too, and take the start of the app with it.
+            logger.warning("Not clearing %s.%s: the column is still NOT NULL", fk.parent.table.name, fk.parent.name)
+        rules = [fk for fk in rules if fk not in refused]
         for _ in range(10):
             changed = 0
             for fk in rules:
