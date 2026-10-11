@@ -1774,9 +1774,11 @@ async def get_api_key(
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
     db: AsyncSession = Depends(get_db),
 ) -> APIKey:
-    """Get and validate API key from request headers.
+    """Get and validate API key from request headers (the webhook routes).
 
-    Checks both 'Authorization: Bearer <key>' and 'X-API-Key: <key>' headers.
+    Checks both 'Authorization: Bearer <key>' and 'X-API-Key: <key>' headers;
+    the key itself is checked by _validate_api_key. An expired key is an
+    invalid key, as on every other route.
     """
     api_key_value = None
     if x_api_key:
@@ -1790,41 +1792,15 @@ async def get_api_key(
             detail="API key required. Provide 'X-API-Key' header or 'Authorization: Bearer <key>'",
         )
 
-    # Pre-filter by key_prefix to avoid O(n) pbkdf2 hashes across all enabled keys.
-    key_lookup = api_key_value[:8] if len(api_key_value) >= 8 else api_key_value
-    result = await db.execute(
-        select(APIKey).where(
-            APIKey.enabled.is_(True),
-            APIKey.key_prefix.like(
-                key_lookup.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
-                escape="\\",
-            ),
+    # The same check as every other API-key route: a key that can't be checked
+    # (database error) is a 503 raised in there, not an invalid key.
+    api_key = await _validate_api_key(db, api_key_value)
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
         )
-    )
-    api_keys = result.scalars().all()
-
-    for api_key in api_keys:
-        # Check if key matches (verify against hash)
-        if verify_password(api_key_value, api_key.key_hash):
-            # Check expiration
-            if api_key.expires_at:
-                expires = api_key.expires_at
-                if expires.tzinfo is None:
-                    expires = expires.replace(tzinfo=timezone.utc)
-                if expires < datetime.now(timezone.utc):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="API key has expired",
-                    )
-            # Update last_used timestamp
-            api_key.last_used = datetime.now(timezone.utc)
-            await db.commit()
-            return api_key
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid API key",
-    )
+    return api_key
 
 
 async def caller_is_api_key(
