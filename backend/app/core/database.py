@@ -5423,6 +5423,86 @@ async def _run_migrations(conn):
 
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
+    await _migrate_pg_column_types(conn)
+
+
+# Columns a migration added with another type than the model declares, so a
+# PostgreSQL database older than the column has the wrong one:
+# (table, column, the type it has there, the model's type, USING expression).
+# REAL goes through text, which PostgreSQL renders as the shortest decimal that
+# reads back as the same float4: 0.001 stays 0.001 instead of becoming
+# 0.0010000000474974513 as a double.
+_PG_COLUMN_TYPE_FIXES = (
+    ("active_print_spoolman", "tray_remain_start", "text", "JSON", "CAST(tray_remain_start AS JSON)"),
+    (
+        "spool",
+        "weight_used_baseline",
+        "real",
+        "DOUBLE PRECISION",
+        "CAST(CAST(weight_used_baseline AS TEXT) AS DOUBLE PRECISION)",
+    ),
+    (
+        "smart_plugs",
+        "rest_energy_total_multiplier",
+        "real",
+        "DOUBLE PRECISION",
+        "CAST(CAST(rest_energy_total_multiplier AS TEXT) AS DOUBLE PRECISION)",
+    ),
+)
+
+
+def _reject_non_json_constant(name: str):
+    """json.loads accepts NaN and Infinity; PostgreSQL's json type doesn't."""
+    raise ValueError(f"{name} is not JSON")
+
+
+async def _migrate_pg_column_types(conn) -> None:
+    """Convert the columns in _PG_COLUMN_TYPE_FIXES to the model's type.
+
+    PostgreSQL only: on SQLite REAL is already a double, and a JSON column is
+    text that SQLAlchemy decodes. Only a column that still has the old type is
+    converted. On PostgreSQL a TEXT column declared JSON in the model reads
+    back as a string, not a dict.
+
+    A JSON value that doesn't parse would fail the conversion, and with it
+    every start, so such values are cleared first. tray_remain_start only
+    holds the start snapshot of prints running at the time.
+    """
+    import json
+
+    from sqlalchemy import text
+
+    if is_sqlite():
+        return
+    for table, column, old_type, new_type, using in _PG_COLUMN_TYPE_FIXES:
+        current = (
+            await conn.execute(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :t AND column_name = :c"
+                ),
+                {"t": table, "c": column},
+            )
+        ).scalar_one_or_none()
+        if current != old_type:
+            continue
+        if new_type == "JSON":
+            rows = await conn.execute(text(f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL"))
+            for row_id, value in rows.all():
+                try:
+                    json.loads(value, parse_constant=_reject_non_json_constant)
+                except ValueError:
+                    logger.warning("Clearing %s.%s of row %s: not valid JSON", table, column, row_id)
+                    await conn.execute(text(f"UPDATE {table} SET {column} = NULL WHERE id = :id"), {"id": row_id})
+        # Float to text gives the shortest exact decimal only with
+        # extra_float_digits >= 1, PostgreSQL's default since 12, which a server,
+        # database or role setting can lower: at 0 text keeps 6 digits.
+        digits = (await conn.execute(text("SHOW extra_float_digits"))).scalar_one()
+        await conn.execute(text("SELECT set_config('extra_float_digits', '1', true)"))
+        try:
+            await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} TYPE {new_type} USING {using}")
+        finally:
+            await conn.execute(text("SELECT set_config('extra_float_digits', :d, true)"), {"d": digits})
 
 
 # Foreign keys that the migrations adding these columns left out, so a

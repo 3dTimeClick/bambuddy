@@ -106,6 +106,60 @@ SCENARIOS = (
                 OR NOT EXISTS (SELECT 1 FROM print_archives WHERE id = 1 AND library_file_id = 1)
         """,
     ),
+    Scenario(
+        name="column types",
+        # v1.2.5.7 has these as TEXT and REAL in a v0.2.3 database, where a
+        # fresh install has JSON and DOUBLE PRECISION. The values must survive
+        # the conversion as the user saw them, and invalid JSON values must not
+        # stop the upgrade (they are cleared). extra_float_digits = 0, which a
+        # DBA may set, must not cost the floats their digits.
+        chain=("v0.2.3", "v1.2.5.7"),
+        seed="""
+            DO $$ BEGIN
+                EXECUTE format('ALTER DATABASE %I SET extra_float_digits = 0', current_database());
+            END $$;
+            INSERT INTO printers (id, name, serial_number, ip_address, access_code, auto_archive,
+                                  awaiting_plate_clear, camera_rotation, external_camera_enabled, is_active,
+                                  nozzle_count, plate_detection_enabled, print_hours_offset, runtime_seconds)
+            VALUES (1, 'p', 'S1', '192.0.2.1', 'x', true, false, 0, false, true, 1, false, 0, 0);
+            INSERT INTO print_archives (id, printer_id, filename, file_path, file_size, status, quantity, is_favorite)
+            VALUES (1, 1, 'a.3mf', 'a/a.3mf', 1, 'completed', 1, false),
+                   (2, 1, 'b.3mf', 'a/b.3mf', 1, 'completed', 1, false),
+                   (3, 1, 'c.3mf', 'a/c.3mf', 1, 'completed', 1, false);
+            INSERT INTO active_print_spoolman (id, printer_id, archive_id, ams_trays, tray_remain_start)
+            VALUES (1, 1, 1, '{}', '{"0-1": {"remain": 80}}'),
+                   (2, 1, 2, '{}', 'not json'),
+                   (3, 1, 3, '{}', '{"0-1": {"remain": 80, "tray_uuid": NaN}}');
+            INSERT INTO smart_plugs (id, name, plug_type, auto_off, auto_off_executed, auto_off_pending,
+                                     auto_off_persistent, auto_on, enabled, mqtt_energy_multiplier, mqtt_multiplier,
+                                     mqtt_power_multiplier, off_delay_minutes, off_delay_mode, off_temp_threshold,
+                                     power_alert_enabled, schedule_enabled, show_in_switchbar, show_on_printer_card,
+                                     rest_energy_total_multiplier)
+            VALUES (1, 'plug', 'rest', false, false, false, false, false, true, 1, 1, 1, 0, 'time', 70,
+                    false, false, false, false, 0.001);
+            INSERT INTO spool (id, material, core_weight, label_weight, weight_locked, weight_used,
+                               weight_used_baseline)
+            VALUES (1, 'PLA', 250, 1000, false, 1234.567, 1234.567);
+        """,
+        check="""
+            SELECT 'active_print_spoolman.tray_remain_start is ' || pg_typeof(tray_remain_start) || ', not json'
+            FROM active_print_spoolman WHERE id = 1 AND pg_typeof(tray_remain_start)::text <> 'json'
+            UNION ALL
+            SELECT 'active_print_spoolman.tray_remain_start changed: ' || tray_remain_start::text
+            FROM active_print_spoolman
+            WHERE id = 1 AND tray_remain_start::text::jsonb IS DISTINCT FROM '{"0-1": {"remain": 80}}'::jsonb
+            UNION ALL
+            SELECT 'an invalid tray_remain_start was kept: ' || tray_remain_start::text
+            FROM active_print_spoolman WHERE id IN (2, 3) AND tray_remain_start IS NOT NULL
+            UNION ALL
+            SELECT 'smart_plugs.rest_energy_total_multiplier is ' || rest_energy_total_multiplier::text
+            FROM smart_plugs
+            WHERE id = 1 AND rest_energy_total_multiplier IS DISTINCT FROM CAST(0.001 AS double precision)
+            UNION ALL
+            SELECT 'spool.weight_used_baseline is ' || weight_used_baseline::text
+            FROM spool WHERE id = 1 AND weight_used_baseline IS DISTINCT FROM CAST(1234.567 AS double precision)
+        """,
+    ),
 )
 
 _INIT_DB = """

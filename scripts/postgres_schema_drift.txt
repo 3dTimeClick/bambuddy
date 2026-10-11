@@ -8,7 +8,6 @@
 # Comment lines start with "#".
 
 # columns
-column active_print_spoolman.tray_remain_start | fresh install: json (udt json) NULL default None; upgraded: text (udt text) NULL default None
 column api_keys.can_access_cloud | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default false
 column api_keys.can_manage_archives | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
 column api_keys.can_manage_inventory | fresh install: boolean (udt bool) NOT NULL default None; upgraded: boolean (udt bool) NULL default true
@@ -54,8 +53,8 @@ column printers.camera_light_auto | fresh install: boolean (udt bool) NOT NULL d
 column smart_plugs.auto_off_after_drying | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
 column smart_plugs.controls_printer_power | fresh install: boolean (udt bool) NOT NULL default true; upgraded: boolean (udt bool) NULL default true
 column smart_plugs.off_delay_after_drying_minutes | fresh install: integer (udt int4, precision 32, scale 0) NOT NULL default 10; upgraded: integer (udt int4, precision 32, scale 0) NULL default 10
-column smart_plugs.rest_energy_total_multiplier | fresh install: double precision (udt float8, precision 53) NOT NULL default '1'::double precision; upgraded: real (udt float4, precision 24) NULL default 1.0
-column spool.weight_used_baseline | fresh install: double precision (udt float8, precision 53) NOT NULL default None; upgraded: real (udt float4, precision 24) NULL default 0
+column smart_plugs.rest_energy_total_multiplier | fresh install: double precision (udt float8, precision 53) NOT NULL default '1'::double precision; upgraded: double precision (udt float8, precision 53) NULL default 1.0
+column spool.weight_used_baseline | fresh install: double precision (udt float8, precision 53) NOT NULL default None; upgraded: double precision (udt float8, precision 53) NULL default 0
 column virtual_printers.gcode_injection | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
 column virtual_printers.queue_force_color_match | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
 column virtual_printers.save_ams_mapping | fresh install: boolean (udt bool) NOT NULL default false; upgraded: boolean (udt bool) NULL default false
