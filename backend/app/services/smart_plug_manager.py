@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.tasks import spawn_background_task
 from backend.app.services.homeassistant import homeassistant_service
+from backend.app.services.mqtt_relay import mqtt_relay
+from backend.app.services.plug_energy import get_plug_energy
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.rest_smart_plug import rest_smart_plug_service
 from backend.app.services.tasmota import tasmota_service
@@ -21,6 +23,43 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def publish_plug_state(
+    plug_id: int, plug_name: str, printer_id: int | None, *, on: bool, ha_entity_id: str | None = None
+) -> None:
+    """Tell the MQTT relay a plug was switched (smart_plugs/on or /off).
+
+    Called after every successful on or off command, whatever sent it, also when
+    the plug already was in that state. A Home Assistant script run through its
+    entity is not a switch and publishes nothing. The printer name is read from
+    the database: the connection cache keeps a renamed printer's old name and has
+    none for an inactive one. Never raises: the plug did switch, and a broker
+    problem must not turn that into an error.
+    """
+    if ha_entity_id and ha_entity_id.startswith("script."):
+        return
+    if not mqtt_relay.enabled or not mqtt_relay.connected:
+        return
+    try:
+        printer_name = None
+        if printer_id:
+            from backend.app.core import database
+            from backend.app.models.printer import Printer
+
+            async with database.async_session() as db:
+                printer_name = (
+                    await db.execute(select(Printer.name).where(Printer.id == printer_id))
+                ).scalar_one_or_none()
+        await mqtt_relay.on_smart_plug_state(
+            plug_id=plug_id,
+            plug_name=plug_name,
+            state="on" if on else "off",
+            printer_id=printer_id,
+            printer_name=printer_name,
+        )
+    except Exception as e:
+        logger.debug("MQTT relay: failed to publish the state of plug %s: %s", plug_id, e)
+
+
 class SmartPlugManager:
     """Manages smart plug automation and delayed turn-off."""
 
@@ -30,6 +69,7 @@ class SmartPlugManager:
         self._scheduler_task: asyncio.Task | None = None
         self._snapshot_task: asyncio.Task | None = None
         self._power_alert_task: asyncio.Task | None = None
+        self._relay_energy_task: asyncio.Task | None = None
         self._last_schedule_check: dict[int, str] = {}  # plug_id -> "HH:MM" last executed
 
     async def get_service_for_plug(self, plug: "SmartPlug", db: AsyncSession | None = None):
@@ -79,6 +119,9 @@ class SmartPlugManager:
         if self._power_alert_task is None:
             self._power_alert_task = asyncio.create_task(self._power_alert_loop())
             logger.info("Smart plug power alert loop started")
+        if self._relay_energy_task is None:
+            self._relay_energy_task = asyncio.create_task(self._relay_energy_loop())
+            logger.info("Smart plug MQTT relay energy loop started")
 
     def stop_scheduler(self):
         """Stop the background scheduler."""
@@ -94,6 +137,10 @@ class SmartPlugManager:
             self._power_alert_task.cancel()
             self._power_alert_task = None
             logger.info("Smart plug power alert loop stopped")
+        if self._relay_energy_task:
+            self._relay_energy_task.cancel()
+            self._relay_energy_task = None
+            logger.info("Smart plug MQTT relay energy loop stopped")
 
     async def _schedule_loop(self):
         """Background loop that checks scheduled on/off times every minute."""
@@ -151,6 +198,52 @@ class SmartPlugManager:
             now = datetime.now(timezone.utc)
             delay = (next_local_hour(now) - now).total_seconds()
             await asyncio.sleep(max(delay, 60))
+
+    async def _relay_energy_loop(self):
+        """Background loop that publishes every plug's energy to the MQTT relay, once a minute.
+
+        The relay's smart_plugs/energy topic has nothing else feeding it: the
+        plug status is otherwise only read for display, for power alerts and,
+        hourly, for the lifetime counter.
+        """
+        from backend.app.core import database
+
+        await asyncio.sleep(30)
+        while True:
+            try:
+                # Looked up on each pass: a backup restore replaces the session factory.
+                async with database.async_session() as db:
+                    await self._publish_energy_to_relay(db)
+            except Exception as e:
+                logger.error("Error publishing plug energy to the MQTT relay: %s", e)
+            await asyncio.sleep(60)
+
+    async def _publish_energy_to_relay(self, db: AsyncSession) -> None:
+        """Read each enabled plug's power and energy and publish it to the MQTT relay.
+
+        Nothing is read while the relay is off or disconnected: on an install
+        without the relay this costs no request to any plug.
+        """
+        from backend.app.models.smart_plug import SmartPlug
+
+        if not mqtt_relay.enabled or not mqtt_relay.connected:
+            return
+        plugs = (await db.execute(select(SmartPlug).where(SmartPlug.enabled.is_(True)))).scalars().all()
+        for plug in plugs:
+            # An MQTT plug's values are its last message; once it stops
+            # reporting they are stale, not a reading.
+            if plug.plug_type == "mqtt" and not mqtt_relay.smart_plug_service.is_reachable(plug.id):
+                continue
+            try:
+                energy = await get_plug_energy(plug, db)
+            except Exception as e:
+                logger.debug("MQTT relay: failed to read energy from plug %s: %s", plug.id, e)
+                continue
+            if not energy:
+                continue
+            await mqtt_relay.on_smart_plug_energy(
+                plug.id, plug.name, energy.get("power"), energy.get("today"), energy.get("total")
+            )
 
     async def _capture_energy_snapshots(self):
         """Capture one energy snapshot row per plug with a usable lifetime counter."""
@@ -232,6 +325,9 @@ class SmartPlugManager:
                             plug.last_state = "ON"
                             plug.last_checked = utcnow_naive()
                             self._last_schedule_check[plug.id] = f"on:{current_time}"
+                            await publish_plug_state(
+                                plug.id, plug.name, plug.printer_id, on=True, ha_entity_id=plug.ha_entity_id
+                            )
 
                 # Check if we should turn off
                 if plug.schedule_off_time == current_time:
@@ -243,6 +339,9 @@ class SmartPlugManager:
                             plug.last_state = "OFF"
                             plug.last_checked = utcnow_naive()
                             self._last_schedule_check[plug.id] = f"off:{current_time}"
+                            await publish_plug_state(
+                                plug.id, plug.name, plug.printer_id, on=False, ha_entity_id=plug.ha_entity_id
+                            )
                             # Mark printer offline if this plug feeds it (#2629)
                             if plug.printer_id and plug.controls_printer_power:
                                 printer_manager.mark_printer_offline(plug.printer_id)
@@ -288,6 +387,9 @@ class SmartPlugManager:
                     plug.last_state = "ON"
                     plug.last_checked = utcnow_naive()
                     plug.auto_off_executed = False  # Reset flag when turning on
+                    await publish_plug_state(
+                        plug.id, plug.name, plug.printer_id, on=True, ha_entity_id=plug.ha_entity_id
+                    )
             except Exception as e:
                 logger.warning("Failed to turn on plug '%s' for printer %s: %s", plug.name, printer_id, e)
 
@@ -439,6 +541,7 @@ class SmartPlugManager:
                 printer_id,
                 delay_seconds,
                 controls_printer_power=plug.controls_printer_power,
+                plug_name=plug.name,
                 rest_off_url=plug.rest_off_url if plug.plug_type == "rest" else None,
                 rest_off_body=plug.rest_off_body if plug.plug_type == "rest" else None,
                 rest_method=plug.rest_method if plug.plug_type == "rest" else None,
@@ -459,6 +562,7 @@ class SmartPlugManager:
         delay_seconds: int,
         *,
         controls_printer_power: bool = True,
+        plug_name: str = "",
         rest_off_url: str | None = None,
         rest_off_body: str | None = None,
         rest_method: str | None = None,
@@ -506,6 +610,9 @@ class SmartPlugManager:
             # Mark auto_off_executed in database and update printer status
             if success:
                 await self._mark_auto_off_executed(plug_id)
+                await publish_plug_state(
+                    plug_id, plug_name or f"plug_{plug_id}", printer_id, on=False, ha_entity_id=ha_entity_id
+                )
                 # Mark the printer as offline immediately — but only when this
                 # plug actually feeds the printer (#2629).
                 if controls_printer_power:
@@ -537,6 +644,7 @@ class SmartPlugManager:
                 printer_id,
                 temp_threshold,
                 controls_printer_power=plug.controls_printer_power,
+                plug_name=plug.name,
                 rest_off_url=plug.rest_off_url if plug.plug_type == "rest" else None,
                 rest_off_body=plug.rest_off_body if plug.plug_type == "rest" else None,
                 rest_method=plug.rest_method if plug.plug_type == "rest" else None,
@@ -557,6 +665,7 @@ class SmartPlugManager:
         temp_threshold: int,
         *,
         controls_printer_power: bool = True,
+        plug_name: str = "",
         rest_off_url: str | None = None,
         rest_off_body: str | None = None,
         rest_method: str | None = None,
@@ -637,6 +746,9 @@ class SmartPlugManager:
                         # Mark auto_off_executed in database and update printer status
                         if success:
                             await self._mark_auto_off_executed(plug_id)
+                            await publish_plug_state(
+                                plug_id, plug_name or f"plug_{plug_id}", printer_id, on=False, ha_entity_id=ha_entity_id
+                            )
                             # Mark the printer as offline immediately — but only
                             # when this plug actually feeds the printer (#2629).
                             if controls_printer_power:
@@ -775,6 +887,9 @@ class SmartPlugManager:
                         success = await service.turn_off(plug)
                         if success:
                             await self._mark_auto_off_executed(plug.id)
+                            await publish_plug_state(
+                                plug.id, plug.name, plug.printer_id, on=False, ha_entity_id=plug.ha_entity_id
+                            )
                             if plug.controls_printer_power:
                                 printer_manager.mark_printer_offline(plug.printer_id)
 

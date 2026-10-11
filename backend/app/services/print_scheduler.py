@@ -51,6 +51,7 @@ from backend.app.services.finance_budget import (
     validate_print_budget,
 )
 from backend.app.services.ha_sensor_manager import ha_sensor_manager
+from backend.app.services.mqtt_relay import mqtt_relay
 from backend.app.services.notification_service import notification_service
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
 from backend.app.services.printer_manager import (
@@ -61,7 +62,7 @@ from backend.app.services.printer_manager import (
     supports_drying,
     supports_drying_while_printing,
 )
-from backend.app.services.smart_plug_manager import smart_plug_manager
+from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
     _global_tray_from_assignment,
     _slot_label_from_global_tray,
@@ -1179,6 +1180,9 @@ class PrintScheduler:
         # so it can never re-arm. Keyed with the spool, the new spool is simply a
         # different key and the stale one is inert.
         self._notified_filament_low: set[tuple[int, int, int, int]] = set()
+        # The same, for the MQTT relay's filament/low event: its own record, so
+        # one channel having been told never silences the other.
+        self._relayed_filament_low: set[tuple[int, int, int, int]] = set()
         # Earliest monotonic time the next low-filament check may run (#2913).
         self._filament_low_next_check: float = 0.0
         # SKU key -> (condition, events told) for a SKU that is alerting (#2955): the
@@ -1970,7 +1974,14 @@ class PrintScheduler:
                                 for extra_plug in [p for p in auto_on_plugs if p.id != primary_plug.id]:
                                     try:
                                         service = await smart_plug_manager.get_service_for_plug(extra_plug, db)
-                                        await service.turn_on(extra_plug)
+                                        if await service.turn_on(extra_plug):
+                                            await publish_plug_state(
+                                                extra_plug.id,
+                                                extra_plug.name,
+                                                extra_plug.printer_id,
+                                                on=True,
+                                                ha_entity_id=extra_plug.ha_entity_id,
+                                            )
                                         logger.info(
                                             "Also powered on plug '%s' for printer %s", extra_plug.name, item.printer_id
                                         )
@@ -3030,7 +3041,14 @@ class PrintScheduler:
                 for extra_plug in [p for p in auto_on_plugs if p.id != primary_plug.id]:
                     try:
                         service = await smart_plug_manager.get_service_for_plug(extra_plug, db)
-                        await service.turn_on(extra_plug)
+                        if await service.turn_on(extra_plug):
+                            await publish_plug_state(
+                                extra_plug.id,
+                                extra_plug.name,
+                                extra_plug.printer_id,
+                                on=True,
+                                ha_entity_id=extra_plug.ha_entity_id,
+                            )
                         logger.info("Also powered on plug '%s' for printer %s", extra_plug.name, printer.id)
                     except Exception as e:
                         logger.warning("Failed to power on extra plug '%s': %s", extra_plug.name, e)
@@ -5105,8 +5123,18 @@ class PrintScheduler:
             # id in that time would stay silenced until a restart. Forgetting
             # what was sent is right anyway: whoever switches the event back on
             # is told about the spools that are low now.
-            if not await notification_service._get_providers_for_event(db, "on_filament_low"):
+            #
+            # The MQTT relay publishes the same event, so a connected relay is
+            # reason enough to run the check. Its record is forgotten when the
+            # relay is switched off, not when the broker drops: a reconnect must
+            # not re-send every low slot.
+            notify = bool(await notification_service._get_providers_for_event(db, "on_filament_low"))
+            relay = mqtt_relay.enabled and mqtt_relay.connected
+            if not notify:
                 self._notified_filament_low.clear()
+            if not mqtt_relay.enabled:
+                self._relayed_filament_low.clear()
+            if not notify and not relay:
                 return
 
             global_threshold = await self._get_low_stock_threshold(db)
@@ -5147,7 +5175,7 @@ class PrintScheduler:
                 # otherwise re-alert on every spool as soon as it came back.
                 return
 
-            await self._emit_filament_low(db, slots)
+            await self._emit_filament_low(db, slots, notify=notify, relay=relay)
         except Exception as e:
             logger.warning("Low-filament check failed: %s", e, exc_info=True)
 
@@ -5223,19 +5251,29 @@ class PrintScheduler:
         return slots
 
     async def _emit_filament_low(
-        self, db: AsyncSession, slots: dict[tuple[int, int, int, int], tuple[float, float, str | None]]
+        self,
+        db: AsyncSession,
+        slots: dict[tuple[int, int, int, int], tuple[float, float, str | None]],
+        *,
+        notify: bool = True,
+        relay: bool = False,
     ) -> None:
-        """Send one notification per slot that has newly crossed its threshold."""
-        printer_names: dict[int, str] = {}
+        """Send one notification and/or MQTT relay event per slot that has newly crossed its threshold."""
+        printers: dict[int, Printer] = {}
         for key, (pct, threshold, color) in slots.items():
-            printer_id, ams_id, tray_id, _spool_id = key
+            printer_id, ams_id, tray_id, spool_id = key
             if pct >= threshold:
                 # Back above the line: re-arm rather than expire on a timer, so a
                 # refilled slot can alert again and a spool sitting just under the
                 # threshold stays quiet.
                 self._notified_filament_low.discard(key)
+                self._relayed_filament_low.discard(key)
                 continue
-            if key in self._notified_filament_low:
+            send_notification = notify and key not in self._notified_filament_low
+            # Only while connected, so a crossing the relay missed reaches it
+            # after the reconnect.
+            send_relay = relay and key not in self._relayed_filament_low
+            if not send_notification and not send_relay:
                 continue
             # Marked before sending, which is a choice rather than the only
             # option, and it is the opposite failure mode from the one the
@@ -5247,24 +5285,37 @@ class PrintScheduler:
             # the two failures. A spool that is low stays low, so the next real
             # signal is not far away; a provider stuck retrying is a signal that
             # never stops.
-            self._notified_filament_low.add(key)
+            if send_notification:
+                self._notified_filament_low.add(key)
+            if send_relay:
+                self._relayed_filament_low.add(key)
 
-            if printer_id not in printer_names:
+            if printer_id not in printers:
                 printer = (await db.execute(select(Printer).where(Printer.id == printer_id))).scalar_one_or_none()
                 if printer is None:
                     continue
-                printer_names[printer_id] = printer.name
-            try:
-                await notification_service.on_filament_low(
-                    printer_id,
-                    printer_names[printer_id],
-                    _ams_slot_label(ams_id, tray_id),
-                    int(pct),
-                    db,
-                    color=color,
-                )
-            except Exception as e:
-                logger.warning("Low-filament notification failed for slot %s: %s", key, e)
+                printers[printer_id] = printer
+            printer = printers[printer_id]
+            slot = _ams_slot_label(ams_id, tray_id)
+            if send_notification:
+                try:
+                    await notification_service.on_filament_low(
+                        printer_id,
+                        printer.name,
+                        slot,
+                        int(pct),
+                        db,
+                        color=color,
+                    )
+                except Exception as e:
+                    logger.warning("Low-filament notification failed for slot %s: %s", key, e)
+            if send_relay:
+                try:
+                    await mqtt_relay.on_filament_low(
+                        printer_id, printer.name, printer.serial_number, slot, int(pct), color, spool_id
+                    )
+                except Exception as e:
+                    logger.warning("Low-filament MQTT relay event failed for slot %s: %s", key, e)
 
     async def _check_stock_forecast(self, db: AsyncSession) -> None:
         """Alert when a filament SKU reaches its reorder point or is about to break (#2955).
@@ -7401,6 +7452,7 @@ class PrintScheduler:
             if not success:
                 logger.warning("Failed to turn on smart plug '%s'", plug.name)
                 return False
+            await publish_plug_state(plug.id, plug.name, plug.printer_id, on=True, ha_entity_id=plug.ha_entity_id)
             logger.info("Powered on smart plug '%s' for printer %s", plug.name, printer_id)
 
         # Get printer from database for connection
@@ -9113,8 +9165,6 @@ class PrintScheduler:
 
             # MQTT relay - publish queue job started
             try:
-                from backend.app.services.mqtt_relay import mqtt_relay
-
                 await mqtt_relay.on_queue_job_started(
                     job_id=item.id,
                     filename=filename,

@@ -42,6 +42,7 @@ from backend.app.services.mqtt_smart_plug import subscribe_plug_to_mqtt
 from backend.app.services.plug_energy_history import fill_derived_energy
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.rest_smart_plug import rest_smart_plug_service
+from backend.app.services.smart_plug_manager import publish_plug_state
 from backend.app.services.tasmota import tasmota_service
 from backend.app.utils.local_time import utcnow_naive
 
@@ -695,27 +696,18 @@ async def control_smart_plug(
     if is_main_plug and plug.printer_id and expected_state:
         await trigger_associated_scripts(plug.printer_id, expected_state, db)
 
-    # MQTT relay - publish smart plug state change
-    if expected_state:
+    # MQTT relay - publish smart plug state change. A toggle doesn't say which
+    # way it went, so read the state it ended in.
+    published_state = expected_state
+    if published_state is None:
         try:
-            from backend.app.services.mqtt_relay import mqtt_relay
-
-            # Get printer name if linked
-            printer_name = None
-            if plug.printer_id:
-                result = await db.execute(select(Printer).where(Printer.id == plug.printer_id))
-                printer = result.scalar_one_or_none()
-                printer_name = printer.name if printer else None
-
-            await mqtt_relay.on_smart_plug_state(
-                plug_id=plug.id,
-                plug_name=plug.name,
-                state="on" if expected_state == "ON" else "off",
-                printer_id=plug.printer_id,
-                printer_name=printer_name,
-            )
+            published_state = (await service.get_status(plug)).get("state")
         except Exception:
-            pass  # Don't fail if MQTT fails
+            published_state = None
+    if published_state in ("ON", "OFF"):
+        await publish_plug_state(
+            plug.id, plug.name, plug.printer_id, on=published_state == "ON", ha_entity_id=plug.ha_entity_id
+        )
 
     return {"success": True, "action": control.action}
 

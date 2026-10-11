@@ -85,7 +85,11 @@ from backend.app.api.routes import (
     webhook,
     websocket,
 )
-from backend.app.api.routes.maintenance import _get_printer_maintenance_internal, ensure_default_types
+from backend.app.api.routes.maintenance import (
+    _get_printer_maintenance_internal,
+    ensure_default_types,
+    maintenance_alert_values,
+)
 from backend.app.api.routes.support import init_debug_logging
 from backend.app.core.config import APP_VERSION, settings as app_settings
 from backend.app.core.database import async_session, engine, init_db
@@ -541,6 +545,9 @@ _user_stopped_printers: set[int] = set()
 # after a debounce window — cancelled if the printer reconnects before the
 # window elapses, so transient MQTT blips don't flood the user.
 _printer_last_connected: dict[int, bool] = {}
+# Printers whose relay offline event went out, so the reconnect publishes the
+# matching online event and a blip shorter than the debounce publishes neither.
+_printer_offline_published: set[int] = set()
 _printer_offline_notify_tasks: dict[int, asyncio.Task] = {}
 # Debounce: a printer must stay offline this long before we notify. Sized
 # against the staleness path (`bambu_mqtt.py::STALE_RECONNECT_COOLDOWN = 30s`)
@@ -1448,6 +1455,14 @@ async def _maybe_notify_printer_offline(printer_id: int) -> None:
                     printer_id,
                 )
                 return
+            # Recorded only when the relay can publish it, so the reconnect's
+            # online event always has an offline before it.
+            if mqtt_relay.enabled and mqtt_relay.connected:
+                _printer_offline_published.add(printer_id)
+                try:
+                    await mqtt_relay.on_printer_offline(printer_id, printer.name, printer.serial_number)
+                except Exception as e:
+                    logger.warning("MQTT relay offline event failed for printer %s: %s", printer_id, e)
             logger.info(
                 "[#1752] Dispatching on_printer_offline for printer %s (%s)",
                 printer_id,
@@ -1680,8 +1695,9 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
     # Offline-notification edge (#1752): schedule `on_printer_offline` on
     # connected → disconnected. The "back online" channel is already covered
     # by the print-failure notification (firmware reports gcode_state=FAILED
-    # on reconnect of an interrupted print), so we don't add a symmetric
-    # online event here.
+    # on reconnect of an interrupted print), so there is no online
+    # notification. The MQTT relay gets both: offline after the debounce, and
+    # online on the reconnect that follows a published offline.
     prev_connected = _printer_last_connected.get(printer_id)
     _printer_last_connected[printer_id] = state.connected
     if prev_connected is True and not state.connected:
@@ -1697,6 +1713,18 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
                 name=f"printer-offline-notify-{printer_id}",
             )
     elif state.connected:
+        # Kept until the relay can actually send online: with its broker down
+        # now, the next status update after the reconnect sends it.
+        if printer_id in _printer_offline_published and mqtt_relay.enabled and mqtt_relay.connected:
+            _printer_offline_published.discard(printer_id)
+            printer_info = printer_manager.get_printer(printer_id)
+            if printer_info:
+                try:
+                    await mqtt_relay.on_printer_online(printer_id, printer_info.name, printer_info.serial_number)
+                except Exception as e:
+                    logging.getLogger(__name__).warning(
+                        "MQTT relay online event failed for printer %s: %s", printer_id, e
+                    )
         pending = _printer_offline_notify_tasks.pop(printer_id, None)
         if pending is not None and not pending.done():
             logging.getLogger(__name__).info(
@@ -8691,10 +8719,12 @@ async def on_print_complete(printer_id: int, data: dict):
                 await ensure_default_types(db)
                 overview = await _get_printer_maintenance_internal(printer_id, db, commit=True)
 
+                attention = [
+                    item for item in overview.maintenance_items if item.enabled and (item.is_due or item.is_warning)
+                ]
                 items_needing_attention = [
                     {"name": item.maintenance_type_name, "is_due": item.is_due, "is_warning": item.is_warning}
-                    for item in overview.maintenance_items
-                    if item.enabled and (item.is_due or item.is_warning)
+                    for item in attention
                 ]
 
                 if items_needing_attention:
@@ -8702,14 +8732,16 @@ async def on_print_complete(printer_id: int, data: dict):
                     logger.info("[MAINT-BG] Sent notification: %s items need attention", len(items_needing_attention))
 
                     # MQTT relay - publish maintenance alerts
-                    for item in items_needing_attention:
+                    for item in attention:
+                        current_value, threshold, unit = maintenance_alert_values(item)
                         try:
                             await mqtt_relay.on_maintenance_alert(
                                 printer_id=printer_id,
                                 printer_name=printer_name,
-                                maintenance_type=item["name"],
-                                current_value=0,  # Not easily available here
-                                threshold=0,  # Not easily available here
+                                maintenance_type=item.maintenance_type_name,
+                                current_value=current_value,
+                                threshold=threshold,
+                                unit=unit,
                             )
                         except Exception:
                             pass  # Don't fail if MQTT fails

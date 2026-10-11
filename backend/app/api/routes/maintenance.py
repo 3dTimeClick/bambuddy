@@ -288,6 +288,17 @@ async def restore_default_maintenance_types(
 # ============== Printer Maintenance ==============
 
 
+def maintenance_alert_values(item: MaintenanceStatus) -> tuple[float, float, str]:
+    """What the MQTT relay's maintenance/alert reports: (value, threshold, unit).
+
+    Print-hour items count hours since the last maintenance against the
+    interval; time-based ones count days, and their interval_hours holds days.
+    """
+    if item.interval_type == "days":
+        return (item.days_since_maintenance or 0.0, item.interval_hours, "days")
+    return (item.hours_since_maintenance, item.interval_hours, "hours")
+
+
 async def _get_printer_maintenance_internal(
     printer_id: int,
     db: AsyncSession,

@@ -395,6 +395,7 @@ class TestSmartPlugManager:
             patch.object(manager, "_schedule_loop") as mock_loop,
             patch.object(manager, "_snapshot_loop"),
             patch.object(manager, "_power_alert_loop") as mock_power_alert,
+            patch.object(manager, "_relay_energy_loop") as mock_relay_energy,
             patch("asyncio.create_task") as mock_create,
         ):
             mock_create.return_value = MagicMock()
@@ -405,6 +406,9 @@ class TestSmartPlugManager:
             # Power alerts are checked in the background, not only while a page is open.
             assert manager._power_alert_task is not None
             mock_power_alert.assert_called_once()
+            # Feeds the MQTT relay's smart_plugs/energy topic.
+            assert manager._relay_energy_task is not None
+            mock_relay_energy.assert_called_once()
 
     def test_stop_scheduler(self, manager):
         """Verify scheduler can be stopped."""
@@ -423,12 +427,14 @@ class TestSmartPlugManager:
         manager._scheduler_task = mock_schedule_task
         manager._snapshot_task = mock_snapshot_task
         manager._power_alert_task = MagicMock()
+        manager._relay_energy_task = MagicMock()
 
         # Mock the loop coroutines to avoid unawaited coroutine warnings
         with (
             patch.object(manager, "_schedule_loop") as mock_loop,
             patch.object(manager, "_snapshot_loop") as mock_snapshot,
             patch.object(manager, "_power_alert_loop") as mock_power_alert,
+            patch.object(manager, "_relay_energy_loop") as mock_relay_energy,
             patch("asyncio.create_task") as mock_create,
         ):
             manager.start_scheduler()
@@ -437,6 +443,7 @@ class TestSmartPlugManager:
             mock_loop.assert_not_called()
             mock_snapshot.assert_not_called()
             mock_power_alert.assert_not_called()
+            mock_relay_energy.assert_not_called()
 
     def test_stop_scheduler_cancels_snapshot_task(self, manager):
         """Verify stopping scheduler also cancels the snapshot loop (#941)."""
@@ -447,13 +454,17 @@ class TestSmartPlugManager:
 
         mock_power_alert_task = MagicMock()
         manager._power_alert_task = mock_power_alert_task
+        mock_relay_energy_task = MagicMock()
+        manager._relay_energy_task = mock_relay_energy_task
 
         manager.stop_scheduler()
 
         mock_schedule_task.cancel.assert_called_once()
         mock_snapshot_task.cancel.assert_called_once()
         mock_power_alert_task.cancel.assert_called_once()
+        mock_relay_energy_task.cancel.assert_called_once()
         assert manager._power_alert_task is None
+        assert manager._relay_energy_task is None
         assert manager._scheduler_task is None
         assert manager._snapshot_task is None
 
