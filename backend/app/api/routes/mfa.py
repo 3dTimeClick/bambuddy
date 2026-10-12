@@ -48,6 +48,7 @@ from backend.app.core.auth import (
     get_user_by_username,
     is_auth_enabled,
     resolve_session_max_minutes,
+    session_dated,
     token_outlived_its_session,
     verify_password,
 )
@@ -928,6 +929,7 @@ async def enable_email_otp(
             # Reuse the nonce field to store the code hash
             nonce=code_hash,
             expires_at=now + timedelta(minutes=10),
+            **session_dated(current_user.username),
         )
     )
     await db.commit()

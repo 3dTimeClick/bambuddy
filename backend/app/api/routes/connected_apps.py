@@ -44,6 +44,7 @@ from backend.app.core.auth import (
     get_user_by_username,
     is_auth_enabled,
     security,
+    session_dated,
     token_outlived_its_session,
     verify_password,
 )
@@ -281,33 +282,32 @@ async def authorize(
         db.add(ConnectedAppGrant(app_id=app.id, user_id=user.id))
 
     code = secrets.token_urlsafe(32)
-    db.add(
-        AuthEphemeralToken.new_connect_code(
+    # Read before the commit: a rollback below expires what this session loaded,
+    # and reading it then raises in async SQLAlchemy.
+    username, user_id, app_id, redirect_uri = user.username, user.id, app.id, app.redirect_uri
+
+    def new_code() -> AuthEphemeralToken:
+        return AuthEphemeralToken.new_connect_code(
             code_hash=_hash_code(code),
-            username=user.username,
-            app_id=app.id,
+            username=username,
+            app_id=app_id,
             code_challenge=data.code_challenge,
             expires_at=now + CODE_TTL,
+            # When the session that consents began (core/auth.session_dated)
+            **session_dated(username),
         )
-    )
+
+    db.add(new_code())
     try:
         await db.commit()
     except IntegrityError:
         # Two tabs consenting at once both inserted the grant; the other one won.
         await db.rollback()
-        db.add(
-            AuthEphemeralToken.new_connect_code(
-                code_hash=_hash_code(code),
-                username=user.username,
-                app_id=app.id,
-                code_challenge=data.code_challenge,
-                expires_at=now + CODE_TTL,
-            )
-        )
+        db.add(new_code())
         await db.commit()
 
-    logger.info("Connected app %s: code issued for user %s", app.id, user.id)
-    return ConnectAuthorizeResponse(code=code, redirect_uri=app.redirect_uri)
+    logger.info("Connected app %s: code issued for user %s", app_id, user_id)
+    return ConnectAuthorizeResponse(code=code, redirect_uri=redirect_uri)
 
 
 # --------------------------------------------------------------------------

@@ -27,7 +27,7 @@ async def test_signs_every_user_out_and_drops_short_lived_auth_records(test_engi
         ]
     )
     expires = datetime.now(timezone.utc) + timedelta(hours=1)
-    for token_type in ("revoked_jti", "media", "camera_stream", "websocket", *[t.value for t in TokenType]):
+    for token_type in {"revoked_jti", "media", "camera_stream", "websocket", *[t.value for t in TokenType]}:
         db_session.add(AuthEphemeralToken(token=f"t-{token_type}", token_type=token_type, expires_at=expires))
     for event_type in EventType:
         db_session.add(AuthRateLimitEvent(username="changed", event_type=event_type.value))

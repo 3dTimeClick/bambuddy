@@ -157,18 +157,19 @@ async def test_a_stream_opened_with_auth_off_ends_when_it_is_turned_on(async_cli
 
 async def test_a_stream_opened_as_the_session_ends_does_not_outlive_it(admin, printer, db_session):
     """The password change commits between the token check and the stream's
-    start: its sessions ended after the token was minted, so the stream ends."""
+    start: its sessions ended after the token was minted, so the stream ends.
+    (A token minted before the session began is refused outright as well.)"""
     token = await auth.create_camera_stream_token(username="camadmin")
+    opener = await _opener(token)  # checked just before the change commits
     await asyncio.sleep(0.01)
     await db_session.execute(
         text("UPDATE users SET password_changed_at = :t WHERE id = :id"), {"t": utcnow_naive(), "id": admin}
     )
     await db_session.commit()
-    await asyncio.sleep(0.01)
-    opener = await _opener(token)  # the token row was still there when it was read
 
     response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=opener)
     assert await _ended(response.body_iterator)
+    assert await auth.camera_stream_access(token) is None
 
 
 @pytest.fixture

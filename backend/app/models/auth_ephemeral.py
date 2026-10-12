@@ -43,6 +43,12 @@ class TokenType(str, Enum):
     EMAIL_OTP_SETUP = "email_otp_setup"
     SLICER_DOWNLOAD = "slicer_download"
     CONNECT_CODE = "connect_code"
+    # Written as bare strings where they are used; listed here so every kind is
+    # known (see test_token_outlived_session).
+    WEBSOCKET = "websocket"
+    CAMERA_STREAM = "camera_stream"
+    MEDIA = "media"
+    REVOKED_JTI = "revoked_jti"  # the logout list, not a credential
 
 
 class EventType(str, Enum):
@@ -198,6 +204,7 @@ class AuthEphemeralToken(Base):
         app_id: int,
         code_challenge: str,
         expires_at: datetime,
+        created_at: datetime | None = None,
     ) -> AuthEphemeralToken:
         """Create a connected-app authorization code.
 
@@ -212,6 +219,8 @@ class AuthEphemeralToken(Base):
             provider_id=app_id,
             nonce=code_challenge,
             expires_at=expires_at,
+            # When the minting session began (core/auth.session_dated), if given
+            **({"created_at": created_at} if created_at is not None else {}),
         )
 
 

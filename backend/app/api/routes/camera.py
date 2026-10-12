@@ -950,6 +950,8 @@ async def create_stream_token(
         "token": await create_camera_stream_token(
             username=user.username if user is not None else None,
             api_key_id=api_key.id if api_key is not None else None,
+            # Binds the token to this key (SQLite reuses a deleted key's id)
+            api_key_prefix=api_key.key_prefix if api_key is not None else None,
         )
     }
 

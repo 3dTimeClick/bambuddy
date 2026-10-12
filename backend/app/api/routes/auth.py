@@ -683,7 +683,9 @@ async def mint_websocket_token(
     username = current_user.username if current_user is not None else None
     # The socket only carries the printers its minter may see (#1727)
     api_key_id = api_key.id if api_key is not None else None
-    return {"token": await create_websocket_token(username, api_key_id)}
+    # The key's prefix binds the token to this key (SQLite reuses a deleted key's id)
+    api_key_prefix = api_key.key_prefix if api_key is not None else None
+    return {"token": await create_websocket_token(username, api_key_id, api_key_prefix)}
 
 
 @router.post("/media-token")

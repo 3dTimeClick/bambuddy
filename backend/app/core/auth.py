@@ -848,17 +848,70 @@ async def token_outlived_its_session(db: AsyncSession, username: str | None, min
     password change or reset, a 2FA removal or a restore. A token from before
     belongs to an earlier holder of the name or an ended session; deletes and
     renames drop those, but one minted while they commit would survive.
-    Truncated to the second as for JWTs (_is_token_fresh): a new user and the
-    first token it is given can be written in the same flush.
+
+    A token naming a user that does not exist counts as outlived: its callers
+    look the user up again on their own, and a user created with the name in
+    between would be served. Compared to the microsecond (both are written by
+    Python): every user is committed before any token is minted for it, so
+    there is nothing to round for, unlike a JWT's whole-second iat.
     """
-    if not username or minted_at is None:
+    if not username:
         return False
+    if minted_at is None:
+        return True
     changed = (
         await db.execute(select(User.password_changed_at).where(func.lower(User.username) == func.lower(username)))
-    ).scalar_one_or_none()
+    ).first()
     if changed is None:
-        return False
-    return minted_at.replace(tzinfo=None) < changed.replace(tzinfo=None, microsecond=0)
+        return True  # no such user
+    session_start = changed[0]
+    if session_start is None:
+        return False  # no session start recorded (an old row the start-up backfill has not reached)
+    return minted_at.replace(tzinfo=None) < session_start.replace(tzinfo=None)
+
+
+def _minting_session_start() -> datetime | None:
+    """When the session of the request minting a token began, as a created_at.
+
+    A token minted by a signed-in user counts from their JWT's issue time, not
+    from when its row is written: a password change, reset or 2FA removal that
+    commits in between (a stolen JWT minting in a loop) would otherwise leave a
+    token dated after it. The end of the iat second, as _is_token_fresh treats
+    a JWT from the second the session began as fresh. None outside a request
+    signed in with a JWT (API keys, auth off, sign-in steps).
+    """
+    cached = _authenticated_user.get()
+    if cached is None:
+        return None
+    try:
+        iat = jwt.decode(cached[0], SECRET_KEY, algorithms=[ALGORITHM]).get("iat")
+    except JWTError:
+        return None
+    if iat is None:
+        return None
+    return datetime.fromtimestamp(int(iat), tz=timezone.utc).replace(tzinfo=None) + timedelta(microseconds=999999)
+
+
+def session_dated(username: str | None) -> dict:
+    """created_at for a token a signed-in user mints for themself (see
+    _minting_session_start); nothing when the request's session is someone
+    else's (an admin minting for a user) or there is none."""
+    cached = _authenticated_user.get()
+    if not username or cached is None or cached[1].username.lower() != username.lower():
+        return {}
+    start = _minting_session_start()
+    return {"created_at": start} if start is not None else {}
+
+
+def _api_key_still_the_minter(current_prefix: str | None, minted_prefix: str | None) -> bool:
+    """Whether a key-minted token's key is still the one that minted it.
+
+    The prefix is recorded at mint (in ``nonce``): SQLite gives a deleted key's
+    id to the next key created, and a token minted while the key was deleted
+    would otherwise work with the new key's printers. Tokens from before the
+    prefix was recorded have none and pass (they expire within the hour).
+    """
+    return minted_prefix is None or current_prefix == minted_prefix
 
 
 # --- Camera stream tokens ---
@@ -874,7 +927,9 @@ async def token_outlived_its_session(db: AsyncSession, username: str | None, min
 CAMERA_STREAM_TOKEN_EXPIRE_MINUTES = 60
 
 
-async def create_camera_stream_token(username: str | None = None, api_key_id: int | None = None) -> str:
+async def create_camera_stream_token(
+    username: str | None = None, api_key_id: int | None = None, api_key_prefix: str | None = None
+) -> str:
     """Create a reusable token for camera stream/snapshot access.
 
     Records who minted it -- ``username`` for a user, ``api_key_id`` for an
@@ -898,7 +953,9 @@ async def create_camera_stream_token(username: str | None = None, api_key_id: in
                 token_type="camera_stream",
                 username=username or "",
                 api_key_id=api_key_id,
+                nonce=api_key_prefix if api_key_id is not None else None,
                 expires_at=expires_at,
+                **session_dated(username),
             )
         )
         await db.commit()
@@ -908,7 +965,9 @@ async def create_camera_stream_token(username: str | None = None, api_key_id: in
 WEBSOCKET_TOKEN_EXPIRE_MINUTES = 60
 
 
-async def create_websocket_token(username: str | None, api_key_id: int | None = None) -> str:
+async def create_websocket_token(
+    username: str | None, api_key_id: int | None = None, api_key_prefix: str | None = None
+) -> str:
     """Create a short-lived token for ``/api/v1/ws`` connections.
 
     Mirrors the camera-stream-token pattern: opaque random string stored
@@ -941,7 +1000,9 @@ async def create_websocket_token(username: str | None, api_key_id: int | None = 
                 token_type="websocket",
                 username=username or "",
                 api_key_id=api_key_id,
+                nonce=api_key_prefix if api_key_id is not None else None,
                 expires_at=expires_at,
+                **session_dated(username),
             )
         )
         await db.commit()
@@ -968,6 +1029,10 @@ async def verify_websocket_token_principal(token: str) -> tuple[str, int | None]
         )
         row = result.scalar_one_or_none()
         if row is None or await token_outlived_its_session(db, row.username, row.created_at):
+            return None
+        if row.api_key_id is not None and not _api_key_still_the_minter(
+            await usable_api_key_prefix(db, row.api_key_id), row.nonce
+        ):
             return None
         return row.username or "", row.api_key_id
 
@@ -1030,11 +1095,22 @@ async def principal_holds(
     return False
 
 
-async def user_id_holds(db: AsyncSession, user_id: int, permission: Permission) -> bool:
-    """principal_holds for the owner of a long-lived token, named by id."""
+async def user_id_holds(
+    db: AsyncSession, user_id: int, permission: Permission, minted_at: datetime | None = None
+) -> bool:
+    """principal_holds for the owner of a long-lived token, named by id.
+
+    With ``minted_at`` (the token's created_at), a user created after the token
+    is not its owner: SQLite gives a deleted user's id to the next user, and a
+    token minted while the user was deleted would stream with the new user's
+    printers for up to a year. Both created_at are set by the database, so they
+    share one clock.
+    """
     result = await db.execute(select(User).where(User.id == user_id).options(selectinload(User.groups)))
     user = result.scalar_one_or_none()
-    return user is not None and user.is_active and user.has_permission(permission.value)
+    if user is None or not user.is_active or not user.has_permission(permission.value):
+        return False
+    return minted_at is None or user.created_at is None or minted_at >= user.created_at
 
 
 async def principal_may_connect(db: AsyncSession, username: str | None, api_key_id: int | None) -> bool:
@@ -1078,9 +1154,9 @@ class StreamOpener:
     A live view runs for hours on a token checked once. Its opener is a user
     (a 60-minute token minted with their session), an API key, a long-lived
     token (Cam Wall, overlay, Home Assistant), or nobody while auth was off.
-    ``started_at`` is when the user's token was minted, not when the stream
-    opened: a session that ended in between (its token checked just before)
-    must still end the stream.
+    ``started_at`` is the token's created_at -- when the session that minted it
+    began -- not when the stream opened: a session that ended in between must
+    still end the stream.
     """
 
     auth_on: bool
@@ -1113,13 +1189,21 @@ async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] 
         row = result.scalar_one_or_none()
         if row is not None and await token_outlived_its_session(db, row.username, row.created_at):
             return None
+        if (
+            row is not None
+            and row.api_key_id is not None
+            and not _api_key_still_the_minter(await usable_api_key_prefix(db, row.api_key_id), row.nonce)
+        ):
+            return None
         if row is not None:
             # Minting it needed camera:view; a group or key change can take it away.
             if not await principal_holds(db, row.username, row.api_key_id, Permission.CAMERA_VIEW):
                 return None
             scope = await principal_printer_scope(db, row.username, row.api_key_id)
             prefix = await usable_api_key_prefix(db, row.api_key_id) if row.api_key_id is not None else None
-            minted = row.expires_at.replace(tzinfo=None) - timedelta(minutes=CAMERA_STREAM_TOKEN_EXPIRE_MINUTES)
+            # When the minting session began (see _minting_session_start), or
+            # when the token was minted for one that is not a user's session.
+            minted = row.created_at.replace(tzinfo=None)
             return scope, StreamOpener(
                 auth_on=True,
                 username=row.username or None,
@@ -1133,7 +1217,7 @@ async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] 
         from backend.app.services.long_lived_tokens import STREAM_SCOPES, verify_token as verify_long_lived
 
         record = await verify_long_lived(db, token, scope=STREAM_SCOPES)
-        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW, record.created_at):
             return None
         scope = await resolve_user_id_printer_scope(db, record.user_id)
         return scope, StreamOpener(
@@ -1183,7 +1267,7 @@ async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> 
                     or record.user_id != opener.long_lived_user_id
                     or record.lookup_prefix != opener.long_lived_prefix
                     or _is_expired(record, datetime.now(timezone.utc))
-                    or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW)
+                    or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW, record.created_at)
                 ):
                     return False
                 scope = await resolve_user_id_printer_scope(db, record.user_id)
@@ -1227,7 +1311,7 @@ async def verify_camwall_token(token: str) -> PrinterScope | None:
 
         record = await verify_long_lived(db, token, scope="camwall")
         # Minting it needed camera:view; a group change can take it away.
-        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW, record.created_at):
             return None
         return await resolve_user_id_printer_scope(db, record.user_id)
 
@@ -1249,7 +1333,7 @@ async def verify_overlay_token(token: str) -> PrinterScope | None:
 
         record = await verify_long_lived(db, token, scope="overlay")
         # Minting it needed camera:view; a group change can take it away.
-        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW, record.created_at):
             return None
         return await resolve_user_id_printer_scope(db, record.user_id)
 
@@ -1301,6 +1385,7 @@ async def create_media_token(username: str | None) -> str:
                 token_type="media",
                 username=username or "",
                 expires_at=expires_at,
+                **session_dated(username),
             )
         )
         await db.commit()
@@ -1742,6 +1827,8 @@ async def get_current_user(
             )
         if not _is_token_fresh(iat, user):
             raise credentials_exception
+        # What this request mints counts from this session (_minting_session_start)
+        _authenticated_user.set((token, user))
         return user
 
 
@@ -1833,6 +1920,8 @@ async def require_auth_if_enabled(
                     detail="Could not validate credentials",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+            # What this request mints counts from this session (_minting_session_start)
+            _authenticated_user.set((credentials.credentials, user))
             return user
 
         # No credentials provided
