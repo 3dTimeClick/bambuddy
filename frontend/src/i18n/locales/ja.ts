@@ -662,7 +662,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'プリンターを削除',
-      deleteMessage: '「{{name}}」を削除しますか？すべての接続設定が削除されます。',
+      deleteMessage: '「{{name}}」を削除しますか？すべての接続設定が削除されます。このプリンターに割り当てられた通知プロバイダーとスマートプラグ、およびこのプリンターに送信する仮想プリンターも削除されます。',
       deleteArchivesNote: 'このプリンターのすべての印刷履歴が完全に削除されます。',
       keepArchivesNote: '印刷履歴は保持されますが、このプリンターとの関連は解除されます。',
       stopTitle: '印刷を停止',
@@ -2682,6 +2682,7 @@ export default {
       enterGroupName: 'グループ名を入力',
       settingsSaved: '設定を保存しました',
       noPermissionUpdate: '設定を変更する権限がありません',
+      settingsSaveFailed: '設定は保存されませんでした: {{message}}',
       cameraSettingsSaved: 'カメラ設定を保存しました',
       enterCameraUrl: 'カメラURLを入力してください',
       passwordChanged: 'パスワードが正常に変更されました',

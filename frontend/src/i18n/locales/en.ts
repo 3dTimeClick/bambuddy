@@ -668,7 +668,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Delete Printer',
-      deleteMessage: 'Are you sure you want to delete "{{name}}"? This will remove all connection settings.',
+      deleteMessage: 'Are you sure you want to delete "{{name}}"? This will remove all connection settings. Notification providers and smart plugs assigned to it, and virtual printers that send to it, are deleted too.',
       deleteArchivesNote: 'All print history for this printer will be permanently deleted.',
       keepArchivesNote: 'Print history will be kept but no longer associated with this printer.',
       stopTitle: 'Stop Print',
@@ -2705,6 +2705,7 @@ export default {
       enterGroupName: 'Please enter a group name',
       settingsSaved: 'Settings saved',
       noPermissionUpdate: 'You do not have permission to change settings',
+      settingsSaveFailed: 'Settings not saved: {{message}}',
       cameraSettingsSaved: 'Camera settings saved',
       enterCameraUrl: 'Please enter a camera URL',
       passwordChanged: 'Password changed successfully',

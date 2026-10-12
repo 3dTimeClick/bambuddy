@@ -57,8 +57,13 @@ class Printer(Base):
 
     # Relationships
     archives: Mapped[list["PrintArchive"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
-    smart_plugs: Mapped[list["SmartPlug"]] = relationship(back_populates="printer")
-    notification_providers: Mapped[list["NotificationProvider"]] = relationship(back_populates="printer")
+    # Deleted with the printer, as providers: unassigned plugs are everyone's.
+    smart_plugs: Mapped[list["SmartPlug"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    # Deleted with the printer: setting their printer_id to NULL (the default)
+    # would make them providers for all printers.
+    notification_providers: Mapped[list["NotificationProvider"]] = relationship(
+        back_populates="printer", cascade="all, delete-orphan"
+    )
     maintenance_items: Mapped[list["PrinterMaintenance"]] = relationship(
         back_populates="printer", cascade="all, delete-orphan"
     )

@@ -2675,6 +2675,14 @@ function PrinterCard({
       queryClient.invalidateQueries({ queryKey: ['printers'] });
       queryClient.invalidateQueries({ queryKey: ['archives'] });
       queryClient.invalidateQueries({ queryKey: ['maintenanceOverview'] });
+      // What was limited to the printer went with it (providers, virtual
+      // printers, smart plugs) or lost it (API keys, Obico).
+      queryClient.invalidateQueries({ queryKey: ['notification-providers'] });
+      queryClient.invalidateQueries({ queryKey: ['virtual-printers'] });
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['smart-plugs'] });
+      // Obico's printer list lost it; a cached copy would save it back.
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
     },
     onError: (error: Error) => showToast(error.message || t('printers.toast.failedToDelete'), 'error'),
   });

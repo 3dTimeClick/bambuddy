@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth import RequirePermissionIfAuthEnabled, ScopedCaller, require_notification_send
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.printer_scope import ensure_printers_exist
 from backend.app.models.notification import NotificationLog, NotificationProvider
 from backend.app.models.notification_lock_screen_widget import NotificationLockScreenWidget
 from backend.app.models.user import User
@@ -60,6 +61,33 @@ async def _resync_reaction_poller():
         await telegram_reaction_poller.sync()
     except Exception as e:
         logger.warning("Telegram reaction poller resync failed: %s", e)
+
+
+async def delete_provider(db: AsyncSession, provider: NotificationProvider) -> bool:
+    """Delete a provider (the caller commits, then calls after_providers_deleted).
+
+    A Bambuddy Notify provider is first retired and its live activities and
+    widgets queued for remote cleanup, while the rows that name them still
+    exist. Returns whether it was one.
+    """
+    notify = provider.provider_type == "notify"
+    if notify:
+        config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
+        # Retire this provider and capture owned IDs before FK cascade removes
+        # them. Queue remote cleanup; HTTP must never delay this request.
+        provider.enabled = False
+        await db.commit()
+        await notify_live_activities.schedule_cleanup(provider.id, config)
+        await notify_widgets.schedule_cleanup(provider.id, config)
+    await db.delete(provider)
+    return notify
+
+
+async def after_providers_deleted(*, notify: bool) -> None:
+    """What deleted providers leave to do once the delete is committed."""
+    if notify:
+        _notify_providers_changed()
+    await _resync_reaction_poller()
 
 
 def _provider_to_dict(provider: NotificationProvider) -> dict:
@@ -166,6 +194,7 @@ async def create_notification_provider(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
 ):
     """Create a new notification provider."""
+    await ensure_printers_exist(db, [provider_data.printer_id])
     if provider_data.provider_type.value == "notify":
         try:
             notify_credentials(provider_data.config)
@@ -563,6 +592,7 @@ async def update_notification_provider(
 
     # Update only provided fields
     update_dict = update_data.model_dump(exclude_unset=True)
+    await ensure_printers_exist(db, [update_dict.get("printer_id")])
 
     effective_type = update_dict.get("provider_type") or provider.provider_type
     effective_type = getattr(effective_type, "value", effective_type)
@@ -641,22 +671,11 @@ async def delete_notification_provider(
         raise HTTPException(status_code=404, detail="Notification provider not found")
 
     name = provider.name
-    if provider.provider_type == "notify":
-        config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
-        # Retire this provider and capture owned IDs before FK cascade removes
-        # them. Queue remote cleanup; HTTP must never delay this request.
-        provider.enabled = False
-        await db.commit()
-        await notify_live_activities.schedule_cleanup(provider_id, config)
-        await notify_widgets.schedule_cleanup(provider_id, config)
-    await db.delete(provider)
+    notify = await delete_provider(db, provider)
     await db.commit()
-
-    if provider.provider_type == "notify":
-        _notify_providers_changed()
+    await after_providers_deleted(notify=notify)
 
     logger.info("Deleted notification provider: %s", name)
-    await _resync_reaction_poller()
 
     return {"message": f"Notification provider '{name}' deleted"}
 

@@ -189,3 +189,90 @@ def api_key_own_scope(api_key) -> PrinterScope:
     if api_key.printer_ids is None:
         return ALL_PRINTERS
     return PrinterScope(frozenset(int(pid) for pid in api_key.printer_ids))
+
+
+async def drop_printers_from_api_keys(db, deleted: Iterable[int] | None = None) -> None:
+    """Take deleted printers out of the API keys limited to them.
+
+    *deleted*: the printers being deleted, or None for every id that no longer
+    has a printer (the start-up repair). SQLite gives a freed id to the next
+    printer created, so a stale id would hand the key that printer. A key whose
+    last printer goes keeps an empty list, which reaches no printer; None would
+    reach all of them. *db* is a session or a connection.
+    """
+    from sqlalchemy import update
+
+    from backend.app.models.api_key import APIKey
+    from backend.app.models.printer import Printer
+
+    if deleted is None:
+        existing = set((await db.execute(select(Printer.id))).scalars().all())
+
+        def keeps(printer_id: int) -> bool:
+            return printer_id in existing
+    else:
+        gone = set(deleted)
+
+        def keeps(printer_id: int) -> bool:
+            return printer_id not in gone
+
+    for key_id, printer_ids in (await db.execute(select(APIKey.id, APIKey.printer_ids))).all():
+        if not isinstance(printer_ids, list):
+            continue  # all printers
+        kept = [printer_id for printer_id in printer_ids if keeps(printer_id)]
+        if kept != printer_ids:
+            await db.execute(update(APIKey).where(APIKey.id == key_id).values(printer_ids=kept))
+
+
+async def drop_printers_from_obico(db, deleted: Iterable[int] | None = None) -> None:
+    """Take deleted printers out of the printers Obico detection watches.
+
+    As drop_printers_from_api_keys: SQLite would enrol the next printer given a
+    stale id, sending its camera to the ML server and pausing its prints. An
+    empty or missing list means all printers and is left as it is; a list whose
+    last printer goes becomes "[]", which watches none.
+    """
+    import json
+
+    from sqlalchemy import update
+
+    from backend.app.models.printer import Printer
+    from backend.app.models.settings import Settings
+
+    key = "obico_enabled_printers"
+    raw = (await db.execute(select(Settings.value).where(Settings.key == key))).scalar()
+    if not raw:
+        return
+    try:
+        printer_ids = json.loads(raw)
+    except ValueError:
+        return
+    if not isinstance(printer_ids, list):
+        return
+    if deleted is None:
+        existing = set((await db.execute(select(Printer.id))).scalars().all())
+        kept = [printer_id for printer_id in printer_ids if printer_id in existing]
+    else:
+        gone = set(deleted)
+        kept = [printer_id for printer_id in printer_ids if printer_id not in gone]
+    if kept != printer_ids:
+        # Written as the settings page writes it ("[1,3]"); "[1, 3]" reads there
+        # as an unsaved change and saves itself again.
+        value = json.dumps(kept, separators=(",", ":"))
+        await db.execute(update(Settings).where(Settings.key == key).values(value=value))
+
+
+async def ensure_printers_exist(db: AsyncSession, printer_ids: Iterable[int | None] | None) -> None:
+    """400 for an id with no printer, before it is stored as a limit.
+
+    SQLite enforces no foreign keys and gives a freed id to the next printer
+    created, which a stored stale id would hand whatever it limits.
+    """
+    from backend.app.models.printer import Printer
+
+    wanted = {printer_id for printer_id in printer_ids or () if printer_id is not None}
+    if not wanted:
+        return
+    found = set((await db.execute(select(Printer.id).where(Printer.id.in_(wanted)))).scalars().all())
+    if missing := sorted(wanted - found):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown printer: {', '.join(map(str, missing))}")

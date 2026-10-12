@@ -818,6 +818,17 @@ class SmartPlugManager:
             # Clear pending state in database
             spawn_background_task(self._mark_auto_off_pending(plug_id, False), name=f"plug-auto-off-pending-{plug_id}")
 
+    def forget_plug(self, plug_id: int) -> None:
+        """Cancel a deleted plug's pending turn-off.
+
+        The task holds the plug's address and printer id, so it would still switch
+        the outlet, and on SQLite read the next printer given the id. Nothing is
+        written: the row is gone, and SQLite gives its id to the next plug.
+        """
+        task = self._pending_off.pop(plug_id, None)
+        if task is not None:
+            task.cancel()
+
     def cancel_all_pending(self):
         """Cancel all pending turn-off tasks."""
         for plug_id in list(self._pending_off.keys()):

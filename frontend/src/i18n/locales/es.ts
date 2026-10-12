@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Eliminar impresora',
-      deleteMessage: '¿Está seguro de que desea eliminar "{{name}}"? Esto eliminará todos los ajustes de conexión.',
+      deleteMessage: '¿Está seguro de que desea eliminar "{{name}}"? Esto eliminará todos los ajustes de conexión. También se eliminan los proveedores de notificaciones y enchufes inteligentes asignados a ella, y las impresoras virtuales que envían a ella.',
       deleteArchivesNote: 'Todo el historial de impresión de esta impresora se eliminará permanentemente.',
       keepArchivesNote: 'El historial de impresión se conservará pero ya no estará asociado a esta impresora.',
       stopTitle: 'Detener impresión',
@@ -2685,6 +2685,7 @@ export default {
       enterGroupName: 'Introduzca un nombre de grupo',
       settingsSaved: 'Ajustes guardados',
       noPermissionUpdate: 'No tiene permiso para cambiar los ajustes',
+      settingsSaveFailed: 'Ajustes no guardados: {{message}}',
       cameraSettingsSaved: 'Ajustes de la cámara guardados',
       enterCameraUrl: 'Introduzca una URL de cámara',
       passwordChanged: 'Contraseña cambiada correctamente',

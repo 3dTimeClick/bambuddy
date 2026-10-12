@@ -666,7 +666,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Ta bort skrivare',
-      deleteMessage: 'Är du säker på att du vill ta bort "{{name}}"? Detta kommer att ta bort alla anslutningsinställningar.',
+      deleteMessage: 'Är du säker på att du vill ta bort "{{name}}"? Detta kommer att ta bort alla anslutningsinställningar. Notisleverantörer och smarta kontakter som är kopplade till den, och virtuella skrivare som skickar till den, tas också bort.',
       deleteArchivesNote: 'All utskriftshistorik för denna skrivare kommer att tas bort permanent.',
       keepArchivesNote: 'Utskriftshistorik kommer att behållas men inte längre vara kopplad till denna skrivare.',
       stopTitle: 'Stoppa utskrift',
@@ -2702,6 +2702,7 @@ export default {
       enterGroupName: 'Ange ett gruppnamn',
       settingsSaved: 'Inställningar sparade',
       noPermissionUpdate: 'Du har inte behörighet att ändra inställningar',
+      settingsSaveFailed: 'Inställningarna sparades inte: {{message}}',
       cameraSettingsSaved: 'Kamerainställningar sparade',
       enterCameraUrl: 'Ange URL för en kamera',
       passwordChanged: 'Lösenord ändrat',

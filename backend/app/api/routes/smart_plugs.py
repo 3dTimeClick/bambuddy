@@ -42,7 +42,7 @@ from backend.app.services.mqtt_smart_plug import subscribe_plug_to_mqtt
 from backend.app.services.plug_energy_history import fill_derived_energy
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.rest_smart_plug import rest_smart_plug_service
-from backend.app.services.smart_plug_manager import publish_plug_state
+from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.tasmota import tasmota_service
 from backend.app.utils.local_time import utcnow_naive
 
@@ -595,6 +595,14 @@ async def update_smart_plug(
     return plug
 
 
+async def delete_plug(db: AsyncSession, plug: SmartPlug) -> None:
+    """Delete a smart plug (the caller commits). An MQTT plug stops listening first."""
+    smart_plug_manager.forget_plug(plug.id)
+    if plug.plug_type == "mqtt":
+        mqtt_relay.smart_plug_service.unsubscribe(plug.id)
+    await db.delete(plug)
+
+
 @router.delete("/{plug_id}")
 async def delete_smart_plug(
     plug_id: int,
@@ -609,13 +617,7 @@ async def delete_smart_plug(
         raise HTTPException(404, "Smart plug not found")
 
     plug_name = plug.name
-    plug_type = plug.plug_type
-
-    # Unsubscribe MQTT plug before deletion
-    if plug_type == "mqtt":
-        mqtt_relay.smart_plug_service.unsubscribe(plug_id)
-
-    await db.delete(plug)
+    await delete_plug(db, plug)
     await db.commit()
 
     logger.info("Deleted smart plug '%s'", plug_name)

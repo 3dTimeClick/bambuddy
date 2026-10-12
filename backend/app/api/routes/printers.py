@@ -495,6 +495,19 @@ async def delete_printer(
                 f"currently printing. Stop the print first, or keep the archives.",
             )
 
+    # What was limited to this printer goes with it, rather than reaching every
+    # printer (a provider's NULL printer means all) or, on SQLite, whichever
+    # printer is given this id next (an API key's list keeps the id). Providers
+    # first: retiring a Bambuddy Notify one commits.
+    from backend.app.api.routes.notifications import after_providers_deleted, delete_provider
+    from backend.app.core.printer_scope import drop_printers_from_api_keys, drop_printers_from_obico
+    from backend.app.models.notification import NotificationProvider
+
+    notify = False
+    scoped = await db.execute(select(NotificationProvider).where(NotificationProvider.printer_id == printer_id))
+    for provider in scoped.scalars().all():
+        notify = await delete_provider(db, provider) or notify
+
     printer_manager.disconnect_printer(printer_id)
 
     if delete_archives:
@@ -528,8 +541,43 @@ async def delete_printer(
         )
         await db.execute(sql_delete(PrinterMaintenance).where(PrinterMaintenance.printer_id == printer_id))
 
+    await drop_printers_from_api_keys(db, [printer_id])
+    await drop_printers_from_obico(db, [printer_id])
+    # A virtual printer aimed at it goes too: without a target a queue-mode one
+    # takes jobs for any printer of its model (deleted below, with its plugs).
+    from backend.app.api.routes.virtual_printers import drop_virtual_printer, remove_upload_dir
+    from backend.app.models.virtual_printer import VirtualPrinter
+    from backend.app.services.virtual_printer import virtual_printer_manager
+
+    aimed = (
+        (await db.execute(select(VirtualPrinter.id).where(VirtualPrinter.target_printer_id == printer_id)))
+        .scalars()
+        .all()
+    )
+    # Its smart plugs too: without a printer a plug is everyone's, and users and
+    # keys limited to other printers could switch what it still powers.
+    from backend.app.api.routes.smart_plugs import delete_plug
+    from backend.app.models.smart_plug import SmartPlug
+
+    for plug in (await db.execute(select(SmartPlug).where(SmartPlug.printer_id == printer_id))).scalars().all():
+        await delete_plug(db, plug)
+    upload_dirs = []
+    for vp_id in aimed:
+        await virtual_printer_manager.remove_instance(vp_id)
+        upload_dirs.append(await drop_virtual_printer(db, vp_id))
+
     await db.delete(printer)
     await db.commit()
+    await after_providers_deleted(notify=notify)
+    for upload_dir in upload_dirs:
+        remove_upload_dir(upload_dir)
+    if aimed:
+        try:
+            await virtual_printer_manager.sync_from_db()
+        except Exception as e:
+            logger.error("Failed to sync virtual printers after printer delete: %s", e)
+    # Open connections worked out their printers at connect.
+    await ws_manager.refresh_printer_scopes()
 
     return {"status": "deleted", "archives_deleted": delete_archives}
 

@@ -666,7 +666,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Printer verwijderen',
-      deleteMessage: 'Weet je zeker dat je "{{name}}" wilt verwijderen? Hiermee worden alle verbindingsinstellingen verwijderd.',
+      deleteMessage: 'Weet je zeker dat je "{{name}}" wilt verwijderen? Hiermee worden alle verbindingsinstellingen verwijderd. Meldingsproviders en slimme stekkers die eraan zijn toegewezen, en virtuele printers die ernaar versturen, worden ook verwijderd.',
       deleteArchivesNote: 'De volledige afdrukgeschiedenis van deze printer wordt permanent verwijderd.',
       keepArchivesNote: 'De afdrukgeschiedenis blijft bewaard, maar is niet langer aan deze printer gekoppeld.',
       stopTitle: 'Afdruk stoppen',
@@ -2703,6 +2703,7 @@ export default {
       enterGroupName: 'Voer een groepsnaam in',
       settingsSaved: 'Instellingen opgeslagen',
       noPermissionUpdate: 'Je hebt geen toestemming om instellingen te wijzigen',
+      settingsSaveFailed: 'Instellingen niet opgeslagen: {{message}}',
       cameraSettingsSaved: 'Camera-instellingen opgeslagen',
       enterCameraUrl: 'Voer een camera-URL in',
       passwordChanged: 'Wachtwoord succesvol gewijzigd',

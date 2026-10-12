@@ -44,6 +44,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.database import async_session
+from backend.app.core.printer_scope import drop_printers_from_obico
 from backend.app.models.archive import PrintArchive
 from backend.app.models.github_backup import GitHubBackupConfig, GitHubBackupLog
 from backend.app.models.printer import Printer
@@ -1608,6 +1609,10 @@ class GitHubRestoreService:
             tally.restored += 1
             if keys_written is not None:
                 keys_written.add(key)
+
+        # A backup taken before a printer delete still lists it, and SQLite gives
+        # its id to the next printer created.
+        await drop_printers_from_obico(db)
 
         if plan.blocked:
             tally.note(

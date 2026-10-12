@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, ScanEye, Check, X, AlertTriangle, Info } from 'lucide-react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
+import type { AppSettings } from '../api/client';
 import { Card, CardContent, CardHeader } from './Card';
 import { Button } from './Button';
 import { Toggle } from './Toggle';
@@ -22,6 +23,16 @@ function isValidInternalUrl(value: string): boolean {
     return new URL(trimmed).hostname !== '';
   } catch {
     return false;
+  }
+}
+
+// The printers Obico watches as stored; null is all of them.
+function storedPrinterList(stored: AppSettings): number[] | null {
+  try {
+    const list = stored.obico_enabled_printers ? (JSON.parse(stored.obico_enabled_printers) as number[]) : null;
+    return Array.isArray(list) ? list : null;
+  } catch {
+    return null;
   }
 }
 
@@ -67,14 +78,7 @@ export function FailureDetectionSettings() {
     setSensitivity(settings.obico_sensitivity ?? 'medium');
     setAction(settings.obico_action ?? 'notify');
     setPollInterval(settings.obico_poll_interval ?? 10);
-    try {
-      const list = settings.obico_enabled_printers
-        ? (JSON.parse(settings.obico_enabled_printers) as number[])
-        : null;
-      setEnabledPrinters(Array.isArray(list) ? list : null);
-    } catch {
-      setEnabledPrinters(null);
-    }
+    setEnabledPrinters(storedPrinterList(settings));
     setInitialized(true);
   }, [settings]);
 
@@ -92,6 +96,23 @@ export function FailureDetectionSettings() {
         obico_poll_interval: pollInterval,
         obico_enabled_printers: enabledPrinters === null ? '' : JSON.stringify(enabledPrinters),
       }),
+    onError: async (error: Error) => {
+      showToast(t('settings.toast.settingsSaveFailed', { message: error.message }), 'error');
+      // A 400 is a printer deleted while this page was open. The printer list
+      // goes back to what the server kept, or every later edit would send the
+      // refused id again; set here, as unchanged settings keep their reference
+      // and the effect would not run. Not filtered against the printers list,
+      // which holds only the caller's printers. Other fields keep what was
+      // typed: a half-typed address is refused with 422 until it is finished.
+      if (!(error instanceof ApiError) || error.status !== 400) return;
+      queryClient.invalidateQueries({ queryKey: ['printers'] });
+      try {
+        const stored = await queryClient.fetchQuery({ queryKey: ['settings'], queryFn: api.getSettings, staleTime: 0 });
+        setEnabledPrinters(storedPrinterList(stored));
+      } catch {
+        // Server not reachable: the list keeps the edit, and the next one tries again.
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       queryClient.invalidateQueries({ queryKey: ['obico-status'] });

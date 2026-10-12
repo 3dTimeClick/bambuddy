@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: '删除打印机',
-      deleteMessage: '确定要删除"{{name}}"吗？这将移除所有连接设置。',
+      deleteMessage: '确定要删除"{{name}}"吗？这将移除所有连接设置。分配给它的通知提供商和智能插座，以及发送到它的虚拟打印机，也会一并删除。',
       deleteArchivesNote: '此打印机的所有打印历史将被永久删除。',
       keepArchivesNote: '打印历史将保留，但不再与此打印机关联。',
       stopTitle: '停止打印',
@@ -2683,6 +2683,7 @@ export default {
       enterGroupName: '请输入组名称',
       settingsSaved: '设置已保存',
       noPermissionUpdate: '您没有权限更改设置',
+      settingsSaveFailed: '设置未保存：{{message}}',
       cameraSettingsSaved: '摄像头设置已保存',
       enterCameraUrl: '请输入摄像头 URL',
       passwordChanged: '密码修改成功',

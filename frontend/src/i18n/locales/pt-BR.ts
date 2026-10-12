@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Excluir Impressora',
-      deleteMessage: 'Tem certeza de que deseja excluir "{{name}}"? Isso removerá todas as configurações de conexão.',
+      deleteMessage: 'Tem certeza de que deseja excluir "{{name}}"? Isso removerá todas as configurações de conexão. Provedores de notificação e tomadas inteligentes atribuídos a ela, e impressoras virtuais que enviam para ela, também são excluídos.',
       deleteArchivesNote: 'Todo o histórico de impressão desta impressora será permanentemente excluído.',
       keepArchivesNote: 'O histórico de impressão será mantido, mas não estará mais associado a esta impressora.',
       stopTitle: 'Parar Impressão',
@@ -2638,6 +2638,7 @@ export default {
       enterGroupName: 'Por favor, insira um nome de grupo',
       settingsSaved: 'Configurações salvas',
       noPermissionUpdate: 'Você não tem permissão para alterar as configurações',
+      settingsSaveFailed: 'Configurações não salvas: {{message}}',
       cameraSettingsSaved: 'Configurações da câmera salvas',
       enterCameraUrl: 'Por favor, insira a URL da câmera',
       passwordChanged: 'Senha alterada com sucesso',

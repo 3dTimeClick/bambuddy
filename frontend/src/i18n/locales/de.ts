@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Drucker löschen',
-      deleteMessage: 'Möchten Sie "{{name}}" wirklich löschen? Alle Verbindungseinstellungen werden entfernt.',
+      deleteMessage: 'Möchten Sie "{{name}}" wirklich löschen? Alle Verbindungseinstellungen werden entfernt. Ihm zugeordnete Benachrichtigungsanbieter und Smart Plugs sowie virtuelle Drucker, die an ihn senden, werden ebenfalls gelöscht.',
       deleteArchivesNote: 'Der gesamte Druckverlauf für diesen Drucker wird dauerhaft gelöscht.',
       keepArchivesNote: 'Der Druckverlauf wird beibehalten, aber nicht mehr mit diesem Drucker verknüpft.',
       stopTitle: 'Druck stoppen',
@@ -2683,6 +2683,7 @@ export default {
       enterGroupName: 'Bitte geben Sie einen Gruppennamen ein',
       settingsSaved: 'Einstellungen gespeichert',
       noPermissionUpdate: 'Sie haben keine Berechtigung, Einstellungen zu ändern',
+      settingsSaveFailed: 'Einstellungen nicht gespeichert: {{message}}',
       cameraSettingsSaved: 'Kamera-Einstellungen gespeichert',
       enterCameraUrl: 'Bitte geben Sie eine Kamera-URL ein',
       passwordChanged: 'Passwort erfolgreich geändert',

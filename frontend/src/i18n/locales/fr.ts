@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Supprimer l\'imprimante',
-      deleteMessage: 'Supprimer "{{name}}" ? Cela retirera tous les paramètres de connexion.',
+      deleteMessage: 'Supprimer "{{name}}" ? Cela retirera tous les paramètres de connexion. Les fournisseurs de notifications et prises connectées qui lui sont attribués, ainsi que les imprimantes virtuelles qui lui envoient des travaux, sont aussi supprimés.',
       deleteArchivesNote: 'Tout l\'historique sera définitivement supprimé.',
       keepArchivesNote: 'L\'historique sera conservé mais plus associé à cette imprimante.',
       stopTitle: 'Arrêter l\'impression',
@@ -2638,6 +2638,7 @@ export default {
       enterGroupName: 'Entrez un nom de groupe',
       settingsSaved: 'Paramètres enregistrés',
       noPermissionUpdate: "Vous n'avez pas l'autorisation de modifier les paramètres",
+      settingsSaveFailed: 'Paramètres non enregistrés : {{message}}',
       cameraSettingsSaved: 'Réglages caméra enregistrés',
       enterCameraUrl: 'Entrez une URL caméra',
       passwordChanged: 'Mot de passe modifié',

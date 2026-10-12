@@ -190,9 +190,11 @@ class NotificationProvider(Base):
     daily_digest_enabled: Mapped[bool | None] = mapped_column(Boolean, default=False)
     daily_digest_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # HH:MM format, e.g., "08:00"
 
-    # Optional: Link to specific printer (NULL = all printers)
+    # Optional: Link to specific printer (NULL = all printers). CASCADE, not SET
+    # NULL: a provider limited to a deleted printer must not become one for all
+    # of them. The printer delete route removes it first (remote cleanup).
     printer_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=True
     )
 
     # Status tracking

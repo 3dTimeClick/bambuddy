@@ -78,6 +78,14 @@ APPLIED: frozenset[tuple[str, str]] = frozenset(
         ("print_batches", "project_id"),
         ("print_queue", "project_id"),
         ("project_bom_items", "project_id"),
+        # printers: what the next printer given the id would otherwise take
+        # over. Only these: providers, plugs and virtual printers go with the
+        # printer in its delete route, and the rest is decided separately.
+        ("pipeline_jobs", "assigned_printer_id"),
+        ("slicer_pipelines", "target_printer_id"),
+        # smart_plugs: a printer delete now deletes its plugs; their energy
+        # history would pass to the next plug given the id.
+        ("smart_plug_energy_snapshots", "plug_id"),
         # users: everything a user owns goes with them or loses its owner, or a
         # new user given the freed id inherits it (wallet, cost centres, private
         # folders). Without an owner, folders and private cost centres are left

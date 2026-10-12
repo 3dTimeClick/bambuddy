@@ -332,6 +332,38 @@ def load_all_models():
     return Base.metadata
 
 
+async def _drop_deleted_printers_from_limits(conn) -> None:
+    """Take printers deleted before deletes did so out of API keys, Obico and virtual printers (both databases).
+
+    SQLite gives a deleted printer's id to the next printer created. So does
+    PostgreSQL after a SQLite backup is imported: the sequence starts after the
+    highest id left. And a stale id would make every save of the list it is in
+    fail the check for unknown printers.
+    """
+    from sqlalchemy import exists, select
+
+    from backend.app.api.routes.virtual_printers import drop_virtual_printer
+    from backend.app.core.printer_scope import drop_printers_from_api_keys, drop_printers_from_obico
+    from backend.app.models.printer import Printer
+    from backend.app.models.virtual_printer import VirtualPrinter
+
+    await drop_printers_from_api_keys(conn)
+    await drop_printers_from_obico(conn)
+
+    aimed_at_nothing = (
+        await conn.execute(
+            select(VirtualPrinter.id).where(
+                VirtualPrinter.target_printer_id.is_not(None),
+                ~exists().where(Printer.id == VirtualPrinter.target_printer_id),
+            )
+        )
+    ).scalars()
+    for vp_id in aimed_at_nothing.all():
+        # Not running yet at start. Its upload directory stays, as after a
+        # crash between a delete's commit and the directory's removal.
+        await drop_virtual_printer(conn, vp_id)
+
+
 async def _repair_sqlite_orphans(conn) -> None:
     """Repair rows that earlier deletes left pointing at a row that is gone (SQLite only).
 
@@ -462,6 +494,7 @@ async def init_db():
         # SQLite applies no ON DELETE rules (foreign keys off): repair rows that
         # earlier deletes left pointing at nothing. Not a migration.
         await _repair_sqlite_orphans(conn)
+        await _drop_deleted_printers_from_limits(conn)
 
     # Re-encrypt any legacy plaintext OIDC client_secret / TOTP secret rows
     # that exist from before the encryption key was configured.
@@ -865,16 +898,6 @@ async def _api_keys_column_exists(conn, column_name: str) -> bool:
         {"col": column_name},
     )
     return result.scalar_one_or_none() is not None
-
-
-async def _migrate_normalize_printer_ids(conn) -> None:
-    from sqlalchemy import text
-
-    async with conn.begin_nested():
-        if is_sqlite():
-            await conn.execute(text("UPDATE api_keys SET printer_ids = NULL WHERE printer_ids = '[]'"))
-        else:
-            await conn.execute(text("UPDATE api_keys SET printer_ids = NULL WHERE printer_ids::text = '[]'"))
 
 
 async def _migrate_scope_force_color_overrides_to_plate(conn) -> None:
@@ -3361,13 +3384,20 @@ async def _run_migrations(conn):
     except (OperationalError, ProgrammingError):
         pass  # Already applied
 
-    # Migration: Migrate single virtual printer key-value settings to virtual_printers table
+    # Migration: Migrate single virtual printer key-value settings to virtual_printers table.
+    # Once: the settings stay (the virtual printer settings still write some), so
+    # with no virtual printers left this rebuilt one at every start, aimed at the
+    # old target, which SQLite may have given to another printer since.
+    vp_flag = "_migrate_single_virtual_printer_done"
     try:
         async with conn.begin_nested():
+            already = (
+                await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": vp_flag})
+            ).scalar_one_or_none()
             result = await conn.execute(text("SELECT COUNT(*) FROM virtual_printers"))
             count = result.scalar() or 0
 
-            if count == 0:
+            if count == 0 and not already:
                 result = await conn.execute(text("SELECT value FROM settings WHERE key = 'virtual_printer_enabled'"))
                 row = result.fetchone()
                 if row:
@@ -3430,6 +3460,10 @@ async def _run_migrations(conn):
                             "remote_iface": old_remote_iface,
                         },
                     )
+            if not already:
+                await conn.execute(
+                    text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": vp_flag, "v": "true"}
+                )
     except (OperationalError, ProgrammingError, IntegrityError):
         pass  # Table may not exist yet on first run, or columns have different constraints
 
@@ -3857,11 +3891,10 @@ async def _run_migrations(conn):
         except (OperationalError, ProgrammingError):
             pass  # Already applied
 
-    # Migration: Normalize empty printer_ids [] to NULL (global access) on API keys
-    # Previously both None and [] meant "all printers"; now [] means "no printers"
-    # PostgreSQL stores printer_ids as JSONB; comparing JSONB to a string literal fails
-    # with "operator does not exist: jsonb = unknown" — cast the literal to jsonb explicitly.
-    await _migrate_normalize_printer_ids(conn)
+    # (An API key's printer_ids [] used to be turned into NULL here at every start,
+    # from when both meant all printers. [] means none now, so that made a key
+    # limited to no printer, such as one whose printers were all deleted, reach
+    # every printer after a restart. Old [] were converted long ago.)
 
     # Migration: Add auth_source column to users for LDAP support (#794)
     await _safe_execute(conn, "ALTER TABLE users ADD COLUMN auth_source VARCHAR(20) DEFAULT 'local' NOT NULL")
@@ -5519,6 +5552,7 @@ async def _run_migrations(conn):
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)
+    await _migrate_notification_providers_go_with_their_printer(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -5755,21 +5789,49 @@ async def _migrate_wallet_transactions_keep_deleted_users(conn) -> None:
         return
 
     await _safe_execute(conn, "ALTER TABLE wallet_transactions ALTER COLUMN user_id DROP NOT NULL")
-    cascading = await conn.execute(
+    await _pg_set_fk_ondelete(conn, "wallet_transactions", "user_id", "users", "SET NULL")
+
+
+async def _migrate_notification_providers_go_with_their_printer(conn) -> None:
+    """notification_providers / smart_plugs.printer_id: ON DELETE CASCADE, as the models say (PostgreSQL).
+
+    It was SET NULL, and a provider without a printer is one for all printers:
+    deleting the printer a provider was limited to sent it every printer's
+    events. SQLite doesn't enforce the rule; the printer delete route removes
+    the providers on both.
+    """
+    if not is_sqlite():
+        await _pg_set_fk_ondelete(conn, "notification_providers", "printer_id", "printers", "CASCADE")
+        # Likewise a smart plug: without a printer it is everyone's to switch.
+        await _pg_set_fk_ondelete(conn, "smart_plugs", "printer_id", "printers", "CASCADE")
+
+
+_PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}
+
+
+async def _pg_set_fk_ondelete(conn, table: str, column: str, parent: str, ondelete: str) -> None:
+    """Give the single-column foreign key from *table*.*column* to *parent* the ON DELETE *ondelete*.
+
+    The constraint is replaced under its own name, and only where its rule differs.
+    """
+    from sqlalchemy import text
+
+    differing = await conn.execute(
         text(
             "SELECT c.conname FROM pg_constraint c "
             "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) "
-            "WHERE c.contype = 'f' AND c.conrelid = CAST('wallet_transactions' AS regclass) "
-            "AND c.confrelid = CAST('users' AS regclass) AND array_length(c.conkey, 1) = 1 "
-            "AND a.attname = 'user_id' AND c.confdeltype <> 'n'"
-        )
+            "WHERE c.contype = 'f' AND c.conrelid = CAST(:t AS regclass) "
+            "AND c.confrelid = CAST(:p AS regclass) AND array_length(c.conkey, 1) = 1 "
+            "AND a.attname = :c AND CAST(c.confdeltype AS text) <> :code"
+        ),
+        {"t": table, "p": parent, "c": column, "code": _PG_ON_DELETE_CODES[ondelete]},
     )
-    for name in cascading.scalars().all():
-        await conn.execute(text(f'ALTER TABLE wallet_transactions DROP CONSTRAINT "{name}"'))
+    for name in differing.scalars().all():
+        await conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT "{name}"'))
         await conn.execute(
             text(
-                f'ALTER TABLE wallet_transactions ADD CONSTRAINT "{name}" '
-                "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL"
+                f'ALTER TABLE {table} ADD CONSTRAINT "{name}" '
+                f"FOREIGN KEY ({column}) REFERENCES {parent}(id) ON DELETE {ondelete}"
             )
         )
 

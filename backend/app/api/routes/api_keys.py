@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth import RequirePermissionIfAuthEnabled, generate_api_key
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.printer_scope import ensure_printers_exist
 from backend.app.core.websocket import ws_manager
 from backend.app.models.api_key import APIKey
 from backend.app.models.user import User
@@ -52,6 +53,8 @@ async def create_api_key(
             status_code=400,
             detail="can_access_cloud requires authentication to be enabled (per-user cloud tokens)",
         )
+
+    await ensure_printers_exist(db, data.printer_ids)
 
     # Generate the key
     full_key, key_hash, key_prefix = generate_api_key()
@@ -168,6 +171,7 @@ async def update_api_key(
     if data.can_send_notifications is not None:
         api_key.can_send_notifications = data.can_send_notifications
     if data.printer_ids is not None:
+        await ensure_printers_exist(db, data.printer_ids)
         api_key.printer_ids = data.printer_ids
     if data.enabled is not None:
         api_key.enabled = data.enabled

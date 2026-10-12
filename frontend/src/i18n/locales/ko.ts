@@ -628,7 +628,7 @@ export default {
     },
     confirm: {
       deleteTitle: '프린터 삭제',
-      deleteMessage: '"{{name}}"을(를) 삭제하시겠습니까? 모든 연결 설정이 제거됩니다.',
+      deleteMessage: '"{{name}}"을(를) 삭제하시겠습니까? 모든 연결 설정이 제거됩니다. 이 프린터에 할당된 알림 제공자와 스마트 플러그, 이 프린터로 전송하는 가상 프린터도 함께 삭제됩니다.',
       deleteArchivesNote: '이 프린터의 모든 인쇄 기록이 영구적으로 삭제됩니다.',
       keepArchivesNote: '인쇄 기록은 유지되지만 이 프린터와 연결이 해제됩니다.',
       stopTitle: '인쇄 정지',
@@ -2545,6 +2545,7 @@ export default {
       enterGroupName: '그룹 이름을 입력하세요',
       settingsSaved: '설정이 저장되었습니다',
       noPermissionUpdate: '설정을 변경할 권한이 없습니다',
+      settingsSaveFailed: '설정이 저장되지 않았습니다: {{message}}',
       cameraSettingsSaved: '카메라 설정이 저장되었습니다',
       enterCameraUrl: '카메라 URL을 입력하세요',
       passwordChanged: '비밀번호가 성공적으로 변경되었습니다',

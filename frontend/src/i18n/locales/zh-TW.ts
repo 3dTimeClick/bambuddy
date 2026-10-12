@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: '刪除印表機',
-      deleteMessage: '確定要刪除"{{name}}"嗎？這將移除所有連線設定。',
+      deleteMessage: '確定要刪除"{{name}}"嗎？這將移除所有連線設定。指派給它的通知提供者和智慧插座，以及傳送到它的虛擬印表機，也會一併刪除。',
       deleteArchivesNote: '此印表機的所有列印歷史將被永久刪除。',
       keepArchivesNote: '列印歷史將保留，但不再與此印表機連結。',
       stopTitle: '停止列印',
@@ -2683,6 +2683,7 @@ export default {
       enterGroupName: '請輸入群組名稱',
       settingsSaved: '設定已儲存',
       noPermissionUpdate: '您沒有權限變更設定',
+      settingsSaveFailed: '設定未儲存：{{message}}',
       cameraSettingsSaved: '攝影機設定已儲存',
       enterCameraUrl: '請輸入攝影機 URL',
       passwordChanged: '密碼修改成功',

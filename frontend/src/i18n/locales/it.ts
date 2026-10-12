@@ -663,7 +663,7 @@ export default {
     // Confirm modals
     confirm: {
       deleteTitle: 'Elimina Stampante',
-      deleteMessage: 'Sei sicuro di eliminare "{{name}}"? Questo rimuoverà tutte le impostazioni di connessione.',
+      deleteMessage: 'Sei sicuro di eliminare "{{name}}"? Questo rimuoverà tutte le impostazioni di connessione. Vengono eliminati anche i provider notifiche e le prese smart assegnati a essa, e le stampanti virtuali che inviano a essa.',
       deleteArchivesNote: 'Tutta la cronologia di stampa sarà eliminata definitivamente.',
       keepArchivesNote: 'La cronologia sarà mantenuta ma non più associata a questa stampante.',
       stopTitle: 'Ferma Stampa',
@@ -2638,6 +2638,7 @@ export default {
       enterGroupName: 'Inserisci un nome gruppo',
       settingsSaved: 'Impostazioni salvate',
       noPermissionUpdate: 'Non hai il permesso di modificare le impostazioni',
+      settingsSaveFailed: 'Impostazioni non salvate: {{message}}',
       cameraSettingsSaved: 'Impostazioni camera salvate',
       enterCameraUrl: 'Inserisci un URL camera',
       passwordChanged: 'Password cambiata con successo',

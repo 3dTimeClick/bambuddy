@@ -1,9 +1,11 @@
 import logging
+import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import RequirePermissionIfAuthEnabled
@@ -536,6 +538,50 @@ async def update_virtual_printer(
     return await _vp_to_dict(vp, db, status)
 
 
+async def drop_virtual_printer(db: AsyncSession, vp_id: int) -> Path:
+    """Delete a virtual printer's row and discard its pending uploads.
+
+    Its instance must be stopped first, if one runs. The caller commits, then
+    calls remove_upload_dir with what this returns. *db* is a session or a
+    connection.
+    """
+    from sqlalchemy import delete as sql_delete
+
+    from backend.app.models.pending_upload import PendingUpload
+    from backend.app.models.virtual_printer import VirtualPrinter
+    from backend.app.services.virtual_printer import virtual_printer_manager
+
+    upload_dir = virtual_printer_manager._base_dir / "uploads" / str(vp_id)
+    # Mark any PendingUpload rows that referenced this VP's upload_dir as
+    # discarded — without this the rows live on as phantom entries in
+    # /pending-uploads/ pointing at file paths that no longer exist, and
+    # the user only learns they're orphaned by trying to archive one and
+    # getting a flip-to-discarded on file-missing.
+    try:
+        await db.execute(
+            update(PendingUpload)
+            # The folder, not every path that starts with its name (uploads/12 for 1).
+            .where(PendingUpload.file_path.startswith(f"{upload_dir}{os.sep}", autoescape=True))
+            .values(status="discarded")
+        )
+    except Exception as e:
+        logger.error("Failed to discard orphan PendingUpload rows for VP %d: %s", vp_id, e)
+    await db.execute(sql_delete(VirtualPrinter).where(VirtualPrinter.id == vp_id))
+    return upload_dir
+
+
+def remove_upload_dir(upload_dir: Path) -> None:
+    """Remove a deleted virtual printer's upload directory.
+
+    After the DB commit succeeds, so a crash between commit and rmtree only
+    leaves orphan files (vs orphan rows pointing at a now-missing tree).
+    """
+    if upload_dir.exists():
+        import shutil
+
+        shutil.rmtree(upload_dir, ignore_errors=True)
+
+
 @router.delete("/{vp_id}")
 async def delete_virtual_printer(
     vp_id: int,
@@ -543,8 +589,6 @@ async def delete_virtual_printer(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Delete a virtual printer."""
-    from sqlalchemy import delete as sql_delete
-
     from backend.app.models.virtual_printer import VirtualPrinter
     from backend.app.services.virtual_printer import virtual_printer_manager
 
@@ -557,35 +601,9 @@ async def delete_virtual_printer(
 
     # Stop instance if running
     await virtual_printer_manager.remove_instance(vp_id)
-
-    # Mark any PendingUpload rows that referenced this VP's upload_dir as
-    # discarded — without this the rows live on as phantom entries in
-    # /pending-uploads/ pointing at file paths that no longer exist, and
-    # the user only learns they're orphaned by trying to archive one and
-    # getting a flip-to-discarded on file-missing.
-    upload_prefix = str(virtual_printer_manager._base_dir / "uploads" / str(vp_id))
-    try:
-        from backend.app.models.pending_upload import PendingUpload
-
-        stale = await db.execute(select(PendingUpload).where(PendingUpload.file_path.startswith(upload_prefix)))
-        for pending in stale.scalars().all():
-            pending.status = "discarded"
-        await db.flush()
-    except Exception as e:
-        logger.error("Failed to discard orphan PendingUpload rows for VP %d: %s", vp_id, e)
-
-    # Delete from DB
-    await db.execute(sql_delete(VirtualPrinter).where(VirtualPrinter.id == vp_id))
+    upload_dir = await drop_virtual_printer(db, vp_id)
     await db.commit()
-
-    # Remove the on-disk upload directory after the DB commit succeeds, so
-    # a crash between commit and rmtree only leaves orphan files (vs orphan
-    # rows pointing at a now-missing tree).
-    upload_dir = virtual_printer_manager._base_dir / "uploads" / str(vp_id)
-    if upload_dir.exists():
-        import shutil
-
-        shutil.rmtree(upload_dir, ignore_errors=True)
+    remove_upload_dir(upload_dir)
 
     logger.info("Deleted virtual printer: %s (id=%d)", vp_name, vp_id)
 

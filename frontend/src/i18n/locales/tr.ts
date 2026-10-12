@@ -663,7 +663,7 @@ export default {
     // Onay modalleri
     confirm: {
       deleteTitle: 'Yazıcıyı Sil',
-      deleteMessage: '"{{name}}" silmek istediğinizden emin misiniz? Bu, tüm bağlantı ayarlarını kaldıracak.',
+      deleteMessage: '"{{name}}" silmek istediğinizden emin misiniz? Bu, tüm bağlantı ayarlarını kaldıracak. Ona atanmış bildirim sağlayıcıları ve akıllı prizler ile ona gönderen sanal yazıcılar da silinir.',
       deleteArchivesNote: 'Bu yazıcı için tüm baskı geçmişi kalıcı olarak silinecek.',
       keepArchivesNote: 'Baskı geçmişi saklanacak ancak artık bu yazıcıyla ilişkilendirilmeyecek.',
       stopTitle: 'Baskıyı Durdur',
@@ -2685,6 +2685,7 @@ export default {
       enterGroupName: 'Lütfen bir grup adı girin',
       settingsSaved: 'Ayarlar kaydedildi',
       noPermissionUpdate: 'Ayarları değiştirme izniniz yok',
+      settingsSaveFailed: 'Ayarlar kaydedilmedi: {{message}}',
       cameraSettingsSaved: 'Kamera ayarları kaydedildi',
       enterCameraUrl: 'Lütfen bir kamera URL\'si girin',
       passwordChanged: 'Parola başarıyla değiştirildi',
