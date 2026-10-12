@@ -5,12 +5,25 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { inventoryLocationsQueryKey, inventorySuppliersQueryKey } from '../utils/inventoryQueries';
 
-// The only auth-failure close code /api/v1/ws emits (websocket.py
-// _WS_CLOSE_UNAUTHORIZED). A 4401 means the ws-token was missing / invalid /
-// expired, or the caller lacks WEBSOCKET_CONNECT — none of which a reconnect can
-// fix without a fresh login (which remounts this provider anyway). Treat it as
-// terminal so we don't respawn the /auth/ws-token loop.
+// The auth-failure close code of /api/v1/ws (websocket.py
+// _WS_CLOSE_UNAUTHORIZED). It reaches the browser only for a socket the server
+// had accepted: one closed when its session ended (password change or reset,
+// 2FA removal, deactivation, rename), when authentication was turned on, when a
+// scope refresh failed, or by the server's check right after accepting it. The
+// hook asks AuthContext to re-check (a tab whose session ended goes to the
+// login page, which unmounts this provider) and reconnects with a fresh token.
+// Each 4401 before a socket's first message doubles the wait, up to five
+// minutes: no /auth/ws-token loop, and a failure that clears still recovers.
+//
+// A socket refused before it was accepted (no or invalid token, user or key
+// gone, a failed lookup) gets an HTTP 403 on the handshake, which the browser
+// reports as 1006 with no open, as for a server that is down. Those can't be
+// told apart, so they get no re-check, and a backoff capped at 30 s, so tabs
+// still come back quickly after a restart.
 const WS_CLOSE_UNAUTHORIZED = 4401;
+const UNAUTHORIZED_RETRY_FIRST_MS = 3000;
+const UNAUTHORIZED_RETRY_MAX_MS = 300000;
+const HANDSHAKE_RETRY_MAX_MS = 30000;
 
 interface WebSocketMessage {
   type: string;
@@ -38,6 +51,12 @@ export function useWebSocket() {
   // reconnectTimeoutRef, then .close() ran ws.onclose which set a *fresh*
   // timeout — a leaked reconnect that kept minting ws-tokens post-logout).
   const disposedRef = useRef(false);
+  // The wait before the next reconnect after a 4401; 0 once a socket is
+  // admitted (its first message).
+  const unauthorizedDelayRef = useRef(0);
+  // The wait before the next reconnect after a handshake that failed (the
+  // socket never opened); 0 once one opens.
+  const handshakeDelayRef = useRef(0);
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const lastMissingSpoolWarningRef = useRef<Map<number, string>>(new Map());
@@ -106,12 +125,18 @@ export function useWebSocket() {
     } catch (err) {
       // A 401/403 from the token mint is an AUTH decision, not a transient
       // blip, so retrying is pointless and hammers /auth/ws-token every 3s:
-      //   401 — the JWT expired. ``request()`` already cleared it and
-      //         dispatched ``auth:expired``, so the route guard is redirecting
-      //         to /login and this provider is about to unmount.
+      //   401 — not signed in. An expired JWT: ``request()`` already cleared
+      //         it and dispatched ``auth:expired``, so the route guard is
+      //         redirecting to /login. "Authentication required" (no token,
+      //         e.g. a tab opened while auth was off, which was turned on while
+      //         its socket was down) is not treated as a sign-out there, so
+      //         ask AuthContext to re-check, which then shows the login.
       //   403 — the user is validly logged in but their group lacks
-      //         WEBSOCKET_CONNECT. They stay logged in; live updates simply
-      //         degrade to the REST polling the query cache already does.
+      //         WEBSOCKET_CONNECT (they stay logged in; live updates simply
+      //         degrade to the REST polling the query cache already does), or
+      //         an API key (a kiosk) whose owner was deactivated while its
+      //         socket was down. Re-checked as well: the first gets their user
+      //         back and nothing changes, the second goes to the login.
       // Either way: do NOT open a tokenless socket (the server just closes it
       // 4401) and do NOT reconnect. The old catch-all fell through to a
       // tokenless socket whose 4401 close rescheduled connect() forever. A
@@ -120,6 +145,7 @@ export function useWebSocket() {
       // no token and connect fine).
       const status = err instanceof ApiError ? err.status : 0;
       if (status === 401 || status === 403) {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
         return;
       }
     }
@@ -135,8 +161,11 @@ export function useWebSocket() {
     const ws = new WebSocket(wsUrl);
 
     let pingInterval: number | null = null;
+    let opened = false;
 
     ws.onopen = () => {
+      opened = true;
+      handshakeDelayRef.current = 0;
       if (import.meta.env.MODE !== 'test') console.log('[WebSocket] Connected');
       setIsConnected(true);
       // Start ping interval
@@ -148,6 +177,7 @@ export function useWebSocket() {
     };
 
     ws.onmessage = (event) => {
+      unauthorizedDelayRef.current = 0;
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
         // Handle printer_status directly (already throttled) to avoid queue delays
@@ -173,11 +203,33 @@ export function useWebSocket() {
       setIsConnected(false);
       wsRef.current = null;
 
-      // Don't reconnect after an auth rejection (4401) or once the provider has
-      // unmounted — both would just respawn the /auth/ws-token loop. A 4401 is
-      // terminal (needs a fresh login, which remounts us); every other close
-      // code is treated as a network drop and gets the 3s reconnect.
-      if (disposedRef.current || event.code === WS_CLOSE_UNAUTHORIZED) {
+      // Don't reconnect once the provider has unmounted. After an auth
+      // rejection (4401): re-check auth, and reconnect with a growing wait (see
+      // WS_CLOSE_UNAUTHORIZED). A socket that never opened (a refused handshake
+      // or a server that is down) also waits longer each time, up to 30 s. One
+      // that opened and then dropped is a network drop: the 3s reconnect.
+      if (disposedRef.current) {
+        return;
+      }
+      if (event.code === WS_CLOSE_UNAUTHORIZED) {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
+        const delay = unauthorizedDelayRef.current
+          ? Math.min(unauthorizedDelayRef.current * 2, UNAUTHORIZED_RETRY_MAX_MS)
+          : UNAUTHORIZED_RETRY_FIRST_MS;
+        unauthorizedDelayRef.current = delay;
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connect();
+        }, delay);
+        return;
+      }
+      if (!opened) {
+        const delay = handshakeDelayRef.current
+          ? Math.min(handshakeDelayRef.current * 2, HANDSHAKE_RETRY_MAX_MS)
+          : UNAUTHORIZED_RETRY_FIRST_MS;
+        handshakeDelayRef.current = delay;
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connect();
+        }, delay);
         return;
       }
 

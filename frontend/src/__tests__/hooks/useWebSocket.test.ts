@@ -1072,11 +1072,14 @@ describe('useWebSocket hook', () => {
       vi.useRealTimers();
     });
 
-    it('does NOT reconnect after an auth-rejection close (4401)', async () => {
-      // Regression: a 4401 (ws-token invalid/expired or caller lacks
-      // WEBSOCKET_CONNECT) used to reschedule connect() every 3s, spamming
-      // /auth/ws-token forever. It must be terminal now.
+    it('after a 4401 asks for an auth re-check and reconnects with a fresh token', async () => {
+      // The server closes 4401 when the session ended (password change, reset,
+      // deactivation), auth was turned on, or a scope refresh failed. A session
+      // that is still valid reconnects; one that ended fails the token mint,
+      // and the re-check sends the tab to the login page.
       vi.useFakeTimers();
+      const recheck = vi.fn();
+      window.addEventListener('auth:recheck', recheck);
 
       const { useWebSocket } = await import('../../hooks/useWebSocket');
       renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
@@ -1086,27 +1089,142 @@ describe('useWebSocket hook', () => {
       act(() => {
         firstWs.open();
       });
-
       const instanceCountBefore = wsInstances.length;
 
-      // Server rejects auth.
       act(() => {
         firstWs.simulateClose(4401);
       });
+      expect(recheck).toHaveBeenCalledTimes(1);
 
-      // No reconnect even after the 3s window elapses.
       await vi.advanceTimersByTimeAsync(3000);
-      expect(wsInstances.length).toBe(instanceCountBefore);
+      expect(wsInstances.length).toBe(instanceCountBefore + 1);
+
+      window.removeEventListener('auth:recheck', recheck);
+      vi.useRealTimers();
+    });
+
+    it('backs off when the reconnect is refused with 4401 again, instead of looping', async () => {
+      // Regression: a 4401 used to reschedule connect() every 3s, spamming
+      // /auth/ws-token forever. A socket closed with 4401 again before its
+      // first message (the server's check after accepting it) doubles the wait
+      // (capped), so a failure that clears (a database hiccup) still recovers.
+      vi.useFakeTimers();
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+
+      await vi.advanceTimersByTimeAsync(0);
+      const firstWs = wsInstances[wsInstances.length - 1]!;
+      act(() => {
+        firstWs.open();
+        firstWs.simulateClose(4401);
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      const retry = wsInstances[wsInstances.length - 1]!;
+      expect(retry).not.toBe(firstWs);
+      const instanceCountBefore = wsInstances.length;
+
+      act(() => {
+        retry.open();
+        retry.simulateClose(4401); // refused again before any message
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(wsInstances.length).toBe(instanceCountBefore); // not after 3 s
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(wsInstances.length).toBe(instanceCountBefore + 1); // after 6 s
 
       vi.useRealTimers();
     });
 
-    it('does NOT open a socket or reconnect when ws-token mint returns 403', async () => {
+    it('backs off when the handshake keeps failing (a refusal shows as 1006)', async () => {
+      // The server refuses a socket before accepting it, which the browser
+      // reports as 1006 with no open, like a server that is down. Retrying
+      // every 3 s would mint a ws-token per tab every 3 s while it lasts.
+      vi.useFakeTimers();
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+
+      await vi.advanceTimersByTimeAsync(0);
+      act(() => {
+        wsInstances[wsInstances.length - 1]!.simulateClose(1006); // never opened
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      const second = wsInstances[wsInstances.length - 1]!;
+      const count = wsInstances.length;
+      act(() => {
+        second.simulateClose(1006); // refused again
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(wsInstances.length).toBe(count); // not after 3 s
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(wsInstances.length).toBe(count + 1); // after 6 s
+
+      vi.useRealTimers();
+    });
+
+    it('allows a retry again once a reconnected socket was admitted', async () => {
+      vi.useFakeTimers();
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+
+      await vi.advanceTimersByTimeAsync(0);
+      const firstWs = wsInstances[wsInstances.length - 1]!;
+      act(() => {
+        firstWs.open();
+        firstWs.simulateClose(4401);
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      const second = wsInstances[wsInstances.length - 1]!;
+      act(() => {
+        second.open();
+        second.simulateMessage({ type: 'pong' }); // admitted
+        second.simulateClose(4401); // a later, separate rejection
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(wsInstances[wsInstances.length - 1]).not.toBe(second);
+
+      vi.useRealTimers();
+    });
+
+    it('asks for an auth re-check when the ws-token mint returns 401', async () => {
+      // A tab opened while auth was off, whose socket was down when auth was
+      // turned on: the mint answers 401 "Authentication required", which does
+      // not count as a sign-out in request(). Without a re-check the tab froze.
+      vi.useFakeTimers();
+      const recheck = vi.fn();
+      window.addEventListener('auth:recheck', recheck);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: { get: () => null },
+          json: async () => ({ detail: 'Authentication required' }),
+        })),
+      );
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(recheck).toHaveBeenCalledTimes(1);
+      expect(wsInstances.length).toBe(0);
+
+      window.removeEventListener('auth:recheck', recheck);
+      vi.useRealTimers();
+    });
+
+    it('does NOT open a socket or reconnect when ws-token mint returns 403, but re-checks auth', async () => {
       // Mike/Forge's case: an authenticated user whose group lacks
       // WEBSOCKET_CONNECT. POST /auth/ws-token returns 403; the hook must NOT
       // fall through to a tokenless socket (server closes it 4401) and must NOT
       // enter the reconnect loop — it degrades to REST polling instead.
       vi.useFakeTimers();
+      const recheck = vi.fn();
+      window.addEventListener('auth:recheck', recheck);
 
       vi.stubGlobal(
         'fetch',
@@ -1123,10 +1241,15 @@ describe('useWebSocket hook', () => {
       renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
 
       // Flush the token-mint rejection, then let the (would-be) reconnect
-      // window pass. No socket should ever be constructed.
+      // window pass. No socket should ever be constructed. Auth is re-checked:
+      // a 403 also means an API key (a kiosk) whose owner was deactivated while
+      // its socket was down, which then goes to the login; a user who only
+      // lacks the permission gets their user back and nothing changes.
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(3000);
       expect(wsInstances.length).toBe(0);
+      expect(recheck).toHaveBeenCalledTimes(1);
+      window.removeEventListener('auth:recheck', recheck);
 
       vi.useRealTimers();
     });

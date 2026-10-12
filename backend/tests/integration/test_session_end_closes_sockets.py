@@ -103,8 +103,9 @@ def _socket(user_id=None, key_id=None):
 @pytest.mark.parametrize("auth_on", [True, False])
 async def test_a_backup_restore_closes_the_signed_in_sockets(async_client: AsyncClient, monkeypatch, tmp_path, auth_on):
     """With auth on in the restored data, sessions end, and what the restored
-    data no longer allows goes. With auth off nothing is closed: the dashboard
-    treats the close as final and would wait for a sign-in that never comes."""
+    data no longer allows goes. With auth off nothing is closed: no sign-in is
+    needed any more (the restore still invalidates every session), and everyone
+    may see every printer."""
     from backend.app.api.routes.settings import create_backup_zip
     from backend.app.core.config import settings as app_settings
     from backend.app.core.websocket import ws_manager

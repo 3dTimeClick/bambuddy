@@ -117,7 +117,7 @@ class ConnectionManager:
     async def close_signed_in(self):
         """Close every signed-in user's socket, after everyone is signed out (a
         backup restore). API-key and anonymous sockets stay: nothing ended
-        theirs, and the dashboard treats the close as final until a sign-in."""
+        theirs."""
         await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) is not None)
 
     async def close_anonymous(self):

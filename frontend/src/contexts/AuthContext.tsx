@@ -126,6 +126,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Like checkAuthStatus, mid-session: only a definite answer changes the
+  // state. The 4401 that asks for it can come from a database failure, which
+  // the re-check may meet too; at first load an error shows the login or the
+  // open UI, but here it would sign a valid tab out or switch it to "auth
+  // off" (every admin control shown) until a reload.
+  // Returns whether it got a definite answer.
+  const recheckAuthStatus = async (): Promise<boolean> => {
+    let status;
+    try {
+      status = await api.getAuthStatus();
+    } catch {
+      return false;
+    }
+    if (!mountedRef.current) return true;
+    setAuthEnabled(status.auth_enabled);
+    setRequiresSetup(status.requires_setup);
+    if (!status.auth_enabled || !getAuthToken()) {
+      setUser(null);
+      return true;
+    }
+    try {
+      const currentUser = await api.getCurrentUser();
+      if (mountedRef.current) setUser(currentUser);
+      return true;
+    } catch (err) {
+      // 401: signed out. request() clears the token only for some messages,
+      // not "Token no longer valid" (a password change or reset) or "Token has
+      // been revoked", so it is cleared here, as the first load does. 403: an
+      // API key (a SpoolBuddy kiosk) whose owner is deactivated or gone; a
+      // user's JWT gets a 401 there. Signed out too, but the key is kept, as
+      // at first load: reactivating the owner makes it work again, and the
+      // kiosk would otherwise need setting up again. Anything else: no
+      // answer, keep.
+      if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) return false;
+      if (mountedRef.current) {
+        if (err.status === 401) setAuthToken(null);
+        setUser(null);
+      }
+      return true;
+    }
+  };
+
+  // A re-check without an answer is repeated (2 s, doubling to 60 s) until it
+  // gets one: after a refused token mint there is no socket left to ask again.
+  const recheckTimerRef = useRef<number | null>(null);
+  const recheckDelayRef = useRef(0);
+  const runRecheck = async () => {
+    if (recheckTimerRef.current !== null) {
+      clearTimeout(recheckTimerRef.current);
+      recheckTimerRef.current = null;
+    }
+    const answered = await recheckAuthStatus();
+    if (!mountedRef.current) return;
+    if (answered) {
+      recheckDelayRef.current = 0;
+      return;
+    }
+    const delay = recheckDelayRef.current ? Math.min(recheckDelayRef.current * 2, 60000) : 2000;
+    recheckDelayRef.current = delay;
+    recheckTimerRef.current = window.setTimeout(() => {
+      recheckTimerRef.current = null;
+      runRecheck();
+    }, delay);
+  };
+  // The listener below is added once; it calls the current function.
+  const runRecheckRef = useRef(runRecheck);
+  runRecheckRef.current = runRecheck;
+
   useEffect(() => {
     mountedRef.current = true;
     // Check auth status on mount
@@ -140,10 +208,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     };
     window.addEventListener('auth:expired', handleAuthExpired);
+    // A WebSocket closed with 4401: authentication may have been turned on, or
+    // this session ended, while the tab still holds the old state.
+    const handleAuthRecheck = () => {
+      if (!mountedRef.current) return;
+      runRecheckRef.current();
+    };
+    window.addEventListener('auth:recheck', handleAuthRecheck);
 
     return () => {
       mountedRef.current = false;
       window.removeEventListener('auth:expired', handleAuthExpired);
+      window.removeEventListener('auth:recheck', handleAuthRecheck);
+      if (recheckTimerRef.current !== null) clearTimeout(recheckTimerRef.current);
     };
   }, []);
 

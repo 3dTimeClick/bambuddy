@@ -1620,9 +1620,8 @@ async def restore_backup(
             async with _db_mod.engine.begin() as conn:
                 await _db_mod.invalidate_all_sessions(conn)
             # Open dashboards of signed-in users too: they are never signed in
-            # again. API-key and anonymous ones are not closed outright (the
-            # dashboard treats the close as final until a sign-in), but the
-            # restored data decides what they may still see: the anonymous ones
+            # again. API-key and anonymous ones are not closed outright (nothing
+            # ended theirs), but the restored data decides what they may still see: the anonymous ones
             # go if the backup turns authentication on, and the refresh closes
             # those of a key the backup does not have (or has under another key).
             from backend.app.core.auth import invalidate_auth_enabled_cache

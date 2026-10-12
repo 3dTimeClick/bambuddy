@@ -365,6 +365,102 @@ describe('AuthContext', () => {
       });
     });
 
+    it('re-reads the auth status on an auth:recheck event', async () => {
+      // A WebSocket closed 4401 asks for it: auth may have been turned on, or
+      // the session ended, while this tab still holds the old state.
+      const status = vi.fn(() => HttpResponse.json({ auth_enabled: true, requires_setup: false }));
+      server.use(http.get('/api/v1/auth/status', status));
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => {
+        expect(result.current.user).not.toBeNull();
+      });
+      const before = status.mock.calls.length;
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
+      });
+
+      await waitFor(() => {
+        expect(status.mock.calls.length).toBe(before + 1);
+      });
+    });
+
+    it.each([
+      ['the auth status', '/api/v1/auth/status'],
+      ['the signed-in user', '/api/v1/auth/me'],
+    ])('keeps the session when a re-check cannot read %s', async (_what, path) => {
+      // A failed scope refresh (a database error) closes every socket with
+      // 4401; the re-check that follows may hit the same failure. Only a
+      // definite answer may sign the tab out or switch it to "auth off".
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => {
+        expect(result.current.user).not.toBeNull();
+      });
+      const before = result.current.user;
+      server.use(http.get(path, () => HttpResponse.json({ detail: 'database is locked' }, { status: 500 })));
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
+      });
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      expect(result.current.authEnabled).toBe(true);
+      expect(result.current.user).toEqual(before);
+    });
+
+    it('signs a key whose owner was deactivated out on a re-check, keeping the key', async () => {
+      // /auth/me answers 403 for an API key (a SpoolBuddy kiosk) whose owner is
+      // deactivated or gone: a definite answer, unlike a database error. The
+      // key is kept: reactivating the owner makes it work again, and the kiosk
+      // would otherwise need setting up again.
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => {
+        expect(result.current.user).not.toBeNull();
+      });
+      server.use(
+        http.get('/api/v1/auth/me', () =>
+          HttpResponse.json({ detail: 'API key owner is deactivated or no longer exists' }, { status: 403 })
+        )
+      );
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
+      });
+
+      await waitFor(() => {
+        expect(result.current.user).toBeNull();
+      });
+      expect(getAuthToken()).toBe('valid-token');
+    });
+
+    it('repeats a re-check that got no answer until it gets one', async () => {
+      // Nothing else would ask again: after a refused token mint there is no
+      // socket, so no further close can trigger it, and the tab froze.
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => {
+        expect(result.current.user).not.toBeNull();
+      });
+      let failing = true;
+      server.use(
+        http.get('/api/v1/auth/me', () =>
+          failing
+            ? HttpResponse.json({ detail: 'database is locked' }, { status: 500 })
+            : HttpResponse.json({ detail: 'Token no longer valid' }, { status: 401 })
+        )
+      );
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('auth:recheck'));
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      expect(result.current.user).not.toBeNull(); // kept: no answer yet
+      failing = false;
+
+      await waitFor(() => expect(result.current.user).toBeNull(), { timeout: 5000 });
+      // A definite 401 clears the token too, as the first load does.
+      expect(getAuthToken()).toBeNull();
+    }, 10000);
+
     it('does not crash when the event fires after unmount', async () => {
       const { result, unmount } = renderHook(() => useAuth(), {
         wrapper: createWrapper(),

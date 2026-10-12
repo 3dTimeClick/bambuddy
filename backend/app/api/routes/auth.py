@@ -388,8 +388,7 @@ async def setup_auth(request: SetupRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
         if request.auth_enabled:
             # Dashboards opened while it was off have every printer and would
-            # keep them. Closed, such a tab stops updating until it is reloaded
-            # and signs in (the SPA treats the close as final).
+            # keep them. Closed, such a tab re-checks auth and goes to the login.
             from backend.app.core.websocket import ws_manager
 
             await ws_manager.close_anonymous()
