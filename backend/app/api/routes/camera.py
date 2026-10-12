@@ -21,8 +21,10 @@ from backend.app.core.auth import (
     RequireCameraStreamTokenIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     RequirePrinterPermissionIfAuthEnabled,
+    StreamOpener,
     create_camera_stream_token,
     current_api_key_if_present,
+    stream_opener_still_allowed,
 )
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
@@ -952,12 +954,31 @@ async def create_stream_token(
     }
 
 
+# How often an open stream checks that its opener may still watch: a live view
+# runs for hours on a token checked once, and a session ending, a key disabled
+# or a Cam Wall token revoked must stop it.
+STREAM_RECHECK_SECONDS = 30.0
+
+
+async def _while_allowed(frames, opener: StreamOpener, printer_id: int):
+    """Pass the stream's chunks on until its opener may no longer watch."""
+    next_check = time.monotonic() + STREAM_RECHECK_SECONDS
+    async with contextlib.aclosing(frames) as chunks:
+        async for chunk in chunks:
+            if time.monotonic() >= next_check:
+                if not await stream_opener_still_allowed(opener, printer_id):
+                    logger.info("Camera stream for printer %s ended: its opener may no longer watch", printer_id)
+                    return
+                next_check = time.monotonic() + STREAM_RECHECK_SECONDS
+            yield chunk
+
+
 @router.get("/{printer_id}/camera/stream")
 async def camera_stream(
     printer_id: int,
     request: Request,
     fps: int = 10,
-    _: None = RequireCameraStreamTokenIfAuthEnabled,
+    opener: StreamOpener = RequireCameraStreamTokenIfAuthEnabled,
 ):
     """Stream live video from printer camera as MJPEG.
 
@@ -1100,7 +1121,7 @@ async def camera_stream(
                 logger.info("External camera stream ended for printer %s", printer_id)
 
         return StreamingResponse(
-            external_stream_wrapper(),
+            _while_allowed(external_stream_wrapper(), opener, printer_id),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -1197,7 +1218,7 @@ async def camera_stream(
                 yield chunk
 
     return StreamingResponse(
-        _generate(),
+        _while_allowed(_generate(), opener, printer_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",

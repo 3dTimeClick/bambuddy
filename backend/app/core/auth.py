@@ -5,7 +5,7 @@ import os
 import secrets
 import time
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -32,6 +32,7 @@ from backend.app.models.api_key import APIKey
 from backend.app.models.auth_ephemeral import AuthEphemeralToken, TokenType
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
+from backend.app.utils.local_time import utcnow_naive
 
 logger = logging.getLogger(__name__)
 
@@ -1013,14 +1014,35 @@ async def principal_printer_scope(db: AsyncSession, username: str | None, api_ke
     return _NO_PRINTERS
 
 
-async def verify_camera_stream_token(token: str) -> PrinterScope | None:
-    """Verify a camera stream token (reusable -- does not consume it).
+@dataclass(frozen=True)
+class StreamOpener:
+    """Who opened a camera stream, and on what authority; re-checked while it runs.
 
-    Returns the printer scope of whoever minted it (#1727), or None when the
-    token is invalid. Tries the ephemeral 60-minute token first (the common,
-    browser-bound case) and falls through to long-lived tokens (#1108) for HA
-    / kiosk integrations that paste a token once and expect it to keep
-    working for days; those carry their owner's scope.
+    A live view runs for hours on a token checked once. Its opener is a user
+    (a 60-minute token minted with their session), an API key, a long-lived
+    token (Cam Wall, overlay, Home Assistant), or nobody while auth was off.
+    ``started_at`` is when the user's token was minted, not when the stream
+    opened: a session that ended in between (its token checked just before)
+    must still end the stream.
+    """
+
+    auth_on: bool
+    username: str | None = None
+    api_key_id: int | None = None
+    api_key_prefix: str | None = None
+    long_lived_id: int | None = None
+    long_lived_user_id: int | None = None
+    long_lived_prefix: str | None = None
+    started_at: datetime = field(default_factory=utcnow_naive)
+
+
+async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] | None:
+    """Verify a camera stream token: the minter's printer scope and who it is.
+
+    Tries the ephemeral 60-minute token first (the common, browser-bound case)
+    and falls through to long-lived tokens (#1108) for HA / kiosk integrations
+    that paste a token once and expect it to keep working for days; those
+    carry their owner's scope. None when the token is invalid.
     """
     now = datetime.now(timezone.utc)
     async with async_session() as db:
@@ -1033,7 +1055,16 @@ async def verify_camera_stream_token(token: str) -> PrinterScope | None:
         )
         row = result.scalar_one_or_none()
         if row is not None:
-            return await principal_printer_scope(db, row.username, row.api_key_id)
+            scope = await principal_printer_scope(db, row.username, row.api_key_id)
+            prefix = await usable_api_key_prefix(db, row.api_key_id) if row.api_key_id is not None else None
+            minted = row.expires_at.replace(tzinfo=None) - timedelta(minutes=CAMERA_STREAM_TOKEN_EXPIRE_MINUTES)
+            return scope, StreamOpener(
+                auth_on=True,
+                username=row.username or None,
+                api_key_id=row.api_key_id,
+                api_key_prefix=prefix,
+                started_at=minted,
+            )
 
         # Long-lived path. Imported lazily so the auth module stays importable
         # at startup before the long_lived_tokens model is registered.
@@ -1042,7 +1073,74 @@ async def verify_camera_stream_token(token: str) -> PrinterScope | None:
         record = await verify_long_lived(db, token, scope=STREAM_SCOPES)
         if record is None:
             return None
-        return await resolve_user_id_printer_scope(db, record.user_id)
+        scope = await resolve_user_id_printer_scope(db, record.user_id)
+        return scope, StreamOpener(
+            auth_on=True,
+            long_lived_id=record.id,
+            long_lived_user_id=record.user_id,
+            long_lived_prefix=record.lookup_prefix,
+        )
+
+
+async def verify_camera_stream_token(token: str) -> PrinterScope | None:
+    """Verify a camera stream token (reusable -- does not consume it).
+
+    Returns the printer scope of whoever minted it (#1727), or None when the
+    token is invalid. See camera_stream_access.
+    """
+    access = await camera_stream_access(token)
+    return access[0] if access is not None else None
+
+
+async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> bool:
+    """Whether a stream's opener may still watch this printer (False also when
+    it can't be read).
+
+    A user's sessions must not have ended since the stream started (password
+    change or reset, 2FA removal, restore), and they must still exist and be
+    active; a key must still be usable and the same key; a long-lived token
+    must not be revoked or expired; a stream opened while auth was off ends
+    once it is on. In every case the printer must still be in scope.
+    """
+    from backend.app.models.long_lived_token import LongLivedToken
+    from backend.app.services.long_lived_tokens import _is_expired
+
+    try:
+        async with async_session() as db:
+            auth_on = await is_auth_enabled(db)
+            if not opener.auth_on:
+                return not auth_on
+            if not auth_on:
+                return True
+            if opener.long_lived_id is not None:
+                record = await db.get(LongLivedToken, opener.long_lived_id)
+                if (
+                    record is None
+                    or record.revoked_at is not None
+                    or record.user_id != opener.long_lived_user_id
+                    or record.lookup_prefix != opener.long_lived_prefix
+                    or _is_expired(record, datetime.now(timezone.utc))
+                ):
+                    return False
+                scope = await resolve_user_id_printer_scope(db, record.user_id)
+            elif opener.api_key_id is not None:
+                if await usable_api_key_prefix(db, opener.api_key_id) != opener.api_key_prefix:
+                    return False
+                scope = await principal_printer_scope(db, None, opener.api_key_id)
+            elif opener.username:
+                user = await get_user_by_username(db, opener.username)
+                if user is None or not user.is_active:
+                    return False
+                changed = user.password_changed_at
+                if changed is not None and changed.replace(tzinfo=None) > opener.started_at:
+                    return False
+                scope = await principal_printer_scope(db, opener.username, None)
+            else:
+                return False
+            return scope.allows(printer_id)
+    except Exception:  # SEC-AUTH-EXC: a failed re-check ends the stream (fail-closed)
+        logger.warning("Camera stream re-check failed", exc_info=True)
+        return False
 
 
 async def verify_camwall_token(token: str) -> PrinterScope | None:
@@ -2425,18 +2523,20 @@ def require_camera_stream_token_if_auth_enabled():
     tell one user's rows from another's (#3025).
     """
 
-    async def checker(printer_id: int, token: str | None = None) -> None:
+    async def checker(printer_id: int, token: str | None = None) -> StreamOpener:
         async with async_session() as db:
             if not await is_auth_enabled(db):
-                return  # Auth disabled, allow access
-        scope = await verify_camera_stream_token(token) if token else None
-        if scope is None:
+                return StreamOpener(auth_on=False)  # Auth disabled, allow access
+        access = await camera_stream_access(token) if token else None
+        if access is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Valid camera stream token required. Obtain one from POST /api/v1/printers/camera/stream-token",
             )
+        scope, opener = access
         # The token's minter may not see this printer (#1727)
         scope.ensure(printer_id)
+        return opener
 
     return checker
 

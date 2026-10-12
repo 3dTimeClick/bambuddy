@@ -111,6 +111,7 @@ async def test_an_external_camera_stream_of_the_printer_ends(async_client: Async
     from unittest.mock import MagicMock, patch
 
     from backend.app.api.routes import camera
+    from backend.app.core.auth import StreamOpener
 
     printer = Printer(
         name="A",
@@ -131,7 +132,7 @@ async def test_an_external_camera_stream_of_the_printer_ends(async_client: Async
             await asyncio.sleep(0)
 
     with patch("backend.app.services.external_camera.generate_mjpeg_stream", _frames):
-        response = await camera.camera_stream(printer.id, MagicMock(), fps=5, _=None)
+        response = await camera.camera_stream(printer.id, MagicMock(), fps=5, opener=StreamOpener(auth_on=False))
         stream = response.body_iterator
         await anext(stream)
         assert camera._last_frames.get(printer.id)
