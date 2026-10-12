@@ -1044,21 +1044,36 @@ async def camera_stream(
             viewer was attached. Raw frame, not the multipart-wrapped chunk the
             generator yields, because that is what those consumers expect.
             """
-            _last_frames[printer_id] = frame
+            if not stop_event.is_set():
+                _last_frames[printer_id] = frame
+
+        camera_url = printer.external_camera_url
+        # None and "" take the same branch in generate_mjpeg_stream.
+        camera_type = printer.external_camera_type or ""
 
         async def external_stream_wrapper():
             """Wrap external stream to track start/stop and update frame times."""
             try:
                 # Chamber light while the viewer watches (#1655).
-                async with camera_light(printer, wait=False):
-                    async for frame in generate_mjpeg_stream(
-                        printer.external_camera_url,
-                        printer.external_camera_type,
-                        fps,
-                        on_process=_register_external_process,
-                        on_frame=_publish_external_frame,
-                        stop_event=stop_event,
-                    ):
+                async with (
+                    camera_light(printer, wait=False),
+                    contextlib.aclosing(
+                        generate_mjpeg_stream(
+                            camera_url,
+                            camera_type,
+                            fps,
+                            on_process=_register_external_process,
+                            on_frame=_publish_external_frame,
+                            stop_event=stop_event,
+                        )
+                    ) as frames,
+                ):
+                    async for frame in frames:
+                        # Set by forget_printer: an MJPEG or snapshot camera runs
+                        # no process a stop could kill, and only checks it
+                        # between sessions.
+                        if stop_event.is_set():
+                            break
                         # generate_mjpeg_stream already handles rate limiting;
                         # track frame times (per-printer + per-stream) for stall detection
                         now = time.time()
@@ -1221,6 +1236,34 @@ async def stop_camera_stream(
         )
         return {"stopped": 0, "skipped": True}
 
+    stopped = await _stop_printer_streams(printer_id)
+    logger.info("Stopped %s camera stream(s) for printer %s", stopped, printer_id)
+    return {"stopped": stopped}
+
+
+async def forget_printer(printer_id: int) -> None:
+    """End a deleted printer's streams and drop its frames.
+
+    Viewers still attached are cut off: the next printer given the id (SQLite
+    reuses it) would otherwise join the old printer's feed, and snapshots read
+    its last frame.
+    """
+    await _stop_printer_streams(printer_id)
+    # External MJPEG and snapshot streams run no process the stop finds; they end
+    # at their next frame once told to. Not in _stop_printer_streams: the stop
+    # route would end every other viewer's stream of the printer with them.
+    for stream_id, event in list(_disconnect_events.items()):
+        if stream_id.startswith(f"{printer_id}-"):
+            event.set()
+    _last_frames.pop(printer_id, None)
+    _last_frame_times.pop(printer_id, None)
+    _stream_start_times.pop(printer_id, None)
+    _active_external_streams.discard(printer_id)
+
+
+async def _stop_printer_streams(printer_id: int) -> int:
+    """Stop the fan-out broadcaster and the stream processes of a printer."""
+    broadcaster_key = f"printer-{printer_id}"
     stopped = 0
 
     # Tear down the fan-out broadcaster first (#1089). This cleanly notifies
@@ -1274,8 +1317,7 @@ async def stop_camera_stream(
         _disconnect_events.pop(stream_id, None)
         _stream_last_frame_times.pop(stream_id, None)
 
-    logger.info("Stopped %s camera stream(s) for printer %s", stopped, printer_id)
-    return {"stopped": stopped}
+    return stopped
 
 
 @router.get("/{printer_id}/camera/snapshot")

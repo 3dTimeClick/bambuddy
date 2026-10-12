@@ -207,6 +207,11 @@ async def create_printer(
     db.add(printer)
     await db.commit()
     await db.refresh(printer)
+    # A new printer has no plate references: any under its id are a deleted
+    # printer's (SQLite reuses ids; deletes before this left them behind).
+    from backend.app.services.plate_detection import remove_printer_references
+
+    remove_printer_references(printer.id)
 
     # A group given this location reaches the new printer straight away (#1727)
     if await location_grantees(db, [printer.location]):
@@ -578,6 +583,11 @@ async def delete_printer(
             logger.error("Failed to sync virtual printers after printer delete: %s", e)
     # Open connections worked out their printers at connect.
     await ws_manager.refresh_printer_scopes()
+    # What is kept for its id in memory and on disk: SQLite gives the id to the
+    # next printer created.
+    from backend.app.main import forget_printer
+
+    await forget_printer(printer_id)
 
     return {"status": "deleted", "archives_deleted": delete_archives}
 

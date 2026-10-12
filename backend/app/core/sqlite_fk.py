@@ -80,7 +80,11 @@ APPLIED: frozenset[tuple[str, str]] = frozenset(
         ("project_bom_items", "project_id"),
         # printers: what the next printer given the id would otherwise take
         # over. Only these: providers, plugs and virtual printers go with the
-        # printer in its delete route, and the rest is decided separately.
+        # printer in its delete route, and the rest is decided separately. The
+        # print being tracked would be restored for a new printer that is already
+        # printing, charging its filament to the deleted printer's spools.
+        ("active_print_sessions", "printer_id"),
+        ("active_print_spoolman", "printer_id"),
         ("pipeline_jobs", "assigned_printer_id"),
         ("slicer_pipelines", "target_printer_id"),
         # smart_plugs: a printer delete now deletes its plugs; their energy

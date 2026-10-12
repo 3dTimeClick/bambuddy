@@ -1442,6 +1442,30 @@ class PrintScheduler:
         self._running = False
         logger.info("Print scheduler stopped")
 
+    def forget_printer(self, printer_id: int) -> None:
+        """Drop what is kept for a deleted printer, so the next printer given its
+        id (SQLite reuses it) starts clean: refused uploads and failed power-ons
+        would keep it out of dispatch for up to an hour.
+
+        A dispatch already in flight keeps its own state (_inflight, the preheat
+        pins, unconfirmed prints): it unwinds that when it ends.
+        """
+        for keyed in (
+            self._upload_backoff,
+            self._upload_refusals,
+            self._wake_failures,
+            self._drying_in_progress,
+            self._dispatch_holds,
+            self._chamber_history,
+            self._keep_warm,
+            self._terminal_since,
+        ):
+            keyed.pop(printer_id, None)
+        self._upload_refusal_notified.discard(printer_id)
+        for keyed in (self._auto_dry_units, self._auto_dry_above):
+            for key in [key for key in keyed if key[0] == printer_id]:
+                del keyed[key]
+
     async def check_queue(self) -> bool:
         """Check for prints ready to start.
 

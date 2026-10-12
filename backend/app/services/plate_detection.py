@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,36 @@ def _get_calibration_dir() -> Path:
     from backend.app.core.config import settings
 
     return settings.plate_calibration_dir
+
+
+_REFERENCE_FILE = re.compile(r"printer_(\d+)_(?:ref_\d+\.jpg|metadata\.json)")
+
+
+def _reference_files() -> list[tuple[int, Path]]:
+    directory = _get_calibration_dir()
+    if not directory.is_dir():
+        return []
+    return [
+        (int(m[1]), path) for path in directory.iterdir() if (m := _REFERENCE_FILE.fullmatch(path.name)) is not None
+    ]
+
+
+def _remove(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError as e:
+        logger.warning("Could not remove plate reference %s: %s", path, e)
+
+
+def remove_printer_references(printer_id: int) -> None:
+    """Remove a deleted printer's plate references (camera images of its bed).
+
+    Named by printer id, so the next printer given the id (SQLite reuses it)
+    would show them and compare its plate against them.
+    """
+    for owner, path in _reference_files():
+        if owner == printer_id:
+            _remove(path)
 
 
 class PlateDetectionResult:

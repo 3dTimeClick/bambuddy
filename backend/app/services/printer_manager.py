@@ -440,6 +440,13 @@ class PrinterManager:
             if user.get("user_id") == user_id:
                 del self._current_print_user[printer_id]
 
+    def forget_printer(self, printer_id: int) -> None:
+        """A deleted printer's print owner, plate-clear gate and last trays go
+        with it, not to the next printer given its id (SQLite reuses it)."""
+        self._current_print_user.pop(printer_id, None)
+        self._awaiting_plate_clear.discard(printer_id)
+        self._last_trays.pop(printer_id, None)
+
     def is_awaiting_plate_clear(self, printer_id: int) -> bool:
         """Return True when the printer finished/failed a print and is waiting for the
         user to acknowledge the plate is cleared before the queue may dispatch the next job.

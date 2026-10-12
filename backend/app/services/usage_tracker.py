@@ -419,6 +419,12 @@ async def clear_persisted_session(db: AsyncSession, printer_id: int) -> None:
         await db.commit()
 
 
+def forget_printer(printer_id: int) -> None:
+    """A deleted printer's print-start context in memory (the row goes with the printer)."""
+    _active_sessions.pop(printer_id, None)
+    _tray_change_locks.pop(printer_id, None)
+
+
 async def discard_session(db: AsyncSession, printer_id: int) -> None:
     """Forget a printer's print-start context, in memory and on disk.
 

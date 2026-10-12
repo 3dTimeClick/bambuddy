@@ -1041,6 +1041,94 @@ def forget_print_creator(user_id: int) -> None:
         del _expected_print_creators[key]
 
 
+async def forget_printer(printer_id: int) -> None:
+    """Drop what is kept for a deleted printer's id, here and in the services.
+
+    SQLite gives the id to the next printer created, which inherited it all: the
+    running print's owner (its prints passed the kill switch and were billed to
+    that user), the plate-clear gate, pending and suppressed notifications, the
+    camera feed, the plate references. Called after the delete is committed.
+    Every printer-keyed map of this module is listed here or, with the reason,
+    in tests/unit/test_forget_printer.py.
+    """
+    from backend.app.api.routes import camera
+    from backend.app.services import (
+        bambu_ftp,
+        kprofile_drift,
+        layer_timelapse,
+        plate_detection,
+        print_dispatch_context,
+        usage_tracker,
+    )
+    from backend.app.services.notify_live_activities import notify_live_activities
+    from backend.app.services.obico_detection import obico_detection_service
+
+    # Keyed (printer_id, filename). The archive-keyed maps of those prints go too.
+    archive_ids = set()
+    for tracked in (_active_prints, _expected_prints):
+        for key in [key for key in tracked if key[0] == printer_id]:
+            archive_ids.add(tracked.pop(key))
+    for archive_id in archive_ids:
+        _print_ams_mappings.pop(archive_id, None)
+        _print_cost_center_ids.pop(archive_id, None)
+        _print_plate_ids.pop(archive_id, None)
+    for tracked in (_expected_print_creators, _expected_print_registered_at):
+        for key in [key for key in tracked if key[0] == printer_id]:
+            del tracked[key]
+    for key in [key for key in _ams_index_only_logged if key[0] == printer_id]:
+        _ams_index_only_logged.discard(key)
+    for key in [key for key in _ams_alarm_cooldown if key.split(":", 1)[0] == str(printer_id)]:
+        del _ams_alarm_cooldown[key]
+
+    # Pending work that would act on the id: an offline notice, a 3MF retry.
+    # A kill-switch notice is about a stop that happened and is left to finish.
+    for tasks in (_printer_offline_notify_tasks, _fallback_3mf_retry_tasks):
+        task = tasks.pop(printer_id, None)
+        if task is not None:
+            task.cancel()
+    for keyed in (
+        _stage22_finish_frames,
+        _stage22_finish_in_flight,
+        _inprint_frame_bank,
+        _inprint_frame_bank_ts,
+        _printer_reconciled_since_connect,
+        _printer_kprofiles_primed_since_connect,
+        _last_progress_milestone,
+        _first_layer_notified,
+        _kill_switch_notification_tasks,
+        _notified_hms_errors,
+        _hms_print_state,
+        _hms_forget_when_gone,
+        _timelapse_baselines,
+        _bed_cool_waiters,
+        _printer_last_connected,
+        _unknown_tag_last_broadcast,
+        _last_status_broadcast,
+        _connection_watchdog_last_attempt,
+    ):
+        keyed.pop(printer_id, None)
+    for marked in (
+        _unauthorized_print_kill_sent,
+        _user_stopped_printers,
+        _printer_offline_published,
+        _nozzle_count_updated,
+    ):
+        marked.discard(printer_id)
+
+    printer_manager.forget_printer(printer_id)
+    print_dispatch_context.clear(printer_id)
+    kprofile_drift.forget_printer(printer_id, deleted=True)
+    layer_timelapse.cancel_session(printer_id)
+    usage_tracker.forget_printer(printer_id)
+    obico_detection_service.forget_printer(printer_id)
+    bambu_ftp.clear_3mf_cache(printer_id)
+    await camera.forget_printer(printer_id)
+    printers.clear_cover_cache(printer_id)
+    print_scheduler.forget_printer(printer_id)
+    notify_live_activities.forget_printer(printer_id)
+    plate_detection.remove_printer_references(printer_id)
+
+
 def register_expected_print(
     printer_id: int,
     filename: str,
