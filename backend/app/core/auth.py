@@ -841,6 +841,26 @@ async def verify_slicer_download_token(
         return True
 
 
+async def token_outlived_its_session(db: AsyncSession, username: str | None, minted_at: datetime | None) -> bool:
+    """Whether a token named after a user was minted before that user's session began.
+
+    password_changed_at marks it: set for a new user, and on a rename, a
+    password change or reset, a 2FA removal or a restore. A token from before
+    belongs to an earlier holder of the name or an ended session; deletes and
+    renames drop those, but one minted while they commit would survive.
+    Truncated to the second as for JWTs (_is_token_fresh): a new user and the
+    first token it is given can be written in the same flush.
+    """
+    if not username or minted_at is None:
+        return False
+    changed = (
+        await db.execute(select(User.password_changed_at).where(func.lower(User.username) == func.lower(username)))
+    ).scalar_one_or_none()
+    if changed is None:
+        return False
+    return minted_at.replace(tzinfo=None) < changed.replace(tzinfo=None, microsecond=0)
+
+
 # --- Camera stream tokens ---
 # Reusable tokens for camera stream/snapshot endpoints loaded via <img>/<video>
 # tags (these cannot send Authorization headers).  Unlike slicer tokens they are
@@ -947,7 +967,7 @@ async def verify_websocket_token_principal(token: str) -> tuple[str, int | None]
             )
         )
         row = result.scalar_one_or_none()
-        if row is None:
+        if row is None or await token_outlived_its_session(db, row.username, row.created_at):
             return None
         return row.username or "", row.api_key_id
 
@@ -1091,6 +1111,8 @@ async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] 
             )
         )
         row = result.scalar_one_or_none()
+        if row is not None and await token_outlived_its_session(db, row.username, row.created_at):
+            return None
         if row is not None:
             # Minting it needed camera:view; a group or key change can take it away.
             if not await principal_holds(db, row.username, row.api_key_id, Permission.CAMERA_VIEW):
@@ -1310,7 +1332,7 @@ async def verify_media_token(token: str) -> str | None:
             )
         )
         row = result.scalar_one_or_none()
-        if row is None:
+        if row is None or await token_outlived_its_session(db, row.username, row.created_at):
             return None
         return row.username or ""
 

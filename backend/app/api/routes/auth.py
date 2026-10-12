@@ -38,6 +38,7 @@ from backend.app.core.auth import (
     resolve_session_max_minutes,
     revoke_jti,
     security,
+    token_outlived_its_session,
 )
 from backend.app.core.database import async_session, get_db
 from backend.app.core.oidc_env import env_bool
@@ -1238,14 +1239,16 @@ async def forgot_password_confirm(request: ForgotPasswordConfirmRequest, db: Asy
             AuthEphemeralToken.token == request.token,
             AuthEphemeralToken.token_type == TokenType.PASSWORD_RESET,
         )
-        .returning(AuthEphemeralToken.username, AuthEphemeralToken.expires_at)
+        .returning(AuthEphemeralToken.username, AuthEphemeralToken.expires_at, AuthEphemeralToken.created_at)
     )
     row = result.one_or_none()
     await db.commit()
     if row is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset token")
 
-    username, expires_at = row
+    username, expires_at, minted_at = row
+    if await token_outlived_its_session(db, username, minted_at):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset token")
     # Stored as naive UTC on both databases; treat it as UTC.
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)

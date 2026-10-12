@@ -48,6 +48,7 @@ from backend.app.core.auth import (
     get_user_by_username,
     is_auth_enabled,
     resolve_session_max_minutes,
+    token_outlived_its_session,
     verify_password,
 )
 from backend.app.core.database import get_db
@@ -283,12 +284,15 @@ async def consume_pre_auth_token(db: AsyncSession, token: str, challenge_id: str
             AuthEphemeralToken.token_type == TokenType.PRE_AUTH,
             AuthEphemeralToken.expires_at > now,
         )
-        .returning(AuthEphemeralToken.username, AuthEphemeralToken.challenge_id)
+        .returning(AuthEphemeralToken.username, AuthEphemeralToken.challenge_id, AuthEphemeralToken.created_at)
     )
     row = result.one_or_none()
     if row is None:
         return None
-    username, stored_challenge_id = row
+    username, stored_challenge_id, minted_at = row
+    if await token_outlived_its_session(db, username, minted_at):
+        await db.commit()  # spent all the same
+        return None
     # Enforce client binding: if the token was issued with a challenge_id,
     # the caller must supply the matching value.
     if stored_challenge_id is not None and stored_challenge_id != challenge_id:
@@ -314,7 +318,7 @@ async def peek_pre_auth_token(db: AsyncSession, token: str, challenge_id: str | 
         )
     )
     eph = result.scalar_one_or_none()
-    if eph is None:
+    if eph is None or await token_outlived_its_session(db, eph.username, eph.created_at):
         return None
     # Enforce client binding: if the token was issued with a challenge_id the
     # cookie must match.  Treat a mismatch as if the token doesn't exist.
@@ -982,7 +986,7 @@ async def confirm_enable_email_otp(
         )
     )
     eph = peek_result.scalar_one_or_none()
-    if eph is None:
+    if eph is None or await token_outlived_its_session(db, eph.username, eph.created_at):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired setup token")
 
     code_hash = eph.nonce  # code hash stored in the nonce field
@@ -2204,14 +2208,16 @@ async def oidc_exchange(
             AuthEphemeralToken.token_type == TokenType.OIDC_EXCHANGE,
             AuthEphemeralToken.expires_at > now,  # reject expired tokens atomically
         )
-        .returning(AuthEphemeralToken.username)
+        .returning(AuthEphemeralToken.username, AuthEphemeralToken.created_at)
     )
     row = consume_result.one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired OIDC exchange token")
 
-    (username,) = row
+    username, minted_at = row
     await db.commit()
+    if await token_outlived_its_session(db, username, minted_at):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired OIDC exchange token")
 
     user = await get_user_by_username(db, username)
     if not user or not user.is_active:

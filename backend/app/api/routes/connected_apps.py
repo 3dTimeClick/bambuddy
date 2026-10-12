@@ -44,6 +44,7 @@ from backend.app.core.auth import (
     get_user_by_username,
     is_auth_enabled,
     security,
+    token_outlived_its_session,
     verify_password,
 )
 from backend.app.core.database import get_db
@@ -370,13 +371,15 @@ async def exchange_code(
             AuthEphemeralToken.provider_id == app.id,
             AuthEphemeralToken.expires_at > now,
         )
-        .returning(AuthEphemeralToken.username, AuthEphemeralToken.nonce)
+        .returning(AuthEphemeralToken.username, AuthEphemeralToken.nonce, AuthEphemeralToken.created_at)
     )
     row = consumed.one_or_none()
     await db.commit()
     if row is None:
         raise await fail(400, "invalid_grant", "unknown, expired, reused or foreign code")
-    username, code_challenge = row
+    username, code_challenge, minted_at = row
+    if await token_outlived_its_session(db, username, minted_at):
+        raise await fail(400, "invalid_grant", "code from before the user's current session")
 
     if not hmac.compare_digest(app.redirect_uri, data.redirect_uri):
         raise await fail(400, "invalid_grant", "callback URL mismatch")
