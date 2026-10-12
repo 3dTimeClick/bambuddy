@@ -8,7 +8,7 @@ import jwt as _jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from jwt.exceptions import PyJWTError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -375,7 +375,24 @@ async def setup_auth(request: SetupRequest, db: AsyncSession = Depends(get_db)):
         # Set auth enabled and mark setup as completed
         await set_auth_enabled(db, request.auth_enabled)
         await set_setup_completed(db, True)
+        if request.auth_enabled:
+            # Tokens minted while it was off name nobody (every tab mints a
+            # WebSocket one): they would reconnect the dashboards closed below.
+            await db.execute(
+                delete(AuthEphemeralToken).where(
+                    or_(AuthEphemeralToken.username.is_(None), AuthEphemeralToken.username == ""),
+                    AuthEphemeralToken.api_key_id.is_(None),
+                    AuthEphemeralToken.token_type != "revoked_jti",
+                )
+            )
         await db.commit()
+        if request.auth_enabled:
+            # Dashboards opened while it was off have every printer and would
+            # keep them. Closed, such a tab stops updating until it is reloaded
+            # and signs in (the SPA treats the close as final).
+            from backend.app.core.websocket import ws_manager
+
+            await ws_manager.close_anonymous()
 
         if admin_created:
             await db.refresh(admin_user)
@@ -1243,7 +1260,17 @@ async def forgot_password_confirm(request: ForgotPasswordConfirmRequest, db: Asy
 
     user.password_hash = get_password_hash(request.new_password)
     user.password_changed_at = now  # M-R7-B: invalidate all prior JWTs
+    # The WebSocket and camera tokens too: reusable for an hour, they would
+    # reconnect a closed dashboard straight away.
+    from backend.app.api.routes.users import drop_pending_tokens
+
+    await drop_pending_tokens(db, user.username)
     await db.commit()
+    # Open dashboards are never signed in again: one someone else had open on
+    # the account would keep receiving its printers.
+    from backend.app.core.websocket import ws_manager
+
+    await ws_manager.close_user(user.id)
     _logger.info("Password reset completed for user '%s'", username)
 
     return ForgotPasswordResponse(message="Password has been reset successfully.")

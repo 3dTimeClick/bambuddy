@@ -21,11 +21,15 @@ import logging
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from backend.app.core.auth import is_auth_enabled, principal_printer_scope, verify_websocket_token_principal
+from backend.app.core.auth import (
+    is_auth_enabled,
+    principal_printer_scope,
+    usable_api_key_prefix,
+    verify_websocket_token_principal,
+)
 from backend.app.core.database import async_session
 from backend.app.core.printer_scope import ALL_PRINTERS, PrinterScope
 from backend.app.core.websocket import ws_manager
-from backend.app.models.api_key import APIKey
 from backend.app.models.user import User
 from backend.app.services.printer_manager import printer_manager, printer_state_to_dict
 
@@ -52,13 +56,33 @@ async def _user_id_of(username: str) -> int | None:
 
 async def _api_key_prefix(api_key_id: int) -> str | None:
     """The key's prefix, which tells it from a later key given its id; None when
-    the key is gone (also when it can't be read)."""
+    the key is gone, disabled or expired (also when it can't be read)."""
     try:
         async with async_session() as db:
-            row = await db.execute(select(APIKey.key_prefix).where(APIKey.id == api_key_id))
-            return row.scalar_one_or_none()
+            return await usable_api_key_prefix(db, api_key_id)
     except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
         logger.warning("WebSocket API key lookup failed for %s", api_key_id, exc_info=True)
+        return None
+
+
+async def _auth_turned_on() -> bool:
+    """Whether authentication is on now (True also when it can't be read)."""
+    try:
+        async with async_session() as db:
+            return await is_auth_enabled(db)
+    except Exception:  # SEC-AUTH-EXC: a failed read refuses the socket (fail-closed)
+        logger.warning("WebSocket auth re-check failed", exc_info=True)
+        return True
+
+
+async def _token_principal(token: str | None):
+    """The token's principal again, or None (also when it can't be read)."""
+    if not token:
+        return None
+    try:
+        return await verify_websocket_token_principal(token)
+    except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
+        logger.warning("WebSocket token re-check failed", exc_info=True)
         return None
 
 
@@ -143,7 +167,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
             return
     api_key_prefix = await _api_key_prefix(api_key_id) if api_key_id is not None else None
     if api_key_id is not None and api_key_prefix is None:
-        logger.info("WebSocket connect refused: API key %s is gone", api_key_id)
+        logger.info("WebSocket connect refused: API key %s is gone, disabled or expired", api_key_id)
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
         return
     # Stamped before connect() puts the socket in the broadcast list, so no
@@ -162,10 +186,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
     # touching every call site.
     websocket.state.bambuddy_principal = principal
     await ws_manager.connect(websocket)
-    if (principal and await _user_id_of(principal) != principal_user_id) or (
-        api_key_id is not None and await _api_key_prefix(api_key_id) != api_key_prefix
+    # And the token still there: whatever ends a session (password change or
+    # reset, 2FA removal, deactivation) drops it before closing the user's
+    # sockets, so one landing in between is seen here. Admitted with auth off,
+    # auth must still be off: turning it on closes the anonymous sockets, which
+    # this one may have joined just after.
+    if (
+        (principal and await _user_id_of(principal) != principal_user_id)
+        or (api_key_id is not None and await _api_key_prefix(api_key_id) != api_key_prefix)
+        or (auth_required and await _token_principal(token) != (principal, api_key_id))
+        or (not auth_required and await _auth_turned_on())
     ):
-        logger.info("WebSocket connect refused: its user or API key went while it connected")
+        logger.info("WebSocket connect refused: its session ended while it connected")
         await ws_manager.disconnect(websocket)
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
         return

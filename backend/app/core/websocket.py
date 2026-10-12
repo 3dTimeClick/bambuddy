@@ -114,6 +114,19 @@ class ConnectionManager:
         the messages of whoever is given their id next."""
         await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) == user_id)
 
+    async def close_signed_in(self):
+        """Close every signed-in user's socket, after everyone is signed out (a
+        backup restore). API-key and anonymous sockets stay: nothing ended
+        theirs, and the dashboard treats the close as final until a sign-in."""
+        await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) is not None)
+
+    async def close_anonymous(self):
+        """Close the sockets opened while authentication was off, which have
+        every printer, once it is turned on."""
+        await self._close(
+            lambda c: getattr(c.state, "bambuddy_scope_principal", (None, None)) in ((None, None), ("", None))
+        )
+
     async def close_api_keys(self, key_ids):
         """Close the sockets opened with deleted API keys. Their scope is looked
         up by key id on every refresh: SQLite gives the id to the next key."""
@@ -138,7 +151,7 @@ class ConnectionManager:
         is in a group, so open dashboards stop (or start) receiving those
         printers' events without a reconnect.
         """
-        from backend.app.core.auth import is_auth_enabled, principal_printer_scope
+        from backend.app.core.auth import is_auth_enabled, principal_printer_scope, usable_api_key_prefix
         from backend.app.core.database import async_session
         from backend.app.core.printer_scope import ALL_PRINTERS, PrinterScope
 
@@ -146,9 +159,6 @@ class ConnectionManager:
             connections = list(self.active_connections)
         if not connections:
             return
-        from sqlalchemy import select
-
-        from backend.app.models.api_key import APIKey
 
         orphaned = []
         try:
@@ -164,9 +174,8 @@ class ConnectionManager:
                         # next key created: a socket whose key is gone, or whose
                         # id another key now has, is closed, not re-scoped (a key
                         # rotated from the command line, which can't close it).
-                        prefix = (
-                            await db.execute(select(APIKey.key_prefix).where(APIKey.id == api_key_id))
-                        ).scalar_one_or_none()
+                        # Disabled or expired counts as gone: REST refuses it.
+                        prefix = await usable_api_key_prefix(db, api_key_id)
                         if prefix is None or prefix != getattr(connection.state, "bambuddy_api_key_prefix", prefix):
                             connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
                             orphaned.append(connection)

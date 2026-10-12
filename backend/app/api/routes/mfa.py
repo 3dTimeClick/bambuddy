@@ -1305,8 +1305,18 @@ async def admin_disable_2fa(
     target_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if target_user:
         target_user.password_changed_at = datetime.now(timezone.utc)
+        # The WebSocket and camera tokens too: reusable for an hour, they would
+        # reconnect a closed dashboard straight away.
+        from backend.app.api.routes.users import drop_pending_tokens
+
+        await drop_pending_tokens(db, target_user.username)
 
     await db.commit()
+    if target_user:
+        # And their open dashboards: they are never signed in again.
+        from backend.app.core.websocket import ws_manager
+
+        await ws_manager.close_user(user_id)
     actor = current_user.username if current_user else "anonymous"
     logger.info("Admin %s disabled all 2FA for user_id=%d", actor, user_id)
     return {"message": "2FA disabled for user"}

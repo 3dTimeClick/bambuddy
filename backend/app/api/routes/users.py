@@ -277,6 +277,7 @@ async def update_user(
 ):
     """Update a user."""
     close_sockets = False
+    deactivated_keys: list[int] = []
     result = await db.execute(select(User).where(User.id == user_id).options(selectinload(User.groups)))
     user = result.scalar_one_or_none()
     if not user:
@@ -372,6 +373,20 @@ async def update_user(
         user.role = user_data.role
 
     if user_data.is_active is not None:
+        if user.is_active and not user_data.is_active:
+            # Deactivated: their printers go at the scope refresh below, but
+            # events of no printer (inventory, SpoolBuddy tags, announcements)
+            # would still reach their open dashboards, and their tokens would
+            # open new ones. The same for their API keys' (a kiosk), which
+            # REST already refuses for a deactivated owner.
+            from backend.app.api.routes.api_keys import drop_api_key_tokens
+
+            await drop_pending_tokens(db, user.username)
+            deactivated_keys = list(
+                (await db.execute(select(APIKey.id).where(APIKey.user_id == user_id))).scalars().all()
+            )
+            await drop_api_key_tokens(db, deactivated_keys)
+            close_sockets = True
         user.is_active = user_data.is_active
 
     # Handle group assignments
@@ -388,6 +403,8 @@ async def update_user(
     await ensure_user_finance_defaults(db, user)
 
     await db.commit()
+    if deactivated_keys:
+        await ws_manager.close_api_keys(deactivated_keys)
     if close_sockets:
         # Open dashboards are not signed in again. After a rename they keep the
         # name they connected with and look their printers up by it on every
@@ -663,7 +680,14 @@ async def change_own_password(
     # Update password
     user.password_hash = get_password_hash(password_data.new_password)
     user.password_changed_at = datetime.now(timezone.utc)  # M-R7-B: invalidate all prior JWTs
+    # The WebSocket and camera tokens too: reusable for an hour, they would
+    # reconnect a closed dashboard straight away.
+    await drop_pending_tokens(db, user.username)
     await db.commit()
+    # Open dashboards are never signed in again: one someone else had open on
+    # the account would keep receiving its printers. This tab signs in again
+    # (the route revokes its JWT anyway).
+    await ws_manager.close_user(user.id)
 
     # L-R6-A: Password verified successfully — reset the failure counter
     from backend.app.api.routes.mfa import clear_failed_attempts

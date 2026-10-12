@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
@@ -182,6 +183,13 @@ async def update_api_key(
 
     await db.flush()
     await db.refresh(api_key)
+    if not api_key.enabled or (
+        api_key.expires_at is not None
+        and api_key.expires_at.replace(tzinfo=api_key.expires_at.tzinfo or timezone.utc) < datetime.now(timezone.utc)
+    ):
+        # Its camera and WebSocket tokens go with it; the scope refresh below
+        # closes its open dashboards.
+        await drop_api_key_tokens(db, [api_key.id])
     if data.printer_ids is not None or data.enabled is not None or data.expires_at is not None:
         # Sockets opened with this key may now see fewer printers, or none
         # (#1727). Committed first so the refresh reads the new row.

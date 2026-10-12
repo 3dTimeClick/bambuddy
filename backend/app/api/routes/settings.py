@@ -16,6 +16,7 @@ from backend.app.core.auth import (
     RequirePermissionIfAuthEnabled,
     ScopedCaller,
     caller_is_api_key,
+    is_auth_enabled,
     require_auth_if_enabled,
     require_energy_cost_update,
 )
@@ -1618,6 +1619,24 @@ async def restore_backup(
 
             async with _db_mod.engine.begin() as conn:
                 await _db_mod.invalidate_all_sessions(conn)
+            # Open dashboards of signed-in users too: they are never signed in
+            # again. API-key and anonymous ones are not closed outright (the
+            # dashboard treats the close as final until a sign-in), but the
+            # restored data decides what they may still see: the anonymous ones
+            # go if the backup turns authentication on, and the refresh closes
+            # those of a key the backup does not have (or has under another key).
+            from backend.app.core.auth import invalidate_auth_enabled_cache
+            from backend.app.core.websocket import ws_manager
+
+            # Read from the restored data: this request has just cached the
+            # setting it had before.
+            invalidate_auth_enabled_cache()
+            async with _db_mod.async_session() as auth_db:
+                auth_on = await is_auth_enabled(auth_db)
+            if auth_on:
+                await ws_manager.close_signed_in()
+                await ws_manager.close_anonymous()
+            await ws_manager.refresh_printer_scopes()
 
             logger.info("Restore complete - restart required")
             message = "Backup restored successfully. Please restart Bambuddy for changes to take effect."

@@ -965,6 +965,25 @@ async def verify_websocket_token(token: str) -> str | None:
 _NO_PRINTERS = PrinterScope(frozenset())
 
 
+async def usable_api_key_prefix(db: AsyncSession, api_key_id: int) -> str | None:
+    """The prefix of an API key that may still be used, else None.
+
+    None for a key that is gone, disabled or expired. The prefix tells a key
+    from a later one given its id (SQLite reuses ids), so an open WebSocket can
+    tell whether its key is still the one it connected with.
+    """
+    api_key = (await db.execute(select(APIKey).where(APIKey.id == api_key_id))).scalar_one_or_none()
+    if api_key is None or not api_key.enabled:
+        return None
+    if api_key.expires_at is not None:
+        expires = api_key.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            return None
+    return api_key.key_prefix
+
+
 async def principal_printer_scope(db: AsyncSession, username: str | None, api_key_id: int | None) -> PrinterScope:
     """Printer scope of the principal a token was minted for (#1727).
 
