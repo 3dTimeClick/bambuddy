@@ -141,7 +141,7 @@ async def test_a_renamed_users_old_name_leaves_nothing_pending(async_client: Asy
 
 async def test_the_startup_cleanup_drops_tokens_of_users_that_are_gone(db_session):
     """Deleted before deletes took them along."""
-    from backend.app.core.database import _drop_ephemeral_tokens_of_missing_users
+    from backend.app.core.database import _drop_ephemeral_tokens_of_missing_owners
 
     db_session.add(User(username="Dave", password_hash="x", role="user"))
     await db_session.commit()
@@ -154,7 +154,7 @@ async def test_the_startup_cleanup_drops_tokens_of_users_that_are_gone(db_sessio
     )  # an API key's: no user
     await db_session.commit()
 
-    await _drop_ephemeral_tokens_of_missing_users(await db_session.connection())
+    await _drop_ephemeral_tokens_of_missing_owners(await db_session.connection())
     await db_session.commit()
 
     assert await _kinds(db_session, "ghost") == ["revoked_jti"]

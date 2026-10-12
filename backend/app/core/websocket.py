@@ -112,10 +112,17 @@ class ConnectionManager:
     async def close_user(self, user_id: int):
         """Close a deleted user's sockets, which would otherwise keep receiving
         the messages of whoever is given their id next."""
+        await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) == user_id)
+
+    async def close_api_keys(self, key_ids):
+        """Close the sockets opened with deleted API keys. Their scope is looked
+        up by key id on every refresh: SQLite gives the id to the next key."""
+        key_ids = set(key_ids)
+        await self._close(lambda c: getattr(c.state, "bambuddy_scope_principal", (None, None))[1] in key_ids)
+
+    async def _close(self, matches):
         async with self._lock:
-            theirs = [
-                c for c in self.active_connections if getattr(c.state, "bambuddy_principal_user_id", None) == user_id
-            ]
+            theirs = [c for c in self.active_connections if matches(c)]
             for connection in theirs:
                 self.active_connections.remove(connection)
         for connection in theirs:
@@ -139,6 +146,11 @@ class ConnectionManager:
             connections = list(self.active_connections)
         if not connections:
             return
+        from sqlalchemy import select
+
+        from backend.app.models.api_key import APIKey
+
+        orphaned = []
         try:
             async with async_session() as db:
                 auth_enabled = await is_auth_enabled(db)
@@ -147,6 +159,18 @@ class ConnectionManager:
                         connection.state.bambuddy_printer_scope = ALL_PRINTERS
                         continue
                     username, api_key_id = getattr(connection.state, "bambuddy_scope_principal", (None, None))
+                    if api_key_id is not None:
+                        # The key is looked up by id, which SQLite gives to the
+                        # next key created: a socket whose key is gone, or whose
+                        # id another key now has, is closed, not re-scoped (a key
+                        # rotated from the command line, which can't close it).
+                        prefix = (
+                            await db.execute(select(APIKey.key_prefix).where(APIKey.id == api_key_id))
+                        ).scalar_one_or_none()
+                        if prefix is None or prefix != getattr(connection.state, "bambuddy_api_key_prefix", prefix):
+                            connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
+                            orphaned.append(connection)
+                            continue
                     connection.state.bambuddy_printer_scope = await principal_printer_scope(db, username, api_key_id)
         except Exception:  # SEC-AUTH-EXC: refresh failed → fail closed (empty scope, then disconnect to re-auth)
             # The old scopes may be wider than what was just granted, so they
@@ -160,6 +184,9 @@ class ConnectionManager:
                     await connection.close(code=4401)
                 except Exception:  # noqa: BLE001 -- already gone; disconnect() cleans it up
                     pass
+            return
+        if orphaned:
+            await self._close(lambda c: c in orphaned)
 
     async def send_printer_status(self, printer_id: int, status: dict):
         """Send printer status update to all clients."""

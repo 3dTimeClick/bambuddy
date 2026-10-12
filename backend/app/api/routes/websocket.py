@@ -25,6 +25,7 @@ from backend.app.core.auth import is_auth_enabled, principal_printer_scope, veri
 from backend.app.core.database import async_session
 from backend.app.core.printer_scope import ALL_PRINTERS, PrinterScope
 from backend.app.core.websocket import ws_manager
+from backend.app.models.api_key import APIKey
 from backend.app.models.user import User
 from backend.app.services.printer_manager import printer_manager, printer_state_to_dict
 
@@ -46,6 +47,18 @@ async def _user_id_of(username: str) -> int | None:
             return row.scalar_one_or_none()
     except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
         logger.warning("WebSocket principal resolve failed for %s", username, exc_info=True)
+        return None
+
+
+async def _api_key_prefix(api_key_id: int) -> str | None:
+    """The key's prefix, which tells it from a later key given its id; None when
+    the key is gone (also when it can't be read)."""
+    try:
+        async with async_session() as db:
+            row = await db.execute(select(APIKey.key_prefix).where(APIKey.id == api_key_id))
+            return row.scalar_one_or_none()
+    except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
+        logger.warning("WebSocket API key lookup failed for %s", api_key_id, exc_info=True)
         return None
 
 
@@ -118,6 +131,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
     # after: a rename or delete commits before it closes the user's sockets by
     # id, so one landing in between is seen by the second check, and one after
     # it finds this socket listed with its id.
+    #
+    # Same for an API key deleted since: its scope is looked up by key id on
+    # every refresh, and SQLite gives the id to the next key created.
     principal_user_id: int | None = None
     if principal:
         principal_user_id = await _user_id_of(principal)
@@ -125,12 +141,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
             logger.info("WebSocket connect refused: user %s is gone", principal)
             await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
             return
+    api_key_prefix = await _api_key_prefix(api_key_id) if api_key_id is not None else None
+    if api_key_id is not None and api_key_prefix is None:
+        logger.info("WebSocket connect refused: API key %s is gone", api_key_id)
+        await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
+        return
     # Stamped before connect() puts the socket in the broadcast list, so no
     # broadcast can reach it unfiltered (ws_manager refuses printer-bound
     # messages to a socket without a scope anyway).
     websocket.state.bambuddy_printer_scope = printer_scope
     websocket.state.bambuddy_scope_principal = (principal, api_key_id)
     websocket.state.bambuddy_principal_user_id = principal_user_id
+    # A scope refresh closes the socket if a different key has the id by then.
+    websocket.state.bambuddy_api_key_prefix = api_key_prefix
     # Stash on connection state for any future per-message permission
     # logic; today the message handlers are read-only and only respond
     # to the requesting socket, so the stash is informational. The
@@ -139,8 +162,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
     # touching every call site.
     websocket.state.bambuddy_principal = principal
     await ws_manager.connect(websocket)
-    if principal and await _user_id_of(principal) != principal_user_id:
-        logger.info("WebSocket connect refused: user %s was renamed or deleted while connecting", principal)
+    if (principal and await _user_id_of(principal) != principal_user_id) or (
+        api_key_id is not None and await _api_key_prefix(api_key_id) != api_key_prefix
+    ):
+        logger.info("WebSocket connect refused: its user or API key went while it connected")
         await ws_manager.disconnect(websocket)
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
         return

@@ -1,15 +1,17 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.api.routes.notifications import forget_app_senders
 from backend.app.core.auth import RequirePermissionIfAuthEnabled, generate_api_key
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.core.printer_scope import ensure_printers_exist
 from backend.app.core.websocket import ws_manager
 from backend.app.models.api_key import APIKey
+from backend.app.models.auth_ephemeral import AuthEphemeralToken
 from backend.app.models.user import User
 from backend.app.schemas.api_key import (
     APIKeyCreate,
@@ -189,6 +191,18 @@ async def update_api_key(
     return api_key
 
 
+async def drop_api_key_tokens(db: AsyncSession, key_ids) -> None:
+    """Delete the camera and WebSocket tokens deleted keys minted (media tokens
+    never record the key).
+
+    They name the key by id, which SQLite gives to the next key created: a
+    token of a key limited to one printer would get the new key's printers.
+    """
+    key_ids = list(key_ids)
+    if key_ids:
+        await db.execute(delete(AuthEphemeralToken).where(AuthEphemeralToken.api_key_id.in_(key_ids)))
+
+
 @router.delete("/{key_id}")
 async def delete_api_key(
     key_id: int,
@@ -203,8 +217,11 @@ async def delete_api_key(
         raise HTTPException(status_code=404, detail="API key not found")
 
     await db.delete(api_key)
-    # Sockets opened with this key lose their printers (#1727)
+    await drop_api_key_tokens(db, [key_id])
     await db.commit()
-    await ws_manager.refresh_printer_scopes()
+    # Its sockets are closed, not just given no printers: their scope is looked
+    # up by key id, which SQLite gives to the next key created.
+    await ws_manager.close_api_keys([key_id])
+    forget_app_senders([key_id])
 
     return {"message": "API key deleted"}

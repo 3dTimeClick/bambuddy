@@ -558,6 +558,10 @@ async def delete_user(
     # silently degrading the keys to anonymous (and locking them out of
     # /cloud/* — but the rest of the API would still accept them, which is
     # exactly the orphan-key state the CASCADE was meant to prevent).
+    from backend.app.api.routes.api_keys import drop_api_key_tokens
+
+    key_ids = (await db.execute(select(APIKey.id).where(APIKey.user_id == user_id))).scalars().all()
+    await drop_api_key_tokens(db, key_ids)
     await db.execute(delete(APIKey).where(APIKey.user_id == user_id))
 
     # Drop OIDC links, MFA state, and long-lived camera-stream tokens
@@ -597,6 +601,10 @@ async def delete_user(
     forget_print_creator(user_id)
     slice_dispatch.forget_owner(user_id)
     await ws_manager.close_user(user_id)
+    await ws_manager.close_api_keys(key_ids)
+    from backend.app.api.routes.notifications import forget_app_senders
+
+    forget_app_senders(key_ids, [user_id])
     await ws_manager.refresh_printer_scopes()
 
     for file_id in doomed_library_file_ids:

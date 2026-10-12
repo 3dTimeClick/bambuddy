@@ -515,6 +515,15 @@ def _app_sender(caller: ScopedCaller) -> tuple[str, str]:
     return "anonymous", "app"
 
 
+def forget_app_senders(api_key_ids=(), user_ids=()) -> None:
+    """Drop deleted keys' and users' message counts: SQLite gives an id to the
+    next key or user created, which would start out throttled."""
+    for key_id in api_key_ids:
+        _app_message_times.pop(f"key:{key_id}", None)
+    for user_id in user_ids:
+        _app_message_times.pop(f"user:{user_id}", None)
+
+
 def _check_app_message_rate(key: str) -> None:
     times = _app_message_times[key]
     cutoff = time.monotonic() - APP_MESSAGE_WINDOW_SECONDS
