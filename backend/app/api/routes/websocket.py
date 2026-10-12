@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from backend.app.core.auth import (
     is_auth_enabled,
+    principal_may_connect,
     principal_printer_scope,
     usable_api_key_prefix,
     verify_websocket_token_principal,
@@ -63,6 +64,17 @@ async def _api_key_prefix(api_key_id: int) -> str | None:
     except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
         logger.warning("WebSocket API key lookup failed for %s", api_key_id, exc_info=True)
         return None
+
+
+async def _still_may_connect(principal: str | None, api_key_id: int | None) -> bool:
+    """websocket:connect still held (False also when it can't be read): a group
+    or key change that took it away while the socket joined closed nothing."""
+    try:
+        async with async_session() as db:
+            return await principal_may_connect(db, principal, api_key_id)
+    except Exception:  # SEC-AUTH-EXC: a failed read refuses the socket (fail-closed)
+        logger.warning("WebSocket permission re-check failed", exc_info=True)
+        return False
 
 
 async def _auth_turned_on() -> bool:
@@ -134,9 +146,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
         # with every printer.
         try:
             async with async_session() as db:
+                may_connect = await principal_may_connect(db, principal, api_key_id)
                 printer_scope = await principal_printer_scope(db, principal, api_key_id)
         except Exception:  # SEC-AUTH-EXC: scope lookup failure → refuse connect (fail-closed)
             logger.error("WebSocket printer scope lookup failed; refusing connection", exc_info=True)
+            await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
+            return
+        if not may_connect:
+            # The token was minted while its principal held websocket:connect;
+            # a group or key change has taken it away since.
+            logger.info("WebSocket connect refused: websocket:connect no longer held")
             await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
             return
 
@@ -195,6 +214,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
         (principal and await _user_id_of(principal) != principal_user_id)
         or (api_key_id is not None and await _api_key_prefix(api_key_id) != api_key_prefix)
         or (auth_required and await _token_principal(token) != (principal, api_key_id))
+        or (auth_required and not await _still_may_connect(principal, api_key_id))
         or (not auth_required and await _auth_turned_on())
     ):
         logger.info("WebSocket connect refused: its session ended while it connected")

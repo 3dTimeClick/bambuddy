@@ -151,7 +151,12 @@ class ConnectionManager:
         is in a group, so open dashboards stop (or start) receiving those
         printers' events without a reconnect.
         """
-        from backend.app.core.auth import is_auth_enabled, principal_printer_scope, usable_api_key_prefix
+        from backend.app.core.auth import (
+            is_auth_enabled,
+            principal_may_connect,
+            principal_printer_scope,
+            usable_api_key_prefix,
+        )
         from backend.app.core.database import async_session
         from backend.app.core.printer_scope import ALL_PRINTERS, PrinterScope
 
@@ -180,6 +185,11 @@ class ConnectionManager:
                             connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
                             orphaned.append(connection)
                             continue
+                    if not await principal_may_connect(db, username, api_key_id):
+                        # websocket:connect was taken away (a group or key change)
+                        connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
+                        orphaned.append(connection)
+                        continue
                     connection.state.bambuddy_printer_scope = await principal_printer_scope(db, username, api_key_id)
         except Exception:  # SEC-AUTH-EXC: refresh failed → fail closed (empty scope, then disconnect to re-auth)
             # The old scopes may be wider than what was just granted, so they

@@ -985,6 +985,43 @@ async def usable_api_key_prefix(db: AsyncSession, api_key_id: int) -> str | None
     return api_key.key_prefix
 
 
+async def principal_holds(
+    db: AsyncSession, username: str | None, api_key_id: int | None, permission: Permission
+) -> bool:
+    """Whether a token's principal still holds the permission minting it needed.
+
+    A group change can take it away while the token is still valid (an hour,
+    or months for a long-lived one) and a connection or stream is open. A key
+    is checked as at the mint (its scope flags and its owner's permissions); a
+    user must exist, be active and hold it.
+    """
+    if api_key_id is not None:
+        api_key = (await db.execute(select(APIKey).where(APIKey.id == api_key_id))).scalar_one_or_none()
+        if api_key is None:
+            return False
+        try:
+            await authorize_api_key(db, api_key, [permission.value])
+        except HTTPException:
+            return False
+        return True
+    if username:
+        user = await get_user_by_username(db, username)
+        return user is not None and user.is_active and user.has_permission(permission.value)
+    return False
+
+
+async def user_id_holds(db: AsyncSession, user_id: int, permission: Permission) -> bool:
+    """principal_holds for the owner of a long-lived token, named by id."""
+    result = await db.execute(select(User).where(User.id == user_id).options(selectinload(User.groups)))
+    user = result.scalar_one_or_none()
+    return user is not None and user.is_active and user.has_permission(permission.value)
+
+
+async def principal_may_connect(db: AsyncSession, username: str | None, api_key_id: int | None) -> bool:
+    """Whether a WebSocket token's principal still holds websocket:connect."""
+    return await principal_holds(db, username, api_key_id, Permission.WEBSOCKET_CONNECT)
+
+
 async def principal_printer_scope(db: AsyncSession, username: str | None, api_key_id: int | None) -> PrinterScope:
     """Printer scope of the principal a token was minted for (#1727).
 
@@ -1055,6 +1092,9 @@ async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] 
         )
         row = result.scalar_one_or_none()
         if row is not None:
+            # Minting it needed camera:view; a group or key change can take it away.
+            if not await principal_holds(db, row.username, row.api_key_id, Permission.CAMERA_VIEW):
+                return None
             scope = await principal_printer_scope(db, row.username, row.api_key_id)
             prefix = await usable_api_key_prefix(db, row.api_key_id) if row.api_key_id is not None else None
             minted = row.expires_at.replace(tzinfo=None) - timedelta(minutes=CAMERA_STREAM_TOKEN_EXPIRE_MINUTES)
@@ -1071,7 +1111,7 @@ async def camera_stream_access(token: str) -> tuple[PrinterScope, StreamOpener] 
         from backend.app.services.long_lived_tokens import STREAM_SCOPES, verify_token as verify_long_lived
 
         record = await verify_long_lived(db, token, scope=STREAM_SCOPES)
-        if record is None:
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
             return None
         scope = await resolve_user_id_printer_scope(db, record.user_id)
         return scope, StreamOpener(
@@ -1100,7 +1140,8 @@ async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> 
     change or reset, 2FA removal, restore), and they must still exist and be
     active; a key must still be usable and the same key; a long-lived token
     must not be revoked or expired; a stream opened while auth was off ends
-    once it is on. In every case the printer must still be in scope.
+    once it is on. In every case camera:view must still be held (by the
+    token's owner for a long-lived one) and the printer must still be in scope.
     """
     from backend.app.models.long_lived_token import LongLivedToken
     from backend.app.services.long_lived_tokens import _is_expired
@@ -1120,16 +1161,19 @@ async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> 
                     or record.user_id != opener.long_lived_user_id
                     or record.lookup_prefix != opener.long_lived_prefix
                     or _is_expired(record, datetime.now(timezone.utc))
+                    or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW)
                 ):
                     return False
                 scope = await resolve_user_id_printer_scope(db, record.user_id)
             elif opener.api_key_id is not None:
                 if await usable_api_key_prefix(db, opener.api_key_id) != opener.api_key_prefix:
                     return False
+                if not await principal_holds(db, None, opener.api_key_id, Permission.CAMERA_VIEW):
+                    return False
                 scope = await principal_printer_scope(db, None, opener.api_key_id)
             elif opener.username:
                 user = await get_user_by_username(db, opener.username)
-                if user is None or not user.is_active:
+                if user is None or not user.is_active or not user.has_permission(Permission.CAMERA_VIEW.value):
                     return False
                 changed = user.password_changed_at
                 if changed is not None and changed.replace(tzinfo=None) > opener.started_at:
@@ -1160,7 +1204,8 @@ async def verify_camwall_token(token: str) -> PrinterScope | None:
         from backend.app.services.long_lived_tokens import verify_token as verify_long_lived
 
         record = await verify_long_lived(db, token, scope="camwall")
-        if record is None:
+        # Minting it needed camera:view; a group change can take it away.
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
             return None
         return await resolve_user_id_printer_scope(db, record.user_id)
 
@@ -1181,7 +1226,8 @@ async def verify_overlay_token(token: str) -> PrinterScope | None:
         from backend.app.services.long_lived_tokens import verify_token as verify_long_lived
 
         record = await verify_long_lived(db, token, scope="overlay")
-        if record is None:
+        # Minting it needed camera:view; a group change can take it away.
+        if record is None or not await user_id_holds(db, record.user_id, Permission.CAMERA_VIEW):
             return None
         return await resolve_user_id_printer_scope(db, record.user_id)
 

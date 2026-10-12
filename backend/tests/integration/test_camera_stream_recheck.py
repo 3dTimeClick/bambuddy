@@ -169,3 +169,82 @@ async def test_a_stream_opened_as_the_session_ends_does_not_outlive_it(admin, pr
 
     response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=opener)
     assert await _ended(response.body_iterator)
+
+
+@pytest.fixture
+async def viewer(async_client: AsyncClient, admin) -> tuple[int, int, dict]:
+    """A non-admin with camera:view through a group: (group id, user id, admin headers)."""
+    login = await async_client.post("/api/v1/auth/login", json={"username": "camadmin", "password": "AdminPass1!"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    group = await async_client.post(
+        "/api/v1/groups/", headers=headers, json={"name": "Cams", "permissions": ["camera:view", "printers:read"]}
+    )
+    user = await async_client.post(
+        "/api/v1/users/",
+        headers=headers,
+        json={"username": "viewer", "password": "Userpass1!", "role": "user", "group_ids": [group.json()["id"]]},
+    )
+    return group.json()["id"], user.json()["id"], headers
+
+
+async def _take_camera_view(client: AsyncClient, group: int, headers: dict) -> None:
+    response = await client.patch(f"/api/v1/groups/{group}", headers=headers, json={"permissions": ["printers:read"]})
+    assert response.status_code == 200, response.text
+
+
+async def test_losing_camera_view_ends_a_users_stream_and_token(async_client: AsyncClient, viewer, printer):
+    group, _, headers = viewer
+    token = await auth.create_camera_stream_token(username="viewer")
+    stream = await _open(printer, await _opener(token))
+
+    await _take_camera_view(async_client, group, headers)
+
+    assert await _ended(stream)
+    assert await auth.camera_stream_access(token) is None  # no new stream or snapshot either
+
+
+async def test_a_key_losing_status_access_ends_its_stream(admin, printer, db_session):
+    key = APIKey(name="cam2", key_hash="h", key_prefix="bb_cam2", printer_ids=None)
+    db_session.add(key)
+    await db_session.commit()
+    token = await auth.create_camera_stream_token(api_key_id=key.id)
+    stream = await _open(printer, await _opener(token))
+
+    await db_session.execute(text("UPDATE api_keys SET can_read_status = 0 WHERE id = :id"), {"id": key.id})
+    await db_session.commit()
+
+    assert await _ended(stream)
+    assert await auth.camera_stream_access(token) is None
+
+
+async def test_a_cam_wall_token_whose_owner_lost_camera_view_stops(
+    async_client: AsyncClient, viewer, printer, db_session
+):
+    """It would otherwise stream for months, until it expires or is revoked."""
+    from backend.app.services.long_lived_tokens import create_token
+
+    group, user, headers = viewer
+    created = await create_token(db_session, user_id=user, name="wall", expires_in_days=30, scope="camwall")
+    stream = await _open(printer, await _opener(created.plaintext))
+
+    await _take_camera_view(async_client, group, headers)
+
+    assert await _ended(stream)
+    assert await auth.camera_stream_access(created.plaintext) is None
+
+
+@pytest.mark.parametrize("kind", ["camwall", "overlay"])
+async def test_the_cam_wall_and_overlay_feeds_refuse_a_token_whose_owner_lost_camera_view(
+    async_client: AsyncClient, viewer, db_session, kind
+):
+    """They list printers and name the file being printed; minting needed camera:view."""
+    from backend.app.services.long_lived_tokens import create_token
+
+    group, user, headers = viewer
+    created = await create_token(db_session, user_id=user, name=kind, expires_in_days=30, scope=kind)
+    verify = auth.verify_camwall_token if kind == "camwall" else auth.verify_overlay_token
+    assert await verify(created.plaintext) is not None
+
+    await _take_camera_view(async_client, group, headers)
+
+    assert await verify(created.plaintext) is None
