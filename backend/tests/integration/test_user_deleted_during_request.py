@@ -25,8 +25,8 @@ from backend.app.models.user import User
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def _user(db, name: str) -> User:
-    user = User(username=name, password_hash="x", role="user")
+async def _user(db, name: str, user_id: int | None = None) -> User:
+    user = User(id=user_id, username=name, password_hash="x", role="user")
     db.add(user)
     await db.commit()
     return user
@@ -40,7 +40,9 @@ async def deleted_alice(db_session):
     held = User(id=alice.id, username="alice", password_hash="x", role="admin")
     await db_session.execute(delete(User).where(User.id == alice.id))
     await db_session.commit()
-    assert (await _user(db_session, "bob")).id == alice.id
+    # AUTOINCREMENT now stops SQLite reusing ids; bob is put on it by hand, as
+    # databases from before did, to keep the check covered.
+    assert (await _user(db_session, "bob", alice.id)).id == alice.id
     try:
         yield lambda: app.dependency_overrides.__setitem__(get_request_actor, lambda: held)
     finally:
@@ -65,7 +67,7 @@ async def test_the_check_knows_who_is_still_there(db_session):
     await db_session.execute(delete(User).where(User.id == alice.id))
     await db_session.commit()
     assert not await actor_still_exists(db_session, held)
-    await _user(db_session, "bob")  # given alice's id
+    await _user(db_session, "bob", held.id)  # on alice's id, as before AUTOINCREMENT
     assert not await actor_still_exists(db_session, held)
 
 

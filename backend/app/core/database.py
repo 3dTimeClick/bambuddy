@@ -332,6 +332,152 @@ def load_all_models():
     return Base.metadata
 
 
+# Tables SQLite must never give a freed id to a new row: whatever still points at
+# a deleted row (a token, a socket, in-memory state, files, a row inserted while
+# the delete committed) would point at the new one. PostgreSQL uses sequences.
+AUTOINCREMENT_TABLES = ("users", "api_keys", "printers", "print_archives", "long_lived_tokens")
+
+# Columns that keep one of their ids without a foreign key, so the seed below
+# cannot find them in the metadata: a deleted printer's print log is kept as
+# history, Notify tiles until the remote delete, ephemeral tokens until expiry.
+# (test_sqlite_autoincrement fails if a new such column is not listed.)
+NON_FK_ID_REFERENCES: dict[str, tuple[tuple[str, str], ...]] = {
+    "printers": (
+        ("print_log_entries", "printer_id"),
+        ("notification_live_activities", "printer_id"),
+        ("notification_lock_screen_widgets", "printer_id"),
+    ),
+    "api_keys": (("auth_ephemeral_tokens", "api_key_id"),),
+}
+
+
+async def highest_referenced_id(conn, table: str) -> int:
+    """The highest id of `table` in use: its own, or kept by a foreign key or
+    a column in NON_FK_ID_REFERENCES. A new row must get a higher one."""
+    from sqlalchemy import text
+
+    metadata = load_all_models()
+    referenced = (
+        [(table, "id")]
+        + [
+            (fk.parent.table.name, fk.parent.name)
+            for other in metadata.tables.values()
+            for fk in other.foreign_keys
+            if fk.column.table.name == table and fk.column.name == "id"
+        ]
+        + list(NON_FK_ID_REFERENCES.get(table, ()))
+    )
+    highest = 0
+    for ref_table, ref_column in referenced:
+        try:
+            async with conn.begin_nested():
+                value = (await conn.execute(text(f"SELECT max({ref_column}) FROM {ref_table}"))).scalar()  # noqa: S608  # nosec B608
+        except (OperationalError, ProgrammingError):
+            continue  # a table or column this database does not have yet
+        if isinstance(value, int) and value > highest:
+            highest = value
+    return highest
+
+
+async def _migrate_sqlite_autoincrement(conn) -> None:
+    """Rebuild AUTOINCREMENT_TABLES with AUTOINCREMENT on existing SQLite databases.
+
+    SQLite's own procedure: a copy made from the table's stored CREATE statement
+    (so every column an earlier migration added is kept) with the id made
+    ``INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT``, the rows copied and counted,
+    the old table dropped, the copy renamed, its indexes and triggers recreated.
+    Foreign keys are off on SQLite, so the tables pointing here keep their
+    references by name. The counter then starts above highest_referenced_id,
+    so an id freed earlier that something still points at is not given out
+    either. A table already rebuilt (or restored from a PostgreSQL backup,
+    whose counter stands at the highest id left) only has its counter raised.
+    """
+    from sqlalchemy import text
+
+    if not is_sqlite():
+        return
+    for table in AUTOINCREMENT_TABLES:
+        row = (
+            await conn.execute(text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :t"), {"t": table})
+        ).first()
+        if row is None:
+            continue
+        sql = row[0] or ""
+        if "AUTOINCREMENT" in sql.upper():
+            highest = await highest_referenced_id(conn, table)
+            current = (
+                await conn.execute(text("SELECT seq FROM sqlite_sequence WHERE name = :t"), {"t": table})
+            ).scalar()
+            if highest > (current or 0):
+                async with conn.begin_nested():
+                    await conn.execute(text("DELETE FROM sqlite_sequence WHERE name = :t"), {"t": table})
+                    await conn.execute(
+                        text("INSERT INTO sqlite_sequence (name, seq) VALUES (:t, :s)"), {"t": table, "s": highest}
+                    )
+                logger.info("SQLite: %s ids now continue after %s, still referred to", table, highest)
+            continue
+        column = re.search(r"\bid INTEGER NOT NULL\s*,", sql)
+        primary_key = re.search(r",\s*PRIMARY KEY \(id\)", sql)
+        if column is None or primary_key is None:
+            logger.warning("SQLite AUTOINCREMENT rebuild skipped for %s: unexpected table definition", table)
+            continue
+        copy = f"{table}__autoinc"
+        new_sql = sql[: primary_key.start()] + sql[primary_key.end() :]
+        new_sql = new_sql.replace(column.group(0), "id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,", 1)
+        new_sql = re.sub(r"^CREATE TABLE\s+\"?" + re.escape(table) + r"\"?", f"CREATE TABLE {copy}", new_sql, count=1)
+        extras = [
+            r[0]
+            for r in await conn.execute(
+                text(
+                    "SELECT sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name = :t AND sql IS NOT NULL"
+                ),
+                {"t": table},
+            )
+        ]
+        async with conn.begin_nested():
+            await conn.execute(text(f"DROP TABLE IF EXISTS {copy}"))
+            await conn.execute(text(new_sql))
+            names = ", ".join(f'"{r[1]}"' for r in await conn.execute(text(f"PRAGMA table_info({table})")))
+            await conn.execute(text(f"INSERT INTO {copy} ({names}) SELECT {names} FROM {table}"))
+            original = (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
+            copied = (await conn.execute(text(f"SELECT count(*) FROM {copy}"))).scalar_one()
+            if copied != original:
+                raise RuntimeError(f"{table} AUTOINCREMENT rebuild: {original} rows, {copied} copied")
+            await conn.execute(text(f"DROP TABLE {table}"))
+            await conn.execute(text(f"ALTER TABLE {copy} RENAME TO {table}"))
+            for statement in extras:
+                await conn.execute(text(statement))
+            highest = await highest_referenced_id(conn, table)
+            await conn.execute(text("DELETE FROM sqlite_sequence WHERE name = :t"), {"t": table})
+            await conn.execute(
+                text("INSERT INTO sqlite_sequence (name, seq) VALUES (:t, :s)"), {"t": table, "s": highest}
+            )
+        logger.info("SQLite: %s now never reuses an id (next id after %s)", table, highest)
+
+
+async def _raise_postgres_id_sequences(conn) -> None:
+    """Start AUTOINCREMENT_TABLES' sequences above every id still referred to (PostgreSQL).
+
+    PostgreSQL itself never reuses an id, but a SQLite backup imported before
+    the import did this set each sequence to the highest id left, below ids a
+    print log, a Notify tile or a token may still keep. Only ever raised.
+    """
+    from sqlalchemy import text
+
+    if is_sqlite():
+        return
+    for table in AUTOINCREMENT_TABLES:
+        sequence = (await conn.execute(text("SELECT pg_get_serial_sequence(:t, 'id')"), {"t": table})).scalar()
+        if not sequence:
+            continue
+        last_value, is_called = (await conn.execute(text(f"SELECT last_value, is_called FROM {sequence}"))).first()  # noqa: S608  # nosec B608
+        given_out = last_value if is_called else last_value - 1
+        highest = await highest_referenced_id(conn, table)
+        if highest > given_out:
+            await conn.execute(text("SELECT setval(:s, :v)"), {"s": sequence, "v": highest})
+            logger.info("PostgreSQL: %s ids now continue after %s, still referred to", table, highest)
+
+
 async def _drop_deleted_printers_from_limits(conn) -> None:
     """Take printers deleted before deletes did so out of API keys, Obico and virtual printers (both databases).
 
@@ -523,6 +669,9 @@ async def init_db():
 
         # Run migrations for new columns (SQLite doesn't auto-add columns)
         await run_migrations(conn)
+        # Before the orphan repair, so ids its rows still point at count.
+        await _migrate_sqlite_autoincrement(conn)
+        await _raise_postgres_id_sequences(conn)
 
         # SQLite applies no ON DELETE rules (foreign keys off): repair rows that
         # earlier deletes left pointing at nothing. Not a migration.

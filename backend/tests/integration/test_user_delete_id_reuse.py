@@ -18,8 +18,8 @@ from backend.app.models.settings import Settings
 from backend.app.models.user import User
 
 
-async def _user(db, name: str) -> int:
-    user = User(username=name, password_hash="x", role="user")
+async def _user(db, name: str, user_id: int | None = None) -> int:
+    user = User(id=user_id, username=name, password_hash="x", role="user")
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -67,9 +67,12 @@ async def test_a_user_with_the_deleted_users_id_inherits_nothing(async_client: A
 
     response = await async_client.delete(f"/api/v1/users/{alice}")
     assert response.status_code == 204, response.text
-    bob = await _user(db_session, "bob")
+    # AUTOINCREMENT (core/database) now stops SQLite reusing ids; the new user is
+    # put on the freed id by hand, as on databases from before, to keep the
+    # delete's own cleanup covered.
+    bob = await _user(db_session, "bob", alice)
 
-    assert bob == alice  # SQLite reuses the freed id; the point of this test
+    assert bob == alice
     assert await _inherited(db_session, bob) == NOTHING
     # What was alice's private cost centre and folder now has no owner, which
     # leaves them to admins (not to everyone).
@@ -157,7 +160,7 @@ async def test_the_next_user_with_the_id_is_not_asked_for_an_email_code(async_cl
 
     response = await async_client.delete(f"/api/v1/users/{alice}")
     assert response.status_code == 204, response.text
-    bob = await _user(db_session, "bob")
+    bob = await _user(db_session, "bob", alice)  # on the freed id, as before AUTOINCREMENT
 
     assert bob == alice
     assert await _get_email_2fa_enabled(db_session, bob) is False

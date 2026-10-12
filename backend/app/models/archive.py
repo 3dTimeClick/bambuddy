@@ -8,6 +8,8 @@ from backend.app.core.database import Base
 
 class PrintArchive(Base):
     __tablename__ = "print_archives"
+    # SQLite would give a freed id to the next row; see core/database AUTOINCREMENT_TABLES
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     printer_id: Mapped[int | None] = mapped_column(ForeignKey("printers.id"), nullable=True)

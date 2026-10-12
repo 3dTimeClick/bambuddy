@@ -431,7 +431,7 @@ class TestWhatTheQueueEntrySays:
 class TestAnOwnerDeletedDuringTheUpload:
     async def test_the_failure_toast_goes_to_nobody(self, dispatch_case):
         """The dispatch read the owner before the upload. Deleted meanwhile, and
-        their id given to bob (SQLite reuses it), the toast must not go to bob."""
+        their id given to bob (as SQLite once did), the toast must not go to bob."""
         from sqlalchemy import delete
 
         import backend.app.services.print_scheduler as scheduler_module
@@ -452,7 +452,7 @@ class TestAnOwnerDeletedDuringTheUpload:
             async with dispatch_case.session_maker() as admin_db:
                 await admin_db.execute(delete(User).where(User.id == alice_id))
                 await admin_db.commit()
-                admin_db.add(User(username="bob", password_hash="x", role="user"))
+                admin_db.add(User(id=alice_id, username="bob", password_hash="x", role="user"))
                 await admin_db.commit()
             kwargs["failure"].failure = FtpFailure(FtpFailureKind.STORAGE, "553 Could not create file.", "553")
             return False

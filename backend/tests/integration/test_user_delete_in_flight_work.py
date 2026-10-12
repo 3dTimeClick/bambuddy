@@ -37,18 +37,23 @@ from backend.app.services.slicer_api import SliceResult
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def _user(db, name: str) -> int:
-    user = User(username=name, password_hash="x", role="user")
+async def _user(db, name: str, user_id: int | None = None) -> int:
+    user = User(id=user_id, username=name, password_hash="x", role="user")
     db.add(user)
     await db.commit()
     return user.id
 
 
 async def _replace_user(db, user_id: int) -> None:
-    """Delete the user and create the next one, which gets the same id on SQLite."""
+    """Delete the user and create the next one on the same id.
+
+    AUTOINCREMENT (core/database) now stops SQLite reusing ids; the id is given
+    by hand, as databases from before gave it, to keep the delete's own cleanup
+    covered.
+    """
     await db.execute(delete(User).where(User.id == user_id))
     await db.commit()
-    assert await _user(db, "bob") == user_id
+    assert await _user(db, "bob", user_id) == user_id
 
 
 def _slice_job(owner_id: int) -> SliceJob:

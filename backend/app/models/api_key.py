@@ -10,6 +10,8 @@ class APIKey(Base):
     """API key for external webhook access."""
 
     __tablename__ = "api_keys"
+    # SQLite would give a freed id to the next row; see core/database AUTOINCREMENT_TABLES
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))  # User-friendly name

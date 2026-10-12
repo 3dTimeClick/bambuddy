@@ -8,6 +8,8 @@ from backend.app.core.database import Base
 
 class Printer(Base):
     __tablename__ = "printers"
+    # SQLite would give a freed id to the next row; see core/database AUTOINCREMENT_TABLES
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))

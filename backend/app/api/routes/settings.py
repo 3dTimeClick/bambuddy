@@ -1085,7 +1085,7 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
 
     from sqlalchemy import text
 
-    from backend.app.core.database import Base, _create_engine
+    from backend.app.core.database import AUTOINCREMENT_TABLES, Base, _create_engine, highest_referenced_id
 
     # Before anything is dropped. The route checks this too, earlier and with
     # the backup's version in the message; this call is what makes the guarantee
@@ -1106,6 +1106,11 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
             "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'archive_fts%'"
         )
         src_tables = {row["name"] for row in cursor.fetchall()}
+        # Where SQLite's own counters stand: ids freed there are not given out
+        # again on PostgreSQL either (a backup from before they were kept has none).
+        src_counters: dict[str, int] = {}
+        if src.execute("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
+            src_counters = {row["name"]: row["seq"] for row in src.execute("SELECT name, seq FROM sqlite_sequence")}
 
         # Get Postgres tables from our ORM models
         metadata = Base.metadata
@@ -1286,13 +1291,21 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
                 await conn.execute(insert_sql, batch)
                 logger.info("Imported %d rows into %s", len(batch), table_name)
 
-            # Reset sequences to max(id) + 1 for each table with an id column
+            # Reset sequences to max(id) + 1 for each table with an id column;
+            # for AUTOINCREMENT_TABLES past SQLite's counter and every id still
+            # referred to, so a deleted row's id is not given to a new one.
             for table_name in sorted_tables:
                 try:
                     async with conn.begin_nested():
                         result = await conn.execute(text(f"SELECT MAX(id) FROM {table_name}"))  # noqa: S608  # nosec B608
                         max_id = result.scalar()
-                        if max_id is not None:
+                        if table_name in AUTOINCREMENT_TABLES:
+                            max_id = max(
+                                max_id or 0,
+                                src_counters.get(table_name) or 0,
+                                await highest_referenced_id(conn, table_name),
+                            )
+                        if max_id:
                             seq_name = f"{table_name}_id_seq"
                             await conn.execute(text(f"SELECT setval('{seq_name}', {max_id})"))  # noqa: S608
                 except Exception:
