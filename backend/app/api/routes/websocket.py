@@ -38,6 +38,17 @@ router = APIRouter()
 _WS_CLOSE_UNAUTHORIZED = 4401
 
 
+async def _user_id_of(username: str) -> int | None:
+    """The id of the user with this name, or None (also when it can't be read)."""
+    try:
+        async with async_session() as db:
+            row = await db.execute(select(User.id).where(User.username == username))
+            return row.scalar_one_or_none()
+    except Exception:  # SEC-AUTH-EXC: a failed lookup refuses the socket (fail-closed)
+        logger.warning("WebSocket principal resolve failed for %s", username, exc_info=True)
+        return None
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
     """WebSocket endpoint for real-time updates.
@@ -94,12 +105,32 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
 
     # Token verified (or auth disabled); now safe to admit the connection.
     logger.info("WebSocket client connecting (principal=%s)", principal if principal else "<anonymous>")
+    # Resolve principal username → User.id once at connect so
+    # ``ws_manager.broadcast_to_user()`` can filter without re-querying
+    # per message. Auth-disabled path keeps None (broadcast_to_user fans
+    # out to all when target is None — matches the legacy single-user
+    # toast behaviour). API-keyed principal is empty string → None.
+    #
+    # A user renamed or deleted since the token was checked is refused: the
+    # socket would keep the old name, and every scope refresh would give it the
+    # printers of the next user given that name. Done before connect(), so the
+    # socket carries its id from the moment it is listed, and checked again
+    # after: a rename or delete commits before it closes the user's sockets by
+    # id, so one landing in between is seen by the second check, and one after
+    # it finds this socket listed with its id.
+    principal_user_id: int | None = None
+    if principal:
+        principal_user_id = await _user_id_of(principal)
+        if principal_user_id is None:
+            logger.info("WebSocket connect refused: user %s is gone", principal)
+            await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
+            return
     # Stamped before connect() puts the socket in the broadcast list, so no
     # broadcast can reach it unfiltered (ws_manager refuses printer-bound
     # messages to a socket without a scope anyway).
     websocket.state.bambuddy_printer_scope = printer_scope
     websocket.state.bambuddy_scope_principal = (principal, api_key_id)
-    await ws_manager.connect(websocket)
+    websocket.state.bambuddy_principal_user_id = principal_user_id
     # Stash on connection state for any future per-message permission
     # logic; today the message handlers are read-only and only respond
     # to the requesting socket, so the stash is informational. The
@@ -107,20 +138,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(def
     # ``broadcast_to_principal()`` helper can filter on it without
     # touching every call site.
     websocket.state.bambuddy_principal = principal
-    # Resolve principal username → User.id once at connect so
-    # ``ws_manager.broadcast_to_user()`` can filter without re-querying
-    # per message. Auth-disabled path keeps None (broadcast_to_user fans
-    # out to all when target is None — matches the legacy single-user
-    # toast behaviour). API-keyed principal is empty string → None.
-    principal_user_id: int | None = None
-    if principal:
-        try:
-            async with async_session() as db:
-                row = await db.execute(select(User.id).where(User.username == principal))
-                principal_user_id = row.scalar_one_or_none()
-        except Exception:  # SEC-AUTH-EXC: resolution failure is non-fatal — degrades to no per-user routing
-            logger.warning("WebSocket principal resolve failed for %s", principal, exc_info=True)
-    websocket.state.bambuddy_principal_user_id = principal_user_id
+    await ws_manager.connect(websocket)
+    if principal and await _user_id_of(principal) != principal_user_id:
+        logger.info("WebSocket connect refused: user %s was renamed or deleted while connecting", principal)
+        await ws_manager.disconnect(websocket)
+        await websocket.close(code=_WS_CLOSE_UNAUTHORIZED)
+        return
     logger.info("WebSocket client connected")
 
     try:

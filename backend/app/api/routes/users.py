@@ -26,7 +26,7 @@ from backend.app.core.permissions import Permission
 from backend.app.core.websocket import ws_manager
 from backend.app.models.api_key import APIKey
 from backend.app.models.archive import PrintArchive
-from backend.app.models.auth_ephemeral import AuthEphemeralToken, TokenType
+from backend.app.models.auth_ephemeral import AuthEphemeralToken
 from backend.app.models.connected_app import ConnectedApp, ConnectedAppGrant
 from backend.app.models.group import Group
 from backend.app.models.library import LibraryFile
@@ -57,6 +57,7 @@ from backend.app.services.finance_defaults import ensure_user_finance_defaults
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.slice_dispatch import slice_dispatch
 from backend.app.utils.library_paths import remove_library_photos_dir
+from backend.app.utils.local_time import utcnow_naive
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -93,6 +94,24 @@ async def list_users(
     result = await db.execute(select(User).options(selectinload(User.groups)).order_by(User.created_at))
     users = result.scalars().all()
     return [_user_to_response(user) for user in users]
+
+
+async def drop_pending_tokens(db: AsyncSession, username: str) -> None:
+    """Delete the one-time tokens pending under a username that is going away.
+
+    Reset links, 2FA and OIDC steps, connect codes, camera, WebSocket and slicer
+    tokens are looked up by username, so they would work for whoever is given
+    the name next. The logout list (revoked_jti) stays: dropping an entry would
+    make the logged-out token valid again.
+    """
+    await db.execute(
+        delete(AuthEphemeralToken).where(
+            # Both sides in SQL: SQLite's lower() changes only ASCII letters, so
+            # it never equals Python's lower() of a name with an umlaut.
+            func.lower(AuthEphemeralToken.username) == func.lower(username),
+            AuthEphemeralToken.token_type != "revoked_jti",
+        )
+    )
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -257,6 +276,7 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a user."""
+    close_sockets = False
     result = await db.execute(select(User).where(User.id == user_id).options(selectinload(User.groups)))
     user = result.scalar_one_or_none()
     if not user:
@@ -306,6 +326,16 @@ async def update_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already exists",
             )
+        if user_data.username != user.username:
+            # The name passes on: a deleted user's still-valid JWTs under the new
+            # name must not sign this user in, and what is pending under the old
+            # one must not reach whoever is given it next. This user's own
+            # sessions carry the old name and end anyway. A change of case counts
+            # too: SQLite compares only ASCII letters without case, so 'Ärger'
+            # and 'ärger' are two names there.
+            await drop_pending_tokens(db, user.username)
+            user.password_changed_at = utcnow_naive()
+            close_sockets = True
         user.username = user_data.username
 
     if user_data.email is not None:
@@ -327,6 +357,11 @@ async def update_user(
                 detail="Cannot set password for LDAP users",
             )
         user.password_hash = get_password_hash(user_data.password)
+        # As a reset: sessions and pending tokens of the old password end (an
+        # admin setting a password is often taking an account back).
+        await drop_pending_tokens(db, user.username)
+        user.password_changed_at = utcnow_naive()
+        close_sockets = True
 
     if user_data.role is not None:
         if user_data.role not in ["admin", "user"]:
@@ -353,6 +388,12 @@ async def update_user(
     await ensure_user_finance_defaults(db, user)
 
     await db.commit()
+    if close_sockets:
+        # Open dashboards are not signed in again. After a rename they keep the
+        # name they connected with and look their printers up by it on every
+        # scope refresh (the next user given it); after a password set they are
+        # whoever held the account before.
+        await ws_manager.close_user(user_id)
     if user_data.group_ids is not None or user_data.role is not None or user_data.is_active is not None:
         # Groups, admin role and deactivation all change which printers the
         # user's open dashboards may hear about (#1727)
@@ -536,17 +577,11 @@ async def delete_user(
     await db.execute(delete(LongLivedToken).where(LongLivedToken.user_id == user_id))
 
     # Connected apps, same SQLite/FK pattern. A leftover consent row would
-    # skip the consent screen for whoever is next given this user id, and a
-    # code issued in the last minute is keyed by username, not id.
+    # skip the consent screen for whoever is next given this user id.
     from sqlalchemy import update as _update
 
     await db.execute(delete(ConnectedAppGrant).where(ConnectedAppGrant.user_id == user_id))
-    await db.execute(
-        delete(AuthEphemeralToken).where(
-            AuthEphemeralToken.token_type == TokenType.CONNECT_CODE,
-            func.lower(AuthEphemeralToken.username) == user.username.lower(),
-        )
-    )
+    await drop_pending_tokens(db, user.username)
     await db.execute(_update(ConnectedApp).where(ConnectedApp.created_by_id == user_id).values(created_by_id=None))
 
     # Email 2FA is a settings key named after the id, which no foreign key covers.

@@ -364,6 +364,29 @@ async def _drop_deleted_printers_from_limits(conn) -> None:
         await drop_virtual_printer(conn, vp_id)
 
 
+async def _drop_ephemeral_tokens_of_missing_users(conn) -> None:
+    """Delete one-time tokens pending under a username no user has (both databases).
+
+    User deletes left them (reset links, 2FA and OIDC steps, camera, WebSocket
+    and slicer tokens), and they are looked up by username: whoever is given the
+    name next would take them over. The logout list (revoked_jti) is kept, and
+    tokens of no user (an API key's, or auth off) are left alone.
+    """
+    from sqlalchemy import delete, func, select
+
+    from backend.app.models.auth_ephemeral import AuthEphemeralToken
+    from backend.app.models.user import User
+
+    await conn.execute(
+        delete(AuthEphemeralToken).where(
+            AuthEphemeralToken.token_type != "revoked_jti",
+            AuthEphemeralToken.username.is_not(None),
+            AuthEphemeralToken.username != "",
+            func.lower(AuthEphemeralToken.username).not_in(select(func.lower(User.username))),
+        )
+    )
+
+
 async def _repair_sqlite_orphans(conn) -> None:
     """Repair rows that earlier deletes left pointing at a row that is gone (SQLite only).
 
@@ -495,6 +518,7 @@ async def init_db():
         # earlier deletes left pointing at nothing. Not a migration.
         await _repair_sqlite_orphans(conn)
         await _drop_deleted_printers_from_limits(conn)
+        await _drop_ephemeral_tokens_of_missing_users(conn)
 
     # Re-encrypt any legacy plaintext OIDC client_secret / TOTP secret rows
     # that exist from before the encryption key was configured.
