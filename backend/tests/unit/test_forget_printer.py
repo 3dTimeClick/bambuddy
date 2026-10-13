@@ -1,9 +1,10 @@
 """What Bambuddy keeps per printer id goes when the printer is deleted.
 
-SQLite gives a deleted printer's id to the next printer created, which inherited
-it all: the old print's owner (its prints passed the kill switch and were billed
-to that user), the plate-clear gate, pending notifications, the old camera feed,
-the old printer's plate-detection references.
+SQLite used to give a deleted printer's id to the next printer created, which
+inherited it all: the old print's owner (its prints passed the kill switch and
+were billed to that user), the plate-clear gate, pending notifications, the old
+camera feed, the old printer's plate-detection references. Ids are no longer
+reused, but nothing kept for a printer that is gone should stay.
 """
 
 import ast

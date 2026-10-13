@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, inspect as sa_inspect, or_, select, text, update
 
 from backend.app.api.routes import (
     ams_history,
@@ -1044,10 +1044,13 @@ def forget_print_creator(user_id: int) -> None:
 async def forget_printer(printer_id: int) -> None:
     """Drop what is kept for a deleted printer's id, here and in the services.
 
-    SQLite gives the id to the next printer created, which inherited it all: the
-    running print's owner (its prints passed the kill switch and were billed to
-    that user), the plate-clear gate, pending and suppressed notifications, the
-    camera feed, the plate references. Called after the delete is committed.
+    SQLite used to give the id to the next printer created, which inherited it
+    all: the running print's owner (its prints passed the kill switch and were
+    billed to that user), the plate-clear gate, pending and suppressed
+    notifications, the camera feed, the plate references. Ids are no longer
+    reused (AUTOINCREMENT), but nothing kept for a printer that is gone should
+    stay. Called after the delete is committed, and again by work that was in
+    flight and wrote state back.
     Every printer-keyed map of this module is listed here or, with the reason,
     in tests/unit/test_forget_printer.py.
     """
@@ -4178,6 +4181,61 @@ async def dispatch_outcome_confirmation(
     return True
 
 
+async def _printer_gone(db, printer_id: int) -> bool:
+    """Whether the printer was deleted. A column read: the session's loaded
+    Printer would otherwise answer for the database."""
+    from backend.app.models.printer import Printer
+
+    return await db.scalar(select(Printer.id).where(Printer.id == printer_id)) is None
+
+
+async def _drop_archive_of_deleted_printer(db, printer_id: int, archive_id: int) -> bool:
+    """Remove the archive just written if its printer was deleted meanwhile.
+
+    The delete route sweeps the printer's archives before it commits, so a row
+    committed after that sweep (the check before writing passed while the
+    delete was still uncommitted) is left for a printer that will never report
+    the print's end. A row the sweep reached is the route's: deleted with the
+    printer's archives, or detached (printer_id NULL) when the user kept them,
+    and then left as it is. Either way nothing is registered for it. Run after
+    the archive's commit, before anything is registered for it.
+    """
+    from backend.app.models.archive import PrintArchive
+
+    if not await _printer_gone(db, printer_id):
+        return False
+    owner = await db.scalar(select(PrintArchive.printer_id).where(PrintArchive.id == archive_id))
+    if owner == printer_id:
+        logging.getLogger(__name__).info(
+            "Printer %s was deleted while archive %s was written; removing it", printer_id, archive_id
+        )
+        await ArchiveService(db).delete_archive(archive_id)
+    await forget_printer(printer_id)
+    return True
+
+
+async def _forget_if_printer_gone(printer_id: int) -> None:
+    """At the end of a print start: the slow steps after the last check (smart
+    plug, notifications, the timelapse baseline's FTP listing) can outlast the
+    printer's delete and its forget_printer, and then wrote state back.
+    (An ActivePrintSpoolman row written then is the init_db orphan sweep's on
+    SQLite; PostgreSQL refuses it.)
+
+    Its own session: those steps can leave the handler's needing a rollback (a
+    write to the archive the delete removed). Never raises: it runs inside the
+    fallback branch's try, whose except reports the archive as failed.
+    """
+    try:
+        async with async_session() as db:
+            gone = await _printer_gone(db, printer_id)
+        if gone:
+            await forget_printer(printer_id)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Could not check whether printer %s was deleted during its print start", printer_id, exc_info=True
+        )
+
+
 async def on_print_start(printer_id: int, data: dict):
     """Handle print start - archive the 3MF file immediately."""
     logger = logging.getLogger(__name__)
@@ -4531,7 +4589,25 @@ async def on_print_start(printer_id: int, data: dict):
             result = await db.execute(select(PrintArchive).where(PrintArchive.id == expected_archive_id))
             archive = result.scalar_one_or_none()
 
+            # Deleted after this handler loaded it (the plate check waits
+            # seconds) but before the route forgot the expected print: the
+            # archive the route kept or deleted is left as the route left it.
+            if archive and await _printer_gone(db, printer_id):
+                logger.info(
+                    "Printer %s was deleted before its print started; not adopting archive %s", printer_id, archive.id
+                )
+                await forget_printer(printer_id)
+                return
+
             if archive:
+                # As it was before this adoption: put back if the printer turns
+                # out to have been deleted while it was adopted (below).
+                before_adoption = {
+                    attr.columns[0].name: getattr(archive, attr.key)
+                    for attr in sa_inspect(PrintArchive).column_attrs
+                    if attr.key != "id"
+                }
+
                 # Update archive status to printing
                 archive.status = "printing"
                 archive.started_at = datetime.now(timezone.utc)
@@ -4585,22 +4661,8 @@ async def on_print_start(printer_id: int, data: dict):
                         expected_archive_id,
                         starting_plate_id,
                     )
-                elif stale_timelapse_relpath:
-                    try:
-                        stale_path = app_settings.base_dir / stale_timelapse_relpath
-                        if stale_path.is_file():
-                            stale_path.unlink()
-                            logger.info(
-                                "Deleted stale timelapse %s on reprint of archive %s",
-                                stale_timelapse_relpath,
-                                expected_archive_id,
-                            )
-                    except OSError as e:
-                        logger.warning(
-                            "Failed to delete stale timelapse %s on reprint: %s",
-                            stale_timelapse_relpath,
-                            e,
-                        )
+                # The video is deleted once the adoption stands (below).
+                delete_stale_video = bool(stale_timelapse_relpath) and stale_timelapse_plate_id == starting_plate_id
                 # Persist a restart-stable id so a later restart resumes this
                 # archive by subtask_id instead of name-matching + duplicating
                 # it (#1485). The printer often hasn't echoed subtask_id back
@@ -4637,6 +4699,52 @@ async def on_print_start(printer_id: int, data: dict):
                 if archive.printer_id != printer_id:
                     archive.printer_id = printer_id
                 await db.commit()
+
+                # The printer can be deleted between the check above and this
+                # commit (the route's transaction lasts seconds), and the commit
+                # then adopted the archive anyway: status, verdict and timelapse
+                # changed, and the deleted printer's id written on a row the
+                # route had detached or never touched. Undo the adoption.
+                if await _printer_gone(db, printer_id):
+                    logger.info(
+                        "Printer %s was deleted while archive %s was adopted; undoing the adoption",
+                        printer_id,
+                        archive.id,
+                    )
+                    # Everything as before this adoption. The printer it had
+                    # then stays, unless it was the deleted one: the route
+                    # detached that row (kept) or deleted it (no row matches).
+                    previous_printer = before_adoption["printer_id"]
+                    await db.execute(
+                        update(PrintArchive)
+                        .where(PrintArchive.id == archive.id)
+                        .values(
+                            {
+                                **before_adoption,
+                                "printer_id": None if previous_printer == printer_id else previous_printer,
+                            }
+                        )
+                    )
+                    await db.commit()
+                    await forget_printer(printer_id)
+                    return
+
+                if delete_stale_video and stale_timelapse_relpath:
+                    try:
+                        stale_path = app_settings.base_dir / stale_timelapse_relpath
+                        if stale_path.is_file():
+                            stale_path.unlink()
+                            logger.info(
+                                "Deleted stale timelapse %s on reprint of archive %s",
+                                stale_timelapse_relpath,
+                                expected_archive_id,
+                            )
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to delete stale timelapse %s on reprint: %s",
+                            stale_timelapse_relpath,
+                            e,
+                        )
 
                 # Track as active print
                 _active_prints[(printer_id, archive.filename)] = archive.id
@@ -4732,6 +4840,7 @@ async def on_print_start(printer_id: int, data: dict):
                 # AFTER the new MP4 already exists and never matches a diff
                 # (#1403 follow-up — see pwostran's 2026-05-18 support bundle).
                 await _capture_timelapse_baseline_at_start(printer, printer_id, logger, archive_id=archive.id)
+                await _forget_if_printer_gone(printer_id)
 
             return  # Skip creating a new archive
 
@@ -5333,6 +5442,16 @@ async def on_print_start(printer_id: int, data: dict):
                     display_name_after_plate_reject = corrected_subtask or subtask_name or None
                     subtask_name = corrected_subtask or ""
 
+        # Deleted while the 3MF was being fetched (that can take minutes): no
+        # archive, timelapse or tracking for a printer that will never report
+        # the print's end. forget_printer again: the download registered its
+        # 3MF cache entry after the delete cleared the id. (A delete committing
+        # while the archive is written is caught after its commit.)
+        if await _printer_gone(db, printer_id):
+            logger.info("Printer %s was deleted during the print-start download; not archiving", printer_id)
+            await forget_printer(printer_id)
+            return
+
         if not downloaded_filename or not temp_path:
             logger.warning("Could not find 3MF file for print: %s", filename or subtask_name)
             # Create a fallback archive without 3MF data so the print is still tracked
@@ -5415,6 +5534,9 @@ async def on_print_start(printer_id: int, data: dict):
                 await db.refresh(fallback_archive)
 
                 logger.info("Created fallback archive %s for %s (no 3MF available)", fallback_archive.id, print_name)
+
+                if await _drop_archive_of_deleted_printer(db, printer_id, fallback_archive.id):
+                    return
 
                 _maybe_start_layer_timelapse(printer, printer_id, fallback_archive.id)
 
@@ -5510,6 +5632,7 @@ async def on_print_start(printer_id: int, data: dict):
                     await _capture_timelapse_baseline_at_start(
                         printer, printer_id, logger, archive_id=fallback_archive.id
                     )
+                await _forget_if_printer_gone(printer_id)
                 return
             except Exception as e:
                 logger.error("Failed to create fallback archive: %s", e)
@@ -5557,6 +5680,9 @@ async def on_print_start(printer_id: int, data: dict):
                         logger.warning(
                             "Could not reload archive %s after the failed flag write: %s", archive_id, reload_error
                         )
+
+                if await _drop_archive_of_deleted_printer(db, printer_id, archive_id):
+                    return
 
                 # Track this active print (use both original filename and downloaded filename)
                 _active_prints[(printer_id, downloaded_filename)] = archive.id
@@ -5654,6 +5780,7 @@ async def on_print_start(printer_id: int, data: dict):
 
                 # Capture timelapse file baseline for snapshot-diff on completion
                 await _capture_timelapse_baseline_at_start(printer, printer_id, logger, archive_id=archive.id)
+                await _forget_if_printer_gone(printer_id)
         finally:
             # Keep temp_path around until print completes so the cover endpoint
             # can reuse it (#972). Cache eviction in on_print_complete deletes

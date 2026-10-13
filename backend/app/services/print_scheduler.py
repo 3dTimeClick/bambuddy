@@ -8107,10 +8107,13 @@ class PrintScheduler:
         # Read from the row, not item.created_by_id or db.get: both can still
         # hold a user deleted during the upload, after delete_user forgot them
         # (on SQLite the id may be someone new's by the time the print ends).
+        # Joined with the printer too: one deleted during the upload was
+        # forgotten as well, and this would write the owner back under its id.
         owner = (
             await db.execute(
                 select(User.id, User.username)
                 .join(PrintQueueItem, PrintQueueItem.created_by_id == User.id)
+                .join(Printer, Printer.id == PrintQueueItem.printer_id)
                 .where(PrintQueueItem.id == item.id)
             )
         ).first()
