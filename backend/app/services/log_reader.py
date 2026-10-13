@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
-from backend.app.core.logging_filters import URL_CREDENTIALS_PATTERN, redact_query_tokens
+from backend.app.core.logging_filters import URL_CREDENTIALS_PATTERN, redact_query_tokens, redact_url_credentials
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
@@ -64,6 +64,13 @@ def parse_log_line(line: str) -> LogEntry | None:
     return None
 
 
+def _redacted(entry: LogEntry) -> LogEntry:
+    # Lines on disk may predate a redaction: masked as they are read, before
+    # any search, so a search cannot confirm a secret either.
+    entry.message = redact_url_credentials(redact_query_tokens(entry.message)) or ""
+    return entry
+
+
 def read_log_entries(
     limit: int = 200,
     level_filter: str | None = None,
@@ -95,6 +102,7 @@ def read_log_entries(
                 if parsed:
                     # Found a new log entry start
                     if current_entry:
+                        current_entry = _redacted(current_entry)
                         # Apply filters and add previous entry (without multi_line_buffer - it belongs to new entry)
                         should_include = True
 
@@ -130,6 +138,7 @@ def read_log_entries(
             # Don't forget the last (oldest) entry
             # Note: any remaining multi_line_buffer would be orphaned lines before the first entry
             if current_entry and len(entries) < limit:
+                current_entry = _redacted(current_entry)
                 should_include = True
                 if level_filter and current_entry.level.upper() != level_filter.upper():
                     should_include = False

@@ -7,6 +7,26 @@ from backend.app.schemas.printer_location import normalize_location_name
 from backend.app.utils.printer_models import supports_nozzle_flow_type
 
 
+def _mask_url_login(url: str | None) -> str | None:
+    """A stored camera URL with its login secret masked.
+
+    One URL, not a log line: the login runs to the last ``@`` before the
+    first ``/`` after the scheme, whitespace, ``?`` and ``#`` included (when
+    in doubt it is masked). The user part up to the first ``:`` survives;
+    without a ``:`` the login may be a token and goes whole.
+    """
+    if not url or "://" not in url:
+        return url
+    start = url.index("://") + 3
+    slash = url.find("/", start)
+    end = len(url) if slash == -1 else slash
+    if "@" not in url[start:end]:
+        return url
+    login, host = url[start:end].rsplit("@", 1)
+    shown = f"{login.split(':', 1)[0]}:[REDACTED]" if ":" in login else "[REDACTED]"
+    return f"{url[:start]}{shown}@{host}{url[end:]}"
+
+
 class PrinterBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     serial_number: str = Field(..., min_length=1, max_length=50)
@@ -159,9 +179,15 @@ class PrinterResponse(PrinterBase):
             )
         return cls(**data)
 
+    @field_validator("external_camera_url", "external_camera_snapshot_url", mode="after")
+    @classmethod
+    def _camera_credentials(cls, value: str | None) -> str | None:
+        """Readers see the camera URLs without the password in them."""
+        return _mask_url_login(value)
+
 
 class PrinterResponseWithSecret(PrinterResponse):
-    """PrinterResponse + access_code. Returned ONLY to callers with
+    """PrinterResponse + access_code and the full camera URLs. Returned ONLY to callers with
     PRINTERS_UPDATE (Admin / Operator JWTs, or single-trust auth-disabled mode).
 
     Viewers and API keys never receive this shape — they get the bare
@@ -170,6 +196,12 @@ class PrinterResponseWithSecret(PrinterResponse):
     """
 
     access_code: str
+
+    @field_validator("external_camera_url", "external_camera_snapshot_url", mode="after")
+    @classmethod
+    def _camera_credentials(cls, value: str | None) -> str | None:
+        """Editors keep the full camera URLs, to edit them."""
+        return value
 
 
 class HMSErrorResponse(BaseModel):

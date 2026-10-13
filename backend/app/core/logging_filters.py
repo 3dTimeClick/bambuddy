@@ -40,13 +40,27 @@ import re
 # makes the work per offset constant. 63 is far above any real scheme (the
 # longest registered one is under 20 characters), and a longer pseudo-scheme
 # still gets its secret masked — the match simply starts from a later offset.
-URL_CREDENTIALS_PATTERN = re.compile(
-    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]{0,63}://)(?P<user>[^/:@\s]+):(?P<secret>[^/\s]+)@"
-)
+URL_CREDENTIALS_PATTERN = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]{0,63}://)(?P<login>[^/\s]+)@")
+
+
+def _mask_login(match: re.Match[str]) -> str:
+    # The login runs to the last @ before the path. It may hold an unencoded ?
+    # or #, which cannot be told from a query: masked rather than risk it. Its
+    # user part (up to the first ':') survives; without a ':' it may be a
+    # token, so it all goes.
+    login = match.group("login")
+    shown = f"{login.split(':', 1)[0]}:[REDACTED]" if ":" in login else "[REDACTED]"
+    return f"{match.group('scheme')}{shown}@"
 
 
 def redact_url_credentials(text: str | None) -> str | None:
-    """Mask the password in every ``scheme://user:secret@host`` URL in *text*.
+    """Mask the login secret in every ``scheme://login@host`` URL in *text*.
+
+    The login runs to the last ``@`` before the path (``?`` and ``#``
+    included, when in doubt it is masked), so an empty user
+    (``:secret@``), an unencoded ``@`` in the user and a bare token
+    (``token@``, masked whole) are covered as well as ``user:secret@``.
+    Also used for camera URLs shown to those who may not edit the printer.
 
     Subprocesses echo their input URL back at us — ffmpeg prints the RTSP
     input in its ``Input #0`` line, so logging its stderr verbatim publishes
@@ -59,7 +73,7 @@ def redact_url_credentials(text: str | None) -> str | None:
     """
     if not text or "://" not in text or "@" not in text:
         return text
-    return URL_CREDENTIALS_PATTERN.sub(r"\g<scheme>\g<user>:[REDACTED]@", text)
+    return URL_CREDENTIALS_PATTERN.sub(_mask_login, text)
 
 
 # ``?token=<value>`` and its kin. The SPA passes its short-lived WebSocket and
@@ -70,7 +84,7 @@ def redact_url_credentials(text: str | None) -> str | None:
 # and from there anything that collects container logs -- the appliance's
 # support bundle among them. The value ends at the next ``&``, whitespace or
 # quote, which is where uvicorn's format closes the path.
-QUERY_TOKEN_PATTERN = re.compile(r"(?P<key>[?&](?:token|access_token|api_key)=)[^&\s\"']+")
+QUERY_TOKEN_PATTERN = re.compile(r"(?P<key>[?&](?:token|access_token|api_key|url)=)[^&\s\"']+")
 
 
 def redact_query_tokens(text: str | None) -> str | None:

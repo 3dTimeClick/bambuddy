@@ -12,8 +12,9 @@ import zlib
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1649,30 +1650,45 @@ async def camera_status(
     }
 
 
+class ExternalCameraTestRequest(BaseModel):
+    url: str
+    camera_type: str
+
+
 @router.post("/{printer_id}/camera/external/test")
 async def test_external_camera(
     printer_id: int,
-    url: str,
-    camera_type: str,
+    body: ExternalCameraTestRequest | None = Body(default=None),
+    url: str | None = None,
+    camera_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.CAMERA_VIEW),
 ):
     """Test external camera connection.
 
+    The URL comes in the body: it may carry the camera login, and a query
+    string ends up in the access log. The query form is still accepted from
+    an older page.
+
     Args:
         printer_id: Printer ID (for authorization)
-        url: Camera URL or USB device path to test
-        camera_type: Camera type ("mjpeg", "rtsp", "snapshot", "usb")
+        body / url: Camera URL or USB device path to test
+        body / camera_type: Camera type ("mjpeg", "rtsp", "snapshot", "usb")
 
     Returns:
         Dict with {success: bool, error?: str, resolution?: str}
     """
+    target_url = body.url if body else url
+    target_type = body.camera_type if body else camera_type
+    if not target_url or not target_type:
+        raise HTTPException(status_code=422, detail="url and camera_type are required")
+
     # Verify printer exists (for authorization)
     await get_printer_or_404(printer_id, db)
 
     from backend.app.services.external_camera import test_connection
 
-    return await test_connection(url, camera_type)
+    return await test_connection(target_url, target_type)
 
 
 @router.get("/{printer_id}/camera/check-plate")
