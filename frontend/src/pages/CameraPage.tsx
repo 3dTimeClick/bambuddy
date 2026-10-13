@@ -10,6 +10,7 @@ import { useStreamTokenSync } from '../hooks/useCameraStreamToken';
 import { ChamberLight } from '../components/icons/ChamberLight';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { CameraDiagnoseModal } from '../components/CameraDiagnoseModal';
+import { useStreamImgRef } from '../hooks/useStreamImgRef';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 2000; // 2 seconds
@@ -56,7 +57,10 @@ export function CameraPage() {
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
   const [lastTouchCenter, setLastTouchCenter] = useState<{ x: number; y: number } | null>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
+  // Every img the page drops (re-keyed by a reconnect or mode switch, left)
+  // has its stream closed.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const attachImg = useStreamImgRef(imgRef);
   const containerRef = useRef<HTMLDivElement>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -143,16 +147,8 @@ export function CameraPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
 
-    // Store ref value for cleanup - ref may change by cleanup time
-    const imgElement = imgRef.current;
-
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-
-      // Clear the image source first to stop the stream
-      if (imgElement) {
-        imgElement.src = '';
-      }
       // Send stop signal only once
       sendStopOnce();
     };
@@ -329,7 +325,9 @@ export function CameraPage() {
     };
   }, [streamMode, streamLoading, streamError, isReconnecting, transitioning, id, attemptReconnect]);
 
-  const handleStreamError = () => {
+  const handleStreamError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    // Clearing the src (reconnect, restart, mode switch) fires error with an empty src.
+    if (!e.currentTarget.getAttribute('src')) return;
     setStreamLoading(false);
 
     // Only auto-reconnect for live stream mode
@@ -797,7 +795,7 @@ export function CameraPage() {
             </div>
           )}
           <img
-            ref={imgRef}
+            ref={attachImg}
             key={imageKey}
             src={currentUrl}
             alt={t('camera.cameraStream')}

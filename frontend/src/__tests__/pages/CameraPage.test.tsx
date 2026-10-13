@@ -2,8 +2,9 @@
  * Tests for the CameraPage component.
  */
 
+import { StrictMode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, waitFor, render as rtlRender } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, render as rtlRender } from '@testing-library/react';
 import { CameraPage } from '../../pages/CameraPage';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
@@ -32,7 +33,7 @@ const mockPrinter = {
 };
 
 // Custom render for CameraPage which needs specific route params
-function renderCameraPage(printerId: number, search = '') {
+function renderCameraPage(printerId: number, search = '', strict = false) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
@@ -40,7 +41,7 @@ function renderCameraPage(printerId: number, search = '') {
     },
   });
 
-  return rtlRender(
+  const tree = (
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <MemoryRouter initialEntries={[`/cameras/${printerId}${search}`]}>
@@ -57,6 +58,7 @@ function renderCameraPage(printerId: number, search = '') {
       </I18nextProvider>
     </QueryClientProvider>
   );
+  return rtlRender(strict ? <StrictMode>{tree}</StrictMode> : tree);
 }
 
 describe('CameraPage', () => {
@@ -135,6 +137,58 @@ describe('CameraPage', () => {
         expect(screen.getByText('X1 Carbon')).toBeInTheDocument();
       });
       expect(screen.getByTitle('Diagnose')).toBeInTheDocument();
+    });
+  });
+
+  // A detached img keeps its MJPEG connection open (measured in Chromium): every
+  // img the page drops has its src removed, not only the one it first showed.
+  describe('stream lifetime', () => {
+    async function streamImg() {
+      await waitFor(() => {
+        expect((document.querySelector('img') as HTMLImageElement | null)?.getAttribute('src') || '').toContain('/camera/stream');
+      });
+      return document.querySelector('img') as HTMLImageElement;
+    }
+
+    it('closes the current stream on leaving after the stream was restarted', async () => {
+      const { unmount } = renderCameraPage(1);
+      const first = await streamImg();
+      fireEvent.load(first);
+
+      await waitFor(() => expect(screen.getByTitle('Restart stream')).not.toBeDisabled());
+      fireEvent.click(screen.getByTitle('Restart stream'));
+      await waitFor(() => expect(document.querySelector('img')).not.toBe(first));
+      const current = await streamImg();
+
+      unmount();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(current.getAttribute('src')).toBeNull();
+    });
+
+    it('takes the error of a closed img for no stream failure', async () => {
+      renderCameraPage(1);
+      const img = await streamImg();
+
+      await act(async () => {
+        img.setAttribute('src', ''); // what the reconnect and restart code does
+        img.dispatchEvent(new Event('error'));
+      });
+
+      expect(screen.queryByText(/Reconnecting in/)).toBeNull();
+    });
+
+    it('keeps its stream under StrictMode', async () => {
+      renderCameraPage(1, '', true);
+
+      const img = await streamImg();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(img.getAttribute('src')).toContain('/camera/stream');
     });
   });
 

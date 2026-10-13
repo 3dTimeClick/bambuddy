@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ChamberLight } from './icons/ChamberLight';
 import { SkipObjectsModal, SkipObjectsIcon } from './SkipObjectsModal';
 import { CameraDiagnoseModal } from './CameraDiagnoseModal';
+import { useStreamImgRef } from '../hooks/useStreamImgRef';
 
 interface EmbeddedCameraViewerProps {
   printerId: number;
@@ -93,7 +94,10 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
   const [reconnectCountdown, setReconnectCountdown] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
+  // Every img the viewer drops (minimized, re-keyed by a reconnect, closed)
+  // has its stream closed.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const attachImg = useStreamImgRef(imgRef);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const stallCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -168,12 +172,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
       }
     };
 
-    const imgElement = imgRef.current;
-
     return () => {
-      if (imgElement) {
-        imgElement.src = '';
-      }
       sendStopOnce();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
@@ -430,7 +429,9 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
     setPanOffset({ x: 0, y: 0 });
   };
 
-  const handleStreamError = () => {
+  const handleStreamError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    // Clearing the src (reconnect, Refresh) fires error with an empty src.
+    if (!e.currentTarget.getAttribute('src')) return;
     setStreamLoading(false);
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       attemptReconnect();
@@ -700,7 +701,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
             </div>
           )}
           <img
-            ref={imgRef}
+            ref={attachImg}
             key={imageKey}
             src={streamUrl}
             alt="Camera stream"

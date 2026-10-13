@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, VideoOff, WifiOff } from 'lucide-react';
 import { getAuthToken, withStreamToken } from '../api/client';
 import { formatDuration } from '../utils/date';
+import { useStreamImgRef } from '../hooks/useStreamImgRef';
 
 export type CameraTileMode = 'live' | 'snapshot' | 'paused';
 export type CameraTileStatusMode = 'off' | 'compact' | 'full';
@@ -90,22 +91,11 @@ export function CameraTile({
   // no src (removing it closes the connection), so no re-render reopens it early.
   const [reopening, setReopening] = useState(false);
   const lastModeRef = useRef<CameraTileMode>(mode);
-  const imgRef = useRef<HTMLImageElement | null>(null);
   // Every img this tile drops (leaving live mode, a renewal, unmounting) has
-  // its stream closed: a detached img keeps its MJPEG connection open, and the
-  // /camera/stop sent on leaving live mode is skipped while it does.
-  const attachImg = useCallback((img: HTMLImageElement | null) => {
-    imgRef.current = img;
-    if (!img) return;
-    return () => {
-      if (imgRef.current === img) imgRef.current = null;
-      // Once the commit is done: React runs this with the img still in the
-      // page, and in development (StrictMode) also for an img that stays.
-      queueMicrotask(() => {
-        if (!img.isConnected) img.removeAttribute('src');
-      });
-    };
-  }, []);
+  // its stream closed; the /camera/stop sent on leaving live mode is skipped
+  // while a dropped img still holds it.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const attachImg = useStreamImgRef(imgRef);
   // 'renewed': the current img is a renewal not yet showing a frame; 'retried':
   // it is the one retry of a renewal that failed.
   const renewalRef = useRef<'none' | 'renewed' | 'retried'>('none');
@@ -284,7 +274,7 @@ export function CameraTile({
             renewalRef.current = 'none';
           }}
           onError={(e) => {
-            // Closing the old stream (src removed) fires error too.
+            // An img with an empty or missing src is closed, not failed.
             if (!e.currentTarget.getAttribute('src')) return;
             streamFailed();
           }}
