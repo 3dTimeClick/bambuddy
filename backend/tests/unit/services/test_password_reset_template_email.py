@@ -4,9 +4,8 @@ The template was seeded and editable, but since the reset became a link email
 no code read it: the email was always the built-in one, whatever the admin
 wrote. Its default still described the old flow (a new password emailed in
 plain text). The email now renders the template, and the code adds the link at
-the end. The link is not a template variable: Operators may edit templates,
-and a link the template places could be wrapped in another URL whose page
-reads the token from its fragment and resets the account, an admin's too.
+the end. The link is not a template variable, so the template's text cannot
+change it.
 """
 
 from __future__ import annotations
@@ -59,13 +58,13 @@ async def test_an_edited_template_is_what_the_user_gets_with_the_link_at_the_end
 
 
 async def test_a_template_cannot_place_the_link():
-    """An Operator's body wrapping the link in their own URL: the token would
-    land in the fragment of their page."""
+    """A {reset_url} in the template renders as nothing; the link is only the
+    one the code adds."""
     subject, text_body, html_body = await _render(
-        _template("Reset {reset_url}", "Reset here: https://evil.example/r?next={reset_url}")
+        _template("Reset {reset_url}", "Reset here: https://elsewhere.example/r?next={reset_url}")
     )
 
-    assert text_body == f"Reset here: https://evil.example/r?next=\n\n{RESET_URL}"
+    assert text_body == f"Reset here: https://elsewhere.example/r?next=\n\n{RESET_URL}"
     assert "reset_token" not in subject
     assert "next=https" not in text_body and "next=https" not in html_body
     assert html_body.count("reset_token") == 2  # the line at the end and the button

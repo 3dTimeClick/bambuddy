@@ -53,7 +53,9 @@ class TestEmailTemplateFormatting:
         # Verify text body has newlines
         assert "\n\n" in text_body
         assert "Hello testuser!" in text_body
-        assert "Your password is: testpass123" in text_body
+        # The password is added by Bambuddy, never by the template
+        assert "Your password is: \n" in text_body
+        assert text_body.endswith("Username: testuser\nPassword: testpass123")
 
         # Verify HTML body has <br> tags instead of relying on CSS
         assert "<br>" in html_body
@@ -65,7 +67,8 @@ class TestEmailTemplateFormatting:
 
         # Verify that escaped content is present (XSS protection)
         assert "Hello testuser!<br>" in html_body
-        assert "Your password is: testpass123<br>" in html_body
+        assert "Your password is: <br>" in html_body
+        assert ">testpass123</code>" in html_body
 
     @pytest.mark.asyncio
     async def test_email_header_padding(self):

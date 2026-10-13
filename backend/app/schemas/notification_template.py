@@ -130,7 +130,7 @@ EVENT_VARIABLES: dict[str, list[str]] = {
         "app_name",
     ],
     # User management notifications
-    "user_created": ["username", "password", "login_url", "app_name", "timestamp"],
+    "user_created": ["username", "login_url", "app_name", "timestamp"],
     "password_reset": ["username", "app_name", "timestamp"],
     # User email print notifications
     "user_print_start": ["username", "printer", "filename", "timestamp", "app_name"],
@@ -401,7 +401,6 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
     # User management notifications
     "user_created": {
         "username": "john_doe",
-        "password": "<generated-password>",
         "login_url": "https://bambuddy.example.com/login",
         "app_name": "Bambuddy",
         "timestamp": "2024-01-15 14:30",

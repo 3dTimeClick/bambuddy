@@ -5582,6 +5582,12 @@ async def _run_migrations(conn):
     # alone (the email adds the link to any template, at the end).
     await _migrate_password_reset_template_link(conn)
 
+    # Migration: the Welcome Email template no longer holds the new user's
+    # password; Bambuddy adds the login details itself.
+    # A plain UPDATE guarded on the old text, so an edited template is left
+    # alone (a {password} in it renders as nothing).
+    await _migrate_welcome_template_without_password(conn)
+
     # Migration: supplier master list + spool assignments (#2988).
     # create_all() covers fresh installs; this covers upgrades.
     await _migrate_create_supplier_tables(conn)
@@ -6599,6 +6605,27 @@ async def _migrate_password_reset_template_link(conn) -> None:
     await conn.execute(
         text("UPDATE notification_templates SET body_template = :new WHERE event_type = :et AND body_template = :old"),
         {"new": new, "et": "password_reset", "old": old},
+    )
+
+
+_WELCOME_TEMPLATE_BODY = (
+    "Welcome {username}!\n\nYour account has been created.\nUsername: {username}\nPassword: {password}\n\nLogin at: {login_url}",
+    "Welcome {username}!\n\nYour {app_name} account has been created. Please change your password after your first login.\n\nLogin at: {login_url}\n\nYour login details:",
+)
+
+
+async def _migrate_welcome_template_without_password(conn) -> None:
+    """Take the password out of the Welcome Email template's default text.
+
+    Updates the body only while it is still the old shipped default, so an
+    admin's own wording is kept.
+    """
+    from sqlalchemy import text
+
+    old, new = _WELCOME_TEMPLATE_BODY
+    await conn.execute(
+        text("UPDATE notification_templates SET body_template = :new WHERE event_type = :et AND body_template = :old"),
+        {"new": new, "et": "user_created", "old": old},
     )
 
 

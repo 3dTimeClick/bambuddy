@@ -222,7 +222,7 @@ DEFAULT_TEMPLATES = [
         "event_type": "user_created",
         "name": "Welcome Email",
         "title_template": "Welcome to {app_name}",
-        "body_template": "Welcome {username}!\n\nYour account has been created.\nUsername: {username}\nPassword: {password}\n\nLogin at: {login_url}",
+        "body_template": "Welcome {username}!\n\nYour {app_name} account has been created. Please change your password after your first login.\n\nLogin at: {login_url}\n\nYour login details:",
     },
     {
         "event_type": "password_reset",
