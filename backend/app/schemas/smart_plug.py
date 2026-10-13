@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
+from backend.app.services.secret_fields import SECRET_PLACEHOLDER
 
 
 class SmartPlugBase(BaseModel):
@@ -206,6 +207,12 @@ class SmartPlugResponse(SmartPlugBase):
     class Config:
         from_attributes = True
 
+    @field_validator("password", "rest_headers", mode="after")
+    @classmethod
+    def _write_only(cls, value: str | None) -> str | None:
+        """Secrets are write-only: a set one is shown as the placeholder."""
+        return SECRET_PLACEHOLDER if value else value
+
 
 class SmartPlugControl(BaseModel):
     action: Literal["on", "off", "toggle"]
@@ -236,6 +243,8 @@ class SmartPlugTestConnection(BaseModel):
     ip_address: str = Field(..., pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
     username: str | None = None
     password: str | None = None
+    # The saved plug being edited: its stored password fills in the placeholder.
+    plug_id: int | None = None
 
 
 # Home Assistant schemas
@@ -278,6 +287,8 @@ class RESTTestConnectionRequest(BaseModel):
     url: str = Field(..., min_length=1)
     method: str = Field(default="GET")
     headers: str | None = None  # JSON string of custom headers
+    # The saved plug being edited: its stored headers fill in the placeholder.
+    plug_id: int | None = None
 
 
 class RESTTestConnectionResponse(BaseModel):

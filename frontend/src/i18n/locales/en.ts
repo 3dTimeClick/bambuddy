@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: 'Saved. Leave it as is to keep it, or enter a new value.',
+    secretReenter: 'The address changed: enter it again. Nothing is saved until you do.',
     plusNMore: '+{{count}} more',
     save: 'Save',
     saving: 'Saving...',

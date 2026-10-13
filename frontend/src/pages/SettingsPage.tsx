@@ -17,6 +17,7 @@ import {
   useLocationSensorColorPrefs,
 } from '../utils/locationSensorDefaults';
 import { describeHASensorReading, iconForHASensor } from '../utils/haSensorDisplay';
+import { SECRET_PLACEHOLDER, secretsToReenter, selectPlaceholderOnFocus } from '../utils/secrets';
 import { PreheatFilamentTargetsEditor } from '../components/PreheatFilamentTargetsEditor';
 import type { Printer as PrinterInfo, APIKey, AppSettings, AppSettingsUpdate, PrinterHASensor, LocationHASensor, LocationHASensorReading, SmartPlug, SmartPlugStatus, NotificationProvider, NotificationTemplate, UpdateStatus, GitHubBackupStatus, CloudAuthStatus, UserCreate, UserUpdate, UserResponse, StorageUsageResponse, CalibrationMode } from '../api/client';
 import { Card, CardContent, CardDensityProvider, CardHeader } from '../components/Card';
@@ -218,6 +219,28 @@ function externalCameraSummary(printer: PrinterInfo): string {
     // A USB device path or an unfinished URL: show it as typed.
   }
   return `${type} · ${where}`;
+}
+
+// The settings that decide where each saved secret is sent. A Home Assistant
+// token from the HA_TOKEN environment variable is the deployment's own and has
+// none: the URL may change without it.
+function settingsSecretDestinations(settings: { ha_token_from_env?: boolean }): Record<string, readonly string[]> {
+  return {
+    mqtt_password: ['mqtt_broker', 'mqtt_port', 'mqtt_use_tls'],
+    ...(settings.ha_token_from_env ? {} : { ha_token: ['ha_url'] }),
+  };
+}
+
+/** Under a secret input showing the placeholder: kept, or to be entered again. */
+function SecretHint({ name, value, reenter }: { name: string; value: unknown; reenter: string[] }) {
+  const { t } = useTranslation();
+  if (value !== SECRET_PLACEHOLDER) return null;
+  const again = reenter.includes(name);
+  return (
+    <p className={`text-xs mt-1 ${again ? 'text-yellow-400' : 'text-bambu-gray'}`}>
+      {t(again ? 'common.secretReenter' : 'common.secretKept')}
+    </p>
+  );
 }
 
 export function SettingsPage() {
@@ -1214,6 +1237,12 @@ export function SettingsPage() {
       return;
     }
 
+    // A saved secret does not follow a changed address: hold the save until it
+    // is entered again (the field says so), instead of failing on every pause.
+    if (secretsToReenter(baseline, localSettings, settingsSecretDestinations(baseline)).length > 0) {
+      return;
+    }
+
     // Check if there are actual changes
     const hasChanges =
       baseline.auto_archive !== localSettings.auto_archive ||
@@ -1451,6 +1480,9 @@ export function SettingsPage() {
       }
     };
   }, [localSettings, settings, updateMutation, authEnabled, hasPermission, showToast, t]);
+
+  const secretsPendingReentry =
+    settings && localSettings ? secretsToReenter(settings, localSettings, settingsSecretDestinations(settings)) : [];
 
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     // Gate at the point of user interaction (not in the debounced-save effect —
@@ -3260,6 +3292,7 @@ export function SettingsPage() {
                         type="password"
                         value={localSettings.ha_token ?? ''}
                         onChange={(e) => updateSetting('ha_token', e.target.value)}
+                        onFocus={selectPlaceholderOnFocus}
                         placeholder="eyJ0eXAiOiJKV1QiLC..."
                         disabled={localSettings.ha_token_from_env}
                         className={`w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none ${
@@ -3270,6 +3303,7 @@ export function SettingsPage() {
                         <Lock className="absolute right-3 top-2.5 w-4 h-4 text-bambu-gray" />
                       )}
                     </div>
+                    {!localSettings.ha_token_from_env && <SecretHint name="ha_token" value={localSettings.ha_token} reenter={secretsPendingReentry} />}
                     {localSettings.ha_token_from_env ? (
                       <p className="text-xs text-bambu-gray mt-1">
                         {t('settings.tokenFromEnvReadOnly')}
@@ -3425,9 +3459,11 @@ export function SettingsPage() {
                       type="password"
                       value={localSettings.mqtt_password ?? ''}
                       onChange={(e) => updateSetting('mqtt_password', e.target.value)}
+                      onFocus={selectPlaceholderOnFocus}
                       placeholder={t('settings.leaveEmptyForAnonymous')}
                       className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
                     />
+                    <SecretHint name="mqtt_password" value={localSettings.mqtt_password} reenter={secretsPendingReentry} />
                   </div>
 
                   <div>
@@ -3507,9 +3543,11 @@ export function SettingsPage() {
                       type="password"
                       value={localSettings.prometheus_token ?? ''}
                       onChange={(e) => updateSetting('prometheus_token', e.target.value)}
+                      onFocus={selectPlaceholderOnFocus}
                       placeholder={t('settings.leaveEmptyForNoAuth')}
                       className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
                     />
+                    <SecretHint name="prometheus_token" value={localSettings.prometheus_token} reenter={secretsPendingReentry} />
                     <p className="text-xs text-bambu-gray mt-1">
                       {t('settings.bearerTokenHint')}
                     </p>

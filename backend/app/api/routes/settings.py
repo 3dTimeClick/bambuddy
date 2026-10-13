@@ -27,6 +27,7 @@ from backend.app.models.settings import Settings
 from backend.app.models.user import User
 from backend.app.schemas.settings import AppSettings, AppSettingsUpdate
 from backend.app.services import camera_light
+from backend.app.services.secret_fields import SETTINGS_SECRETS, SecretConfigError, mask_fields, merge_partial
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +35,9 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 DEFAULT_SETTINGS = AppSettings()
 
-# Sensitive credential fields blanked for API-key callers
-_SENSITIVE_FIELDS_FOR_API_KEY = (
-    "mqtt_password",
-    "ha_token",
-    "prometheus_token",
-    "virtual_printer_access_code",
-    "ldap_bind_password",
-)
+# Sensitive credential fields blanked for API-key callers. Everyone else sees
+# them as the placeholder (write-only secrets, see services/secret_fields).
+_SENSITIVE_FIELDS_FOR_API_KEY = tuple(SETTINGS_SECRETS)
 
 
 async def get_setting(db: AsyncSession, key: str) -> str | None:
@@ -267,8 +263,12 @@ _INT_SETTING_KEYS = frozenset(
 )
 
 
-async def _build_settings_response(db: AsyncSession, is_api_key: bool = False) -> AppSettings:
-    """Build the full settings response, scrubbing secrets for API-key callers."""
+async def _build_settings_response(db: AsyncSession, is_api_key: bool = False, mask: bool = True) -> AppSettings:
+    """Build the full settings response.
+
+    Secrets are blank for API-key callers and the placeholder for everyone else;
+    ``mask=False`` is for server-side use only (comparing with an update).
+    """
     settings_dict = DEFAULT_SETTINGS.model_dump()
 
     result = await db.execute(select(Settings))
@@ -309,13 +309,17 @@ async def _build_settings_response(db: AsyncSession, is_api_key: bool = False) -
     ha_settings = await get_homeassistant_settings(db)
     settings_dict.update(ha_settings)
 
-    # ldap_bind_password is never returned to any caller
-    settings_dict["ldap_bind_password"] = ""
+    # ldap_bind_password is never returned to any caller (mask=False is
+    # server-side only)
+    if mask or is_api_key:
+        settings_dict["ldap_bind_password"] = ""
 
     if is_api_key:
         for field in _SENSITIVE_FIELDS_FOR_API_KEY:
             if field in settings_dict:
                 settings_dict[field] = ""
+    elif mask:
+        settings_dict = mask_fields(settings_dict, SETTINGS_SECRETS)
 
     return AppSettings(**settings_dict)
 
@@ -339,6 +343,19 @@ async def update_settings(
 ):
     """Update application settings."""
     update_data = settings_update.model_dump(exclude_unset=True)
+
+    # Write-only secrets: the placeholder keeps the stored value, and a kept
+    # secret does not follow a changed destination.
+    stored = (await _build_settings_response(db, mask=False)).model_dump()
+    secrets = dict(SETTINGS_SECRETS)
+    if stored.get("ha_token_from_env"):
+        # The deployment's own token, not a stored secret to enter again: the
+        # URL may change (the placeholder sent back still writes nothing).
+        secrets["ha_token"] = ()
+    try:
+        update_data = merge_partial(stored, update_data, secrets)
+    except SecretConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
     # An explicit null for a boolean or numeric setting has no meaning -- these
     # are not clearable -- and would be stored as the literal "None".
@@ -459,7 +476,7 @@ async def update_settings(
         except Exception:
             pass  # Don't fail the settings update if MQTT reconfiguration fails
 
-    # Return updated settings (never scrub secrets on PUT — caller has SETTINGS_UPDATE permission)
+    # Return updated settings, secrets as the placeholder
     return await _build_settings_response(db, is_api_key=False)
 
 

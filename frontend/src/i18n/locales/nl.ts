@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: 'Opgeslagen. Laat het zo om het te behouden, of voer een nieuwe waarde in.',
+    secretReenter: 'Het adres is gewijzigd: voer het opnieuw in. Er wordt niets opgeslagen tot je dat doet.',
     plusNMore: '+{{count}} meer',
     save: 'Opslaan',
     saving: 'Opslaan...',

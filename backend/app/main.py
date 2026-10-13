@@ -397,11 +397,17 @@ from backend.app.core.logging_filters import QueryTokenRedactFilter  # noqa: E40
 for _uvicorn_logger in ("uvicorn.access", "uvicorn.error"):
     logging.getLogger(_uvicorn_logger).addFilter(QueryTokenRedactFilter())
 
+# These stay at WARNING even in debug mode: at INFO/DEBUG httpx/httpcore log
+# full request URLs, and some carry credentials (bot tokens, webhook URLs, API
+# keys in the query). Same as the runtime log-level toggle in support.py.
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+# aiosqlite logs every statement with its parameters at DEBUG.
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 # Reduce noise from third-party libraries in production
 if not app_settings.debug:
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("paho.mqtt").setLevel(logging.WARNING)
 
 logging.info("Bambuddy starting - debug=%s, log_level=%s", app_settings.debug, log_level_str)

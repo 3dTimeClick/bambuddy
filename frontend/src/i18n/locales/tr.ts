@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: 'Kaydedildi. Korumak için olduğu gibi bırakın veya yeni bir değer girin.',
+    secretReenter: 'Adres değişti: tekrar girin. Siz girene kadar hiçbir şey kaydedilmez.',
     plusNMore: '+{{count}} tane daha',
     save: 'Kaydet',
     saving: 'Kaydediliyor...',

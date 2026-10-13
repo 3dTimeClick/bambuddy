@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: '已儲存。保持不變即可保留，或輸入新值。',
+    secretReenter: '位址已變更：請重新輸入。在此之前不會儲存任何內容。',
     plusNMore: '另 {{count}} 個',
     save: '儲存',
     saving: '儲存中...',

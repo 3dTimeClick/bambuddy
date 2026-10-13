@@ -896,13 +896,36 @@ async def save_smtp_config(
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save SMTP settings (admin only when auth enabled)."""
+    """Save SMTP settings (admin only when auth enabled).
+
+    An empty password keeps the stored one, which only goes to the server it
+    was entered for: a changed host, port or security needs it entered again
+    (without authentication, the stored password is dropped instead).
+    """
     import logging
+
+    from backend.app.services.secret_fields import SMTP_DESTINATIONS, same_value
 
     logger = logging.getLogger(__name__)
 
+    drop_password = False
+    stored = await get_smtp_settings(db)
+    if stored and stored.smtp_password and not smtp_settings.smtp_password:
+        moved = [f for f in SMTP_DESTINATIONS if not same_value(getattr(smtp_settings, f), getattr(stored, f))]
+        if moved and smtp_settings.smtp_auth_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Enter the SMTP password again: {', '.join(moved)} changed",
+            )
+        drop_password = bool(moved)
+
     try:
         await save_smtp_settings(db, smtp_settings)
+        if drop_password:
+            from backend.app.core.db_dialect import upsert_setting
+            from backend.app.models.settings import Settings
+
+            await upsert_setting(db, Settings, "smtp_password", "")
         await db.commit()
         logger.info(f"SMTP settings updated by admin user: {current_user.username if current_user else 'anonymous'}")
         return {"message": "SMTP settings saved successfully"}

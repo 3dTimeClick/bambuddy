@@ -344,6 +344,9 @@ class NotificationTestRequest(BaseModel):
     attach_photo: bool = Field(
         default=True, description="Include a sample photo in the test, mirroring the provider's own toggle"
     )
+    provider_id: int | None = Field(
+        default=None, description="The saved provider being edited: its stored secrets fill in the placeholders"
+    )
 
 
 class NotificationTestResponse(BaseModel):

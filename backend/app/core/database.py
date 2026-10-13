@@ -149,6 +149,9 @@ def _create_engine():
     eng = create_async_engine(
         settings.database_url,
         echo=settings.debug,
+        # The debug SQL echo shows statements, never their values: those
+        # include every secret saved and every password hash.
+        hide_parameters=True,
         **kwargs,
     )
     if is_sqlite():

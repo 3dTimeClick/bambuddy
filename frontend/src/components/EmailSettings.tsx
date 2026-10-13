@@ -64,6 +64,15 @@ export function EmailSettings() {
     }
   }, [existingSettings]);
 
+  // The saved password only goes to the server it was entered for.
+  const smtpPasswordNeedsReentry =
+    !!existingSettings &&
+    smtpSettings.smtp_auth_enabled &&
+    !smtpSettings.smtp_password &&
+    (smtpSettings.smtp_host !== existingSettings.smtp_host ||
+      smtpSettings.smtp_port !== existingSettings.smtp_port ||
+      smtpSettings.smtp_security !== existingSettings.smtp_security);
+
   const handleSecurityChange = (security: 'starttls' | 'ssl' | 'none') => {
     setSMTPSettings({
       ...smtpSettings,
@@ -296,6 +305,9 @@ export function EmailSettings() {
                     disabled={!smtpSettings.smtp_auth_enabled}
                     className={smtpSettings.smtp_auth_enabled ? inputClasses : disabledInputClasses}
                   />
+                  {smtpPasswordNeedsReentry && (
+                    <p className="text-xs mt-1 text-yellow-400">{t('common.secretReenter')}</p>
+                  )}
                 </div>
               </div>
 

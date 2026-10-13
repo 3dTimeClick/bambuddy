@@ -12,6 +12,7 @@ from backend.app.core.auth import (
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     RequirePrinterPermissionIfAuthEnabled,
+    probe_permissions_if_auth_enabled,
 )
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
@@ -42,6 +43,15 @@ from backend.app.services.mqtt_smart_plug import subscribe_plug_to_mqtt
 from backend.app.services.plug_energy_history import fill_derived_energy
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.rest_smart_plug import rest_smart_plug_service
+from backend.app.services.secret_fields import (
+    REST_PLUG_URLS,
+    SECRET_PLACEHOLDER,
+    SMART_PLUG_SECRETS,
+    SecretConfigError,
+    merge_partial,
+    reject_placeholder,
+    same_value,
+)
 from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.tasmota import tasmota_service
 from backend.app.utils.local_time import utcnow_naive
@@ -73,6 +83,10 @@ async def create_smart_plug(
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Create a new smart plug."""
+    try:
+        reject_placeholder({field: getattr(data, field) for field in SMART_PLUG_SECRETS})
+    except SecretConfigError as exc:
+        raise HTTPException(400, str(exc)) from None
     # Validate printer_id if provided
     if data.printer_id:
         printer_scope.ensure(data.printer_id)
@@ -145,6 +159,20 @@ async def create_smart_plug(
         logger.info("Created Home Assistant plug '%s' (%s)", plug.name, plug.ha_entity_id)
     else:
         logger.info("Created Tasmota plug '%s' at %s", plug.name, plug.ip_address)
+    return plug
+
+
+async def _plug_for_secret_test(
+    db: AsyncSession, plug_id: int | None, can_update: bool, printer_scope: PrinterScope
+) -> SmartPlug:
+    """The saved plug whose stored secret a connection test may use."""
+    if plug_id is None:
+        raise HTTPException(400, "Enter the secret; nothing is saved for a new plug")
+    if not can_update:
+        raise HTTPException(403, "Testing a saved plug's secret requires smart_plugs:update")
+    plug = await db.get(SmartPlug, plug_id)
+    if plug is None or not printer_scope.allows(plug.printer_id):
+        raise HTTPException(404, "Smart plug not found")
     return plug
 
 
@@ -416,20 +444,52 @@ async def get_discovered_tasmota_devices(
 @router.post("/ha/test-connection", response_model=HATestConnectionResponse)
 async def test_ha_connection(
     request: HATestConnectionRequest,
+    db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_CONTROL),
+    can_update_settings: bool = Depends(probe_permissions_if_auth_enabled(Permission.SETTINGS_UPDATE)),
 ):
-    """Test connection to Home Assistant."""
-    result = await homeassistant_service.test_connection(request.url, request.token)
+    """Test connection to Home Assistant.
+
+    The placeholder token tests the stored token, against the stored URL only.
+    """
+    token = request.token
+    if token == SECRET_PLACEHOLDER:
+        if not can_update_settings:
+            raise HTTPException(403, "Testing the saved token requires settings:update")
+        from backend.app.api.routes.settings import get_homeassistant_settings
+
+        stored = await get_homeassistant_settings(db)
+        if not stored.get("ha_token"):
+            raise HTTPException(400, "Enter the token; none is saved")
+        if not same_value(request.url, stored.get("ha_url")):
+            raise HTTPException(400, "Enter the token again: the URL changed")
+        token = stored["ha_token"]
+    result = await homeassistant_service.test_connection(request.url, token)
     return HATestConnectionResponse(**result)
 
 
 @router.post("/rest/test-connection", response_model=RESTTestConnectionResponse)
 async def test_rest_connection(
     request: RESTTestConnectionRequest,
+    db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_CONTROL),
+    can_update: bool = Depends(probe_permissions_if_auth_enabled(Permission.SMART_PLUGS_UPDATE)),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
-    """Test connection to a REST/HTTP endpoint."""
-    result = await rest_smart_plug_service.test_connection(request.url, request.method, request.headers)
+    """Test connection to a REST/HTTP endpoint.
+
+    With plug_id, the placeholder headers are the plug's stored headers, for
+    the plug's own URLs only.
+    """
+    headers = request.headers
+    if headers == SECRET_PLACEHOLDER:
+        plug = await _plug_for_secret_test(db, request.plug_id, can_update, printer_scope)
+        if not plug.rest_headers:
+            raise HTTPException(400, "Enter the headers; none are saved")
+        if not any(same_value(request.url, getattr(plug, field)) for field in REST_PLUG_URLS):
+            raise HTTPException(400, "Enter the headers again: the URL is not one of the plug's")
+        headers = plug.rest_headers
+    result = await rest_smart_plug_service.test_connection(request.url, request.method, headers)
     return RESTTestConnectionResponse(**result)
 
 
@@ -516,6 +576,17 @@ async def update_smart_plug(
         raise HTTPException(404, "Smart plug not found")
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # Write-only secrets: the placeholder keeps the stored value, and a kept
+    # secret does not follow a changed address or plug type.
+    stored = {
+        field: getattr(plug, field)
+        for field in {*SMART_PLUG_SECRETS, *(f for fs in SMART_PLUG_SECRETS.values() for f in fs)}
+    }
+    try:
+        update_data = merge_partial(stored, update_data, SMART_PLUG_SECRETS)
+    except SecretConfigError as exc:
+        raise HTTPException(400, str(exc)) from None
 
     # Validate new printer_id if being changed
     if "printer_id" in update_data and update_data["printer_id"]:
@@ -827,13 +898,28 @@ async def get_plug_status(
 @router.post("/test-connection")
 async def test_connection(
     data: SmartPlugTestConnection,
+    db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_CONTROL),
+    can_update: bool = Depends(probe_permissions_if_auth_enabled(Permission.SMART_PLUGS_UPDATE)),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
-    """Test connection to a Tasmota device."""
+    """Test connection to a Tasmota device.
+
+    With plug_id, the placeholder password is the plug's stored password, for
+    the plug's own address only.
+    """
+    password = data.password
+    if password == SECRET_PLACEHOLDER:
+        plug = await _plug_for_secret_test(db, data.plug_id, can_update, printer_scope)
+        if not plug.password:
+            raise HTTPException(400, "Enter the password; none is saved")
+        if not same_value(data.ip_address, plug.ip_address):
+            raise HTTPException(400, "Enter the password again: the address changed")
+        password = plug.password
     result = await tasmota_service.test_connection(
         data.ip_address,
         data.username,
-        data.password,
+        password,
     )
 
     if not result["success"]:

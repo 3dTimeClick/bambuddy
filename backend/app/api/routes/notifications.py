@@ -11,7 +11,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, ScopedCaller, require_notification_send
+from backend.app.core.auth import (
+    RequirePermissionIfAuthEnabled,
+    ScopedCaller,
+    probe_permissions_if_auth_enabled,
+    require_notification_send,
+)
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.core.printer_scope import ensure_printers_exist
@@ -34,6 +39,12 @@ from backend.app.services.notification_service import notification_service
 from backend.app.services.notify_client import NotifyError, notify_credentials
 from backend.app.services.notify_live_activities import notify_live_activities
 from backend.app.services.notify_widgets import notify_widgets
+from backend.app.services.secret_fields import (
+    SecretConfigError,
+    mask_config,
+    merge_config,
+    reject_placeholder,
+)
 from backend.app.services.telegram_reactions import telegram_reaction_poller
 from backend.app.utils.notification_photos import find_notification_photo
 
@@ -90,14 +101,21 @@ async def after_providers_deleted(*, notify: bool) -> None:
     await _resync_reaction_poller()
 
 
+def _stored_config(provider: NotificationProvider) -> dict:
+    return json.loads(provider.config) if isinstance(provider.config, str) else provider.config
+
+
 def _provider_to_dict(provider: NotificationProvider) -> dict:
-    """Convert a NotificationProvider model to a response dictionary."""
+    """Convert a NotificationProvider model to a response dictionary.
+
+    Secrets are write-only: a set one is shown as the placeholder.
+    """
     return {
         "id": provider.id,
         "name": provider.name,
         "provider_type": provider.provider_type,
         "enabled": provider.enabled,
-        "config": json.loads(provider.config) if isinstance(provider.config, str) else provider.config,
+        "config": mask_config(_stored_config(provider)),
         "attach_photo": provider.attach_photo,
         # Print lifecycle events
         "on_print_start": provider.on_print_start,
@@ -195,6 +213,10 @@ async def create_notification_provider(
 ):
     """Create a new notification provider."""
     await ensure_printers_exist(db, [provider_data.printer_id])
+    try:
+        reject_placeholder(provider_data.config)
+    except SecretConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     if provider_data.provider_type.value == "notify":
         try:
             notify_credentials(provider_data.config)
@@ -285,10 +307,30 @@ async def test_notification_config(
     test_request: NotificationTestRequest,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
+    can_update: bool = Depends(probe_permissions_if_auth_enabled(Permission.NOTIFICATIONS_UPDATE)),
 ):
-    """Test notification configuration before saving."""
+    """Test notification configuration before saving.
+
+    With provider_id (an edited provider), the stored secrets fill in the
+    placeholders, for those who may edit providers.
+    """
+    config = test_request.config
+    try:
+        if test_request.provider_id is None:
+            reject_placeholder(config)
+        else:
+            if not can_update:
+                raise HTTPException(status_code=403, detail="Testing a saved provider requires notifications:update")
+            provider = await db.get(NotificationProvider, test_request.provider_id)
+            if provider is None:
+                raise HTTPException(status_code=404, detail="Notification provider not found")
+            config = merge_config(
+                provider.provider_type, _stored_config(provider), test_request.provider_type.value, config
+            )
+    except SecretConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     success, message = await notification_service.send_test_notification(
-        test_request.provider_type.value, test_request.config, db, attach_photo=test_request.attach_photo
+        test_request.provider_type.value, config, db, attach_photo=test_request.attach_photo
     )
 
     return NotificationTestResponse(success=success, message=message)
@@ -596,7 +638,7 @@ async def update_notification_provider(
     if not provider:
         raise HTTPException(status_code=404, detail="Notification provider not found")
 
-    old_config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
+    old_config = _stored_config(provider)
     old_type = provider.provider_type
 
     # Update only provided fields
@@ -605,6 +647,13 @@ async def update_notification_provider(
 
     effective_type = update_dict.get("provider_type") or provider.provider_type
     effective_type = getattr(effective_type, "value", effective_type)
+    if effective_type != old_type and update_dict.get("config") is None:
+        raise HTTPException(status_code=400, detail="A new provider type needs its own configuration")
+    if update_dict.get("config") is not None:
+        try:
+            update_dict["config"] = merge_config(old_type, old_config, effective_type, update_dict["config"])
+        except SecretConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
     if effective_type == "notify":
         try:
             effective_config = update_dict.get("config", old_config)
@@ -623,7 +672,7 @@ async def update_notification_provider(
             setattr(provider, key, value)
 
     if old_type == "notify":
-        effective_config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
+        effective_config = _stored_config(provider)
         remove_widgets = (
             provider.provider_type != "notify"
             or not provider.enabled
@@ -649,7 +698,7 @@ async def update_notification_provider(
     await db.refresh(provider)
 
     response = _provider_to_dict(provider)
-    new_config = response["config"]
+    new_config = _stored_config(provider)
     changed = old_type != provider.provider_type or any(
         old_config.get(key) != new_config.get(key) for key in ("device_id", "token")
     )

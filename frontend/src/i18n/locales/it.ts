@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: 'Salvato. Lascialo così per mantenerlo o inserisci un nuovo valore.',
+    secretReenter: "L'indirizzo è cambiato: inseriscilo di nuovo. Nulla viene salvato finché non lo fai.",
     plusNMore: '+{{count}} altri',
     save: 'Salva',
     saving: 'Salvataggio...',

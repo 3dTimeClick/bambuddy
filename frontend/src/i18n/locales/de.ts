@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: 'Gespeichert. Unverändert lassen, um es zu behalten, oder einen neuen Wert eingeben.',
+    secretReenter: 'Die Adresse hat sich geändert: Bitte erneut eingeben. Bis dahin wird nichts gespeichert.',
     plusNMore: '+{{count}} weitere',
     save: 'Speichern',
     saving: 'Speichern...',

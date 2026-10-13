@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: '已保存。保持不变即可保留，或输入新值。',
+    secretReenter: '地址已更改：请重新输入。在此之前不会保存任何内容。',
     plusNMore: '另 {{count}} 个',
     save: '保存',
     saving: '保存中...',

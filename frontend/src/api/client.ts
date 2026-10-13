@@ -3610,6 +3610,8 @@ export interface NotificationTestRequest {
   provider_type: ProviderType;
   config: Record<string, unknown>;
   attach_photo?: boolean;
+  /** The saved provider being edited: its stored secrets fill in the placeholders. */
+  provider_id?: number;
 }
 
 export interface NotificationTestResponse {
@@ -6419,10 +6421,11 @@ export const api = {
     }),
   getSmartPlugStatus: (id: number) =>
     request<SmartPlugStatus>(`/smart-plugs/${id}/status`),
-  testSmartPlugConnection: (ip_address: string, username?: string | null, password?: string | null) =>
+  // plug_id: the saved plug being edited, whose stored password fills in the placeholder.
+  testSmartPlugConnection: (ip_address: string, username?: string | null, password?: string | null, plug_id?: number) =>
     request<SmartPlugTestResult>('/smart-plugs/test-connection', {
       method: 'POST',
-      body: JSON.stringify({ ip_address, username, password }),
+      body: JSON.stringify({ ip_address, username, password, plug_id }),
     }),
 
   // Tasmota Discovery (auto-detects network)
@@ -6482,10 +6485,11 @@ export const api = {
     request<{ message: string }>(`/location-ha-sensors/${id}`, { method: 'DELETE' }),
 
   // REST smart plug
-  testRESTConnection: (url: string, method: string = 'GET', headers?: string | null) =>
+  // plug_id: the saved plug being edited, whose stored headers fill in the placeholder.
+  testRESTConnection: (url: string, method: string = 'GET', headers?: string | null, plug_id?: number) =>
     request<{ success: boolean; error: string | null }>('/smart-plugs/rest/test-connection', {
       method: 'POST',
-      body: JSON.stringify({ url, method, headers }),
+      body: JSON.stringify({ url, method, headers, plug_id }),
     }),
 
   // Print Queue

@@ -9,6 +9,7 @@ import { Button } from './Button';
 import { Toggle } from './Toggle';
 import { useToast } from '../contexts/ToastContext';
 import { NumberInput } from './NumberInput';
+import { SECRET_PLACEHOLDER, selectPlaceholderOnFocus } from '../utils/secrets';
 
 type TestResult = { ok: boolean; message: string } | null;
 
@@ -137,13 +138,18 @@ export function FailureDetectionSettings() {
     );
   }, [settings, initialized, enabled, mlUrl, bambuddyInternalUrl, internalUrlValid, mlToken, sensitivity, action, pollInterval, enabledPrinters]);
 
+  // A saved token does not follow a changed URL: it must be entered again, and
+  // nothing is saved until it is (the backend would refuse it).
+  const tokenNeedsReentry =
+    mlToken === SECRET_PLACEHOLDER && (settings?.obico_ml_url ?? '') !== mlUrl;
+
   // Auto-save on change (debounced)
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!hasUnsavedChanges || tokenNeedsReentry) return;
     const id = setTimeout(() => saveMutation.mutate(), 500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasUnsavedChanges, enabled, mlUrl, bambuddyInternalUrl, mlToken, sensitivity, action, pollInterval, enabledPrinters]);
+  }, [hasUnsavedChanges, tokenNeedsReentry, enabled, mlUrl, bambuddyInternalUrl, mlToken, sensitivity, action, pollInterval, enabledPrinters]);
 
   const handleTest = async () => {
     setTestResult(null);
@@ -154,7 +160,7 @@ export function FailureDetectionSettings() {
       // auto-save debounce — or after a save that failed — those are different
       // values, and "reachable and healthy" for a token the service never
       // received is the reassuring-green-light problem all over again (#2952).
-      if (hasUnsavedChanges) {
+      if (hasUnsavedChanges && !tokenNeedsReentry) {
         await saveMutation.mutateAsync();
       }
       const res = await api.testObicoConnection(mlUrl, mlToken);
@@ -239,11 +245,17 @@ export function FailureDetectionSettings() {
                 type="password"
                 value={mlToken}
                 onChange={(e) => setMlToken(e.target.value)}
+                onFocus={selectPlaceholderOnFocus}
                 autoComplete="off"
                 placeholder={t('failureDetection.mlTokenPlaceholder')}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm"
                 disabled={!enabled}
               />
+              {mlToken === SECRET_PLACEHOLDER && (
+                <p className={`text-xs mt-1 ${tokenNeedsReentry ? 'text-yellow-400' : 'text-bambu-gray'}`}>
+                  {t(tokenNeedsReentry ? 'common.secretReenter' : 'common.secretKept')}
+                </p>
+              )}
               <p className="text-xs text-bambu-gray mt-1">{t('failureDetection.mlTokenHint')}</p>
               {testResult && (
                 <div

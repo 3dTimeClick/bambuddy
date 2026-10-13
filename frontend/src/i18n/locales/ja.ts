@@ -51,6 +51,8 @@ export default {
     },
   },
   common: {
+    secretKept: '保存済みです。そのままにすると維持され、新しい値を入力すると置き換わります。',
+    secretReenter: 'アドレスが変更されました。もう一度入力してください。入力するまで保存されません。',
     plusNMore: '他{{count}}件',
     save: '保存',
     saving: '保存中...',

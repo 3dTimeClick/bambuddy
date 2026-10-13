@@ -48,6 +48,8 @@ export default {
     },
   },
   common: {
+    secretKept: '저장되어 있습니다. 그대로 두면 유지되고, 새 값을 입력하면 바뀝니다.',
+    secretReenter: '주소가 변경되었습니다. 다시 입력하세요. 입력할 때까지 저장되지 않습니다.',
     plusNMore: '외 {{count}}개',
     save: '저장',
     saving: '저장 중...',

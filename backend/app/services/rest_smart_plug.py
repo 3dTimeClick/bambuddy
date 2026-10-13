@@ -65,7 +65,8 @@ class RESTSmartPlugService:
             if isinstance(headers, dict):
                 return {str(k): str(v) for k, v in headers.items()}
         except (json.JSONDecodeError, TypeError):
-            logger.warning("Failed to parse REST headers JSON: %s", headers_json)
+            # Not the value: headers carry credentials.
+            logger.warning("Failed to parse REST headers JSON; sending none")
         return {}
 
     @staticmethod
