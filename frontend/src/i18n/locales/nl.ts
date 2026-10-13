@@ -204,6 +204,7 @@ export default {
     balanceAfter: 'Saldo na',
     userWithId: 'Gebruiker #{{id}}',
     deletedUser: 'Verwijderde gebruiker',
+    noUser: 'Geen gebruiker',
     partial: 'Gedeeltelijk',
     editTransaction: 'Transactie bewerken',
     selectCostCenter: 'Kostenplaats selecteren...',

@@ -204,6 +204,7 @@ export default {
     balanceAfter: 'Kontostand danach',
     userWithId: 'Benutzer #{{id}}',
     deletedUser: 'Gelöschter Benutzer',
+    noUser: 'Kein Benutzer',
     partial: 'Teilweise',
     editTransaction: 'Transaktion bearbeiten',
     selectCostCenter: 'Kostenstelle auswählen...',

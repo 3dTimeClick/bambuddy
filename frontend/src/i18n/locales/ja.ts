@@ -204,6 +204,7 @@ export default {
     balanceAfter: '調整後残高',
     userWithId: 'ユーザー #{{id}}',
     deletedUser: '削除されたユーザー',
+    noUser: 'ユーザーなし',
     partial: '部分',
     editTransaction: 'トランザクションを編集',
     selectCostCenter: 'コストセンターを選択...',

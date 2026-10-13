@@ -204,6 +204,7 @@ export default {
     balanceAfter: 'Solde après',
     userWithId: 'Utilisateur #{{id}}',
     deletedUser: 'Utilisateur supprimé',
+    noUser: 'Aucun utilisateur',
     partial: 'Partiel',
     editTransaction: 'Modifier la transaction',
     selectCostCenter: 'Sélectionner un centre de coûts...',

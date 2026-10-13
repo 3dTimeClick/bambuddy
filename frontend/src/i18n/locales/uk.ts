@@ -204,6 +204,7 @@ export default {
     balanceAfter: "Баланс після операції",
     userWithId: "Користувач №{{id}}",
     deletedUser: "Видалений користувач",
+    noUser: "Без користувача",
     partial: "Частково",
     editTransaction: "Редагувати операцію",
     selectCostCenter: "Виберіть центр витрат...",

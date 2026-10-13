@@ -204,6 +204,7 @@ export default {
     balanceAfter: 'Saldo efter',
     userWithId: 'Användare #{{id}}',
     deletedUser: 'Borttagen användare',
+    noUser: 'Ingen användare',
     partial: 'Delvis',
     editTransaction: 'Redigera transaktion',
     selectCostCenter: 'Välj kostnadsställe...',

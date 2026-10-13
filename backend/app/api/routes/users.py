@@ -528,6 +528,85 @@ async def delete_user(
 
         await delete_dependent_variants(db, doomed_library_file_ids)
         await release_queue_references(db, doomed_library_file_ids)
+        # A print still running keeps what it needs to be billed when it
+        # ends: its queue row and the user's archive it prints are detached
+        # (no user), as without delete_items, rather than deleted. Deleted, the
+        # completion found no queue row and charged the archive's creator
+        # instead (for a reprint someone else, who never printed it), or found
+        # no archive and billed nothing, its reservation held for good.
+        from sqlalchemy import and_, or_
+
+        from backend.app.models.finance import BudgetReservation
+
+        running_rows = (
+            await db.execute(
+                select(PrintQueueItem.id, PrintQueueItem.archive_id).where(
+                    PrintQueueItem.created_by_id == user_id, PrintQueueItem.status == "printing"
+                )
+            )
+        ).all()
+        running_items = [row.id for row in running_rows]
+        running_archives = [row.archive_id for row in running_rows if row.archive_id is not None]
+        running_archives += (
+            (
+                await db.execute(
+                    select(PrintArchive.id).where(
+                        PrintArchive.created_by_id == user_id, PrintArchive.status == "printing"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # Also one another user is printing (a reprint of this user's archive,
+        # dispatched before the printer's start marks the archive printing):
+        # deleted, it took their queue row with it and their print went unbilled.
+        own_archives = select(PrintArchive.id).where(PrintArchive.created_by_id == user_id)
+        running_archives += (
+            (
+                await db.execute(
+                    select(PrintQueueItem.archive_id).where(
+                        PrintQueueItem.status == "printing", PrintQueueItem.archive_id.in_(own_archives)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if running_items:
+            await db.execute(
+                sql_update(PrintQueueItem).where(PrintQueueItem.id.in_(running_items)).values(created_by_id=None)
+            )
+        if running_archives:
+            await db.execute(
+                sql_update(PrintArchive)
+                .where(PrintArchive.id.in_(running_archives), PrintArchive.created_by_id == user_id)
+                .values(created_by_id=None)
+            )
+
+        # Budget held for the queue items and archives deleted here: no print
+        # completion can settle it any more (it finds no archive), and an
+        # active reservation held the cost centre's budget, and kept the cost
+        # centre from being deleted, for good. Nothing is charged for those:
+        # they go, as the admin chose. (A running print's was detached above.)
+        await db.execute(
+            sql_update(BudgetReservation)
+            .where(
+                BudgetReservation.status == "active",
+                or_(
+                    and_(
+                        BudgetReservation.source_type == "print_queue",
+                        BudgetReservation.source_id.in_(
+                            select(PrintQueueItem.id).where(PrintQueueItem.created_by_id == user_id)
+                        ),
+                    ),
+                    BudgetReservation.print_archive_id.in_(
+                        select(PrintArchive.id).where(PrintArchive.created_by_id == user_id)
+                    ),
+                ),
+            )
+            .values(status="released", released_at=datetime.now(timezone.utc))
+        )
         await db.execute(delete(PrintArchive).where(PrintArchive.created_by_id == user_id))
         await db.execute(delete(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id))
         await db.execute(delete(LibraryFile).where(LibraryFile.created_by_id == user_id))

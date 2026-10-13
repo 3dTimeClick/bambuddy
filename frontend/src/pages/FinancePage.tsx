@@ -1206,8 +1206,9 @@ export function FinancePage() {
                       const txCostCenter = tx.cost_center_id == null
                         ? null
                         : (costCenters || []).find((center) => center.id === tx.cost_center_id);
+                      // No user: deleted since, or with auth off never had one.
                       const txUser = tx.user_id == null
-                        ? t('finance.deletedUser', 'Deleted user')
+                        ? t('finance.noUser', 'No user')
                         : usersById.get(tx.user_id) || t('finance.userWithId', 'User #{{id}}', { id: tx.user_id });
                       const parsed = tx.transaction_type === 'print_charge'
                         ? parsePrintChargeDescription((tx as { description: string | null }).description ?? null)

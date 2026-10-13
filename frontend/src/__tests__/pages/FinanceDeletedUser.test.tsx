@@ -1,8 +1,10 @@
 /**
  * What a deleted user leaves in the finance admin view: ledger entries without
  * a user (kept, so a shared cost centre stays spent) and private cost centres
- * without an owner. Both say so, rather than "User #null" or "Personal", which
- * read as the viewing admin's own.
+ * without an owner. Neither reads as "User #null" or "Personal", which look
+ * like the viewing admin's own. An entry without a user says "No user": with
+ * auth off a print never had one, so "Deleted user" would be wrong there. A
+ * private centre is always created with an owner, so none means deleted.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -45,7 +47,7 @@ const orphanedEntry = {
 };
 
 describe('FinancePage after a user was deleted', () => {
-  it('labels their ledger entries and their private cost centre as a deleted user', async () => {
+  it('labels their ledger entries as having no user and their private cost centre as a deleted user', async () => {
     server.use(
       http.get('*/api/v1/settings/ui-flags', () => HttpResponse.json({ billing_enabled: true, currency: 'USD' })),
       http.get('*/api/v1/finance/me/balance', () =>
@@ -64,7 +66,8 @@ describe('FinancePage after a user was deleted', () => {
     await userEvent.click(await screen.findByText('Admin view'));
 
     const entry = (await screen.findByText('Left by a deleted user')).closest('tr') as HTMLElement;
-    expect(within(entry).getByText('Deleted user')).toBeInTheDocument();
+    expect(within(entry).getByText('No user')).toBeInTheDocument();
+    expect(within(entry).queryByText('Deleted user')).not.toBeInTheDocument();
     await waitFor(() => {
       const rows = screen
         .getAllByText('Alice private')

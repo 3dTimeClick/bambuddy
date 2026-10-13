@@ -204,6 +204,7 @@ export default {
     balanceAfter: 'İşlem sonrası bakiye',
     userWithId: 'Kullanıcı #{{id}}',
     deletedUser: 'Silinmiş kullanıcı',
+    noUser: 'Kullanıcı yok',
     partial: 'Kısmi',
     editTransaction: 'İşlemi düzenle',
     selectCostCenter: 'Masraf merkezi seç...',
