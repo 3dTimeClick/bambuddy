@@ -228,7 +228,7 @@ DEFAULT_TEMPLATES = [
         "event_type": "password_reset",
         "name": "Password Reset",
         "title_template": "{app_name} - Password Reset",
-        "body_template": "Hello {username},\n\nYour password has been reset.\nNew Password: {password}\n\nLogin at: {login_url}",
+        "body_template": "Hello {username},\n\nA password reset was requested for your {app_name} account. If you did not request it, you can ignore this email: your password has not been changed.\n\nSet a new password with the link below (valid for 1 hour, usable once):",
     },
     # Inventory stock alert templates
     {

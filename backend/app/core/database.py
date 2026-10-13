@@ -5576,6 +5576,12 @@ async def _run_migrations(conn):
     # a template an admin has edited is left alone.
     await _migrate_stock_alert_template_sku_variables(conn)
 
+    # Migration: the Password Reset template is for the reset link. Its old
+    # default emailed a new password, a flow that no longer exists. A plain
+    # UPDATE guarded on the old text, so a template an admin has edited is left
+    # alone (the email adds the link to any template, at the end).
+    await _migrate_password_reset_template_link(conn)
+
     # Migration: supplier master list + spool assignments (#2988).
     # create_all() covers fresh installs; this covers upgrades.
     await _migrate_create_supplier_tables(conn)
@@ -6573,6 +6579,27 @@ async def _migrate_stock_alert_template_sku_variables(conn) -> None:
             ),
             {"new": new, "et": event_type, "old": old},
         )
+
+
+_PASSWORD_RESET_TEMPLATE_BODY = (
+    "Hello {username},\n\nYour password has been reset.\nNew Password: {password}\n\nLogin at: {login_url}",
+    "Hello {username},\n\nA password reset was requested for your {app_name} account. If you did not request it, you can ignore this email: your password has not been changed.\n\nSet a new password with the link below (valid for 1 hour, usable once):",
+)
+
+
+async def _migrate_password_reset_template_link(conn) -> None:
+    """Reword the Password Reset template for the reset link, not a new password.
+
+    Updates the body only while it is still the old shipped default, so an
+    admin's own wording is kept.
+    """
+    from sqlalchemy import text
+
+    old, new = _PASSWORD_RESET_TEMPLATE_BODY
+    await conn.execute(
+        text("UPDATE notification_templates SET body_template = :new WHERE event_type = :et AND body_template = :old"),
+        {"new": new, "et": "password_reset", "old": old},
+    )
 
 
 async def _migrate_location_ha_sensor_unique_binding(conn) -> None:

@@ -379,14 +379,55 @@ BamBuddy Team
 
 
 async def create_password_reset_link_email_from_template(
-    db: AsyncSession, username: str, reset_url: str
+    db: AsyncSession, username: str, reset_url: str, app_name: str = "BamBuddy"
 ) -> tuple[str, str, str]:
-    """Create the password-reset link email.
+    """Create the password-reset link email from the "password_reset" template.
 
-    There is no notification template for it (the seeded "password_reset" one is
-    for the old emailed-password flow), so this is always the built-in email.
+    The link is never a template variable: the code adds it, on a line of its
+    own at the end and as the button. The template is editable with
+    notification_templates:update (Operators), and a link placed by the
+    template could be wrapped in another URL (https://evil/?next={reset_url})
+    whose page reads the token from its fragment and resets the account, an
+    admin's too. A {reset_url} written into the template renders as nothing.
+    No template: the built-in email.
+
+    Returns:
+        Tuple of (subject, text_body, html_body)
     """
-    return create_password_reset_link_email(username, reset_url)
+    template = await get_notification_template(db, "password_reset")
+    if not template:
+        return create_password_reset_link_email(username, reset_url)
+
+    variables = {
+        "app_name": app_name,
+        "username": username,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    subject = render_template(template.title_template, variables)
+    text_body = f"{render_template(template.body_template, variables).rstrip()}\n\n{reset_url}"
+
+    escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 30px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
+    </div>
+    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
+        <div style="font-size: 16px;">{escaped_text_body}</div>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{html.escape(reset_url)}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Reset Password</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+    return subject, text_body, html_body
 
 
 async def create_welcome_email_from_template(

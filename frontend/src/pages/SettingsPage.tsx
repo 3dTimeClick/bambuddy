@@ -7592,7 +7592,7 @@ export function SettingsPage() {
                 {advancedAuthStatus?.advanced_auth_enabled && (
                   <div className="bg-bambu-dark-secondary/50 border border-bambu-green/20 rounded-lg p-3 space-y-3">
                     <p className="text-sm text-bambu-gray">
-                      {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
+                      {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to email the user a link to set a new password.'}
                     </p>
                     <Button
                       variant="secondary"
