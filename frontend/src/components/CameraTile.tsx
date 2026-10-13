@@ -4,6 +4,7 @@ import { AlertTriangle, VideoOff, WifiOff } from 'lucide-react';
 import { getAuthToken, withStreamToken } from '../api/client';
 import { formatDuration } from '../utils/date';
 import { useStreamImgRef } from '../hooks/useStreamImgRef';
+import { useCameraViewerId } from '../hooks/useCameraViewerId';
 
 export type CameraTileMode = 'live' | 'snapshot' | 'paused';
 export type CameraTileStatusMode = 'off' | 'compact' | 'full';
@@ -95,6 +96,8 @@ export function CameraTile({
   // its stream closed; the /camera/stop sent on leaving live mode is skipped
   // while a dropped img still holds it.
   const imgRef = useRef<HTMLImageElement | null>(null);
+  // On its stream and its /camera/stop: the stop ends this tile's stream only.
+  const viewerId = useCameraViewerId();
   const attachImg = useStreamImgRef(imgRef);
   // 'renewed': the current img is a renewal not yet showing a frame; 'retried':
   // it is the one retry of a renewal that failed.
@@ -113,7 +116,7 @@ export function CameraTile({
       const headers: Record<string, string> = {};
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(`/api/v1/printers/${printerId}/camera/stop`, {
+      fetch(`/api/v1/printers/${printerId}/camera/stop?viewer=${viewerId}`, {
         method: 'POST',
         keepalive: true,
         headers,
@@ -121,7 +124,7 @@ export function CameraTile({
     }
     setErrored(false);
     setBust((b) => b + 1);
-  }, [mode, printerId]);
+  }, [mode, printerId, viewerId]);
 
   useEffect(() => {
     return () => {
@@ -129,14 +132,14 @@ export function CameraTile({
         const headers: Record<string, string> = {};
         const token = getAuthToken();
         if (token) headers['Authorization'] = `Bearer ${token}`;
-        fetch(`/api/v1/printers/${printerId}/camera/stop`, {
+        fetch(`/api/v1/printers/${printerId}/camera/stop?viewer=${viewerId}`, {
           method: 'POST',
           keepalive: true,
           headers,
         }).catch(() => {});
       }
     };
-  }, [printerId]);
+  }, [printerId, viewerId]);
 
   useEffect(() => {
     if (mode !== 'snapshot') return;
@@ -215,7 +218,7 @@ export function CameraTile({
   }, [mode, connected, reopenAfter, clearFirstFrameTimer]);
 
   const liveUrl = withStreamToken(
-    `/api/v1/printers/${printerId}/camera/stream?fps=${LIVE_FPS}&t=${bust}`,
+    `/api/v1/printers/${printerId}/camera/stream?fps=${LIVE_FPS}&t=${bust}&viewer=${viewerId}`,
   );
   const snapshotUrl = withStreamToken(
     `/api/v1/printers/${printerId}/camera/snapshot?t=${bust}`,

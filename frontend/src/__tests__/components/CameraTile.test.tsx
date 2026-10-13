@@ -92,6 +92,38 @@ describe('CameraTile', () => {
     expect(screen.queryByAltText('H2D-Booth')).toBeNull();
   });
 
+  // External cameras run one stream per viewer; the stop names this tile's own,
+  // so it ends this tile's stream and not another viewer's of the printer.
+  it('stops its own stream by the viewer id it opened it with', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { rerender } = render(
+      <CameraTile printerId={11} printerName="X1C-Viewer" mode="live" snapshotIntervalMs={5000} connected />,
+    );
+    await flushMicrotasks();
+    const viewer = new URL((screen.getByAltText('X1C-Viewer') as HTMLImageElement).src).searchParams.get('viewer');
+    expect(viewer).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+
+    await act(async () => {
+      rerender(<CameraTile printerId={11} printerName="X1C-Viewer" mode="snapshot" snapshotIntervalMs={5000} connected />);
+    });
+
+    const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
+    expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(viewer);
+  });
+
+  it('gives each tile its own viewer id', async () => {
+    render(
+      <>
+        <CameraTile printerId={11} printerName="Tile-A" mode="live" snapshotIntervalMs={5000} connected />
+        <CameraTile printerId={11} printerName="Tile-B" mode="live" snapshotIntervalMs={5000} connected />
+      </>,
+    );
+    await flushMicrotasks();
+    const id = (name: string) => new URL((screen.getByAltText(name) as HTMLImageElement).src).searchParams.get('viewer');
+
+    expect(id('Tile-A')).not.toBe(id('Tile-B'));
+  });
+
   it('POSTs /camera/stop when leaving live mode', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
       new Response(null, { status: 200 }),

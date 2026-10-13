@@ -11,6 +11,7 @@ import { ChamberLight } from '../components/icons/ChamberLight';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { CameraDiagnoseModal } from '../components/CameraDiagnoseModal';
 import { useStreamImgRef } from '../hooks/useStreamImgRef';
+import { useCameraViewerId } from '../hooks/useCameraViewerId';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 2000; // 2 seconds
@@ -60,6 +61,8 @@ export function CameraPage() {
   // Every img the page drops (re-keyed by a reconnect or mode switch, left)
   // has its stream closed.
   const imgRef = useRef<HTMLImageElement | null>(null);
+  // On its stream and its /camera/stop: the stop ends this page's stream only.
+  const viewerId = useCameraViewerId();
   const attachImg = useStreamImgRef(imgRef);
   const containerRef = useRef<HTMLDivElement>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -127,7 +130,7 @@ export function CameraPage() {
   const stopSentRef = useRef(false);
 
   useEffect(() => {
-    const stopUrl = `/api/v1/printers/${id}/camera/stop`;
+    const stopUrl = `/api/v1/printers/${id}/camera/stop?viewer=${viewerId}`;
     stopSentRef.current = false;
 
     const sendStopOnce = () => {
@@ -152,7 +155,7 @@ export function CameraPage() {
       // Send stop signal only once
       sendStopOnce();
     };
-  }, [id]);
+  }, [id, viewerId]);
 
   // Auto-hide loading after timeout
   useEffect(() => {
@@ -385,7 +388,7 @@ export function CameraPage() {
       const headers: Record<string, string> = {};
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(`/api/v1/printers/${id}/camera/stop`, { method: 'POST', headers }).catch(() => {});
+      fetch(`/api/v1/printers/${id}/camera/stop?viewer=${viewerId}`, { method: 'POST', headers }).catch(() => {});
     }
   };
 
@@ -631,7 +634,7 @@ export function CameraPage() {
   const currentUrl = transitioning || waitingForStreamToken
     ? ''
     : streamMode === 'stream'
-      ? appendToken(`/api/v1/printers/${id}/camera/stream?fps=${fps}&t=${imageKey}`)
+      ? appendToken(`/api/v1/printers/${id}/camera/stream?fps=${fps}&t=${imageKey}&viewer=${viewerId}`)
       : appendToken(`/api/v1/printers/${id}/camera/snapshot?t=${imageKey}`);
 
   const isDisabled = streamLoading || transitioning || isReconnecting;

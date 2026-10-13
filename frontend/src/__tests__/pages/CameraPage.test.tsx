@@ -180,6 +180,35 @@ describe('CameraPage', () => {
       expect(screen.queryByText(/Reconnecting in/)).toBeNull();
     });
 
+    it('stops its own stream by the viewer id it opened it with', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch');
+      const { unmount } = renderCameraPage(1);
+      const img = await streamImg();
+      const id = new URL(img.src).searchParams.get('viewer');
+      expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+
+      unmount();
+
+      const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
+      expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+      fetchMock.mockRestore();
+    });
+
+    it('names itself on the stop its Restart sends', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch');
+      renderCameraPage(1);
+      const img = await streamImg();
+      const id = new URL(img.src).searchParams.get('viewer');
+      fireEvent.load(img);
+      await waitFor(() => expect(screen.getByTitle('Restart stream')).not.toBeDisabled());
+
+      fireEvent.click(screen.getByTitle('Restart stream'));
+
+      const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
+      expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+      fetchMock.mockRestore();
+    });
+
     it('keeps its stream under StrictMode', async () => {
       renderCameraPage(1, '', true);
 

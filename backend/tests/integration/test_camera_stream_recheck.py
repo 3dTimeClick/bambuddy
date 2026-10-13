@@ -399,3 +399,28 @@ async def test_one_viewer_leaving_keeps_the_printers_frame_state_for_the_others(
     await viewer.aclose()
     assert (await camera.camera_status(printer, None))["stream_uptime"] is None
     assert printer not in camera._last_frames
+
+
+async def test_an_external_stream_remembers_the_viewer_that_opened_it(admin, printer):
+    """So that viewer's /camera/stop ends it and leaves the others' running."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=await _opener(token), viewer="tile-a")
+    stream = response.body_iterator
+    await anext(stream)
+
+    owned = [sid for sid, viewer in camera._stream_viewers.items() if sid.startswith(f"{printer}-ext-")]
+    assert len(owned) == 1 and camera._stream_viewers[owned[0]] == "tile-a"
+
+    await stream.aclose()
+    assert owned[0] not in camera._stream_viewers
+
+
+async def test_a_viewer_id_is_a_short_token(async_client: AsyncClient, admin, printer):
+    login = await async_client.post("/api/v1/auth/login", json={"username": "camadmin", "password": "AdminPass1!"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    bad = await async_client.post(f"/api/v1/printers/{printer}/camera/stop?viewer=a%20b%0Ac", headers=headers)
+    good = await async_client.post(f"/api/v1/printers/{printer}/camera/stop?viewer=k3j9x2ab", headers=headers)
+
+    assert bad.status_code == 422
+    assert good.status_code == 200

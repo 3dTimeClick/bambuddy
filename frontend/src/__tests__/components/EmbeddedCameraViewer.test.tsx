@@ -76,6 +76,34 @@ describe('EmbeddedCameraViewer stream lifetime', () => {
     expect(screen.queryByText(/Reconnecting in/)).toBeNull();
   });
 
+  it('stops its own stream by the viewer id it opened it with', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch');
+    const { unmount } = render(viewer());
+    await settle();
+    const id = new URL((screen.getByAltText('Camera stream') as HTMLImageElement).src).searchParams.get('viewer');
+    expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+
+    unmount();
+
+    const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
+    expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+  });
+
+  it('names itself on the stop its Refresh sends', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch');
+    render(viewer());
+    await settle();
+    const img = screen.getByAltText('Camera stream');
+    const id = new URL((img as HTMLImageElement).src).searchParams.get('viewer');
+    fireEvent.load(img);
+    await waitFor(() => expect(screen.getByTitle('Refresh stream')).not.toBeDisabled());
+
+    fireEvent.click(screen.getByTitle('Refresh stream'));
+
+    const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
+    expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+  });
+
   it('keeps its stream under StrictMode', async () => {
     render(<StrictMode>{viewer()}</StrictMode>);
     await settle();
