@@ -102,6 +102,9 @@ describe('EmbeddedCameraViewer stream lifetime', () => {
 
     const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
     expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+    // Refresh reopens the stream 100 ms later: let that happen inside the test,
+    // not after its environment is gone.
+    await waitFor(() => expect(screen.getByAltText('Camera stream')).not.toBe(img));
   });
 
   it('keeps its stream under StrictMode', async () => {

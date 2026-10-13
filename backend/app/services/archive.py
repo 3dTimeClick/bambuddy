@@ -11,6 +11,7 @@ from pathlib import Path
 
 from defusedxml import ElementTree as ET
 from sqlalchemy import and_, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
@@ -1319,6 +1320,9 @@ class ArchiveService:
         archive_dir = (
             settings.archive_dir / printer_folder / archive_name
         )  # SEC-PATH-OK: printer_folder = str(int|None) → digits or "unassigned"; archive_name = f"{timestamp}_{display_stem}" where resolve_display_stem strips path components via Path(filename).name
+        # Removed again if the row is not written (below); only a folder this
+        # call created, never another archive's of the same name.
+        created_archive_dir = not archive_dir.exists()
         archive_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy 3MF file with an explicit fsync'd loop (avoids a sendfile
@@ -1554,7 +1558,16 @@ class ArchiveService:
         )
 
         self.db.add(archive)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            # Refused, so the row was not written (a printer deleted meanwhile,
+            # by its foreign key): the folder its files went into would be
+            # orphaned. Not on other errors: a connection lost during COMMIT may
+            # still have written the row, whose files these are.
+            if created_archive_dir:
+                shutil.rmtree(archive_dir, ignore_errors=True)
+            raise
         await self.db.refresh(archive)
 
         return archive

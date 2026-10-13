@@ -433,3 +433,306 @@ async def test_the_last_check_never_raises(printer_factory):
         await main._forget_if_printer_gone(1)
 
     forget.assert_not_awaited()
+
+
+async def test_a_refused_adoption_is_a_deleted_printer_not_an_error(test_engine, db_session, printer_factory):
+    """PostgreSQL: an adoption rewriting printer_id (a VP-queue or another
+    printer's archive) waits on the delete route's lock on the printer, then
+    the printer foreign key refuses it (measured). That is the printer being
+    deleted, not a failure of the print start."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from backend.app import main
+
+    printer = await printer_factory()
+    printer_id = printer.id
+    archive_id = await _queued_archive(db_session, printer_id)
+    real_gone = main._printer_gone
+    real_commit = AsyncSession.commit
+    refuse = []
+
+    async def deleted_with_its_archives_kept(db, pid):
+        if not refuse:
+            await _delete_keeping_archives(db_session, printer_id)
+            refuse.append(True)  # the adoption's commit, next
+            return False  # read before the delete committed
+        return await real_gone(db, pid)
+
+    async def commit(self):
+        if refuse and refuse[0]:
+            refuse[0] = False
+            raise IntegrityError("UPDATE print_archives", {}, Exception("violates foreign key constraint"))
+        return await real_commit(self)
+
+    with (
+        patch("backend.app.main.forget_printer", new_callable=AsyncMock) as forget,
+        patch("backend.app.main._printer_gone", new=deleted_with_its_archives_kept),
+        patch.object(AsyncSession, "commit", commit),
+    ):
+        mocks = await _drive_print_start(test_engine, printer, download_ok=False)
+
+    archive = await _archive(db_session, archive_id)
+    assert archive.printer_id is None and archive.status == "completed"
+    assert not [key for key in _active_prints if key[0] == printer_id]
+    mocks["_maybe_start_layer_timelapse"].assert_not_called()
+    forget.assert_awaited_once_with(printer_id)
+
+
+async def test_a_refused_adoption_of_a_printer_still_there_is_still_an_error(test_engine, db_session, printer_factory):
+    """Only the printer's delete explains a refused adoption; anything else
+    is a real error and must not be swallowed as one."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from backend.app import main
+
+    printer = await printer_factory()
+    await _queued_archive(db_session, printer.id)
+    real_gone = main._printer_gone
+    real_commit = AsyncSession.commit
+    refuse = []
+
+    async def checked(db, pid):
+        refuse.append(True)  # the adoption's commit, next
+        return await real_gone(db, pid)
+
+    async def commit(self):
+        if len(refuse) == 1:
+            refuse.append(False)
+            raise IntegrityError("UPDATE print_archives", {}, Exception("some other constraint"))
+        return await real_commit(self)
+
+    with (
+        patch("backend.app.main.forget_printer", new_callable=AsyncMock),
+        patch("backend.app.main._printer_gone", new=checked),
+        patch.object(AsyncSession, "commit", commit),
+        pytest.raises(IntegrityError),
+    ):
+        await _drive_print_start(test_engine, printer, download_ok=False)
+
+
+@pytest.mark.parametrize("keep", [False, True], ids=["delete archives", "keep archives"])
+async def test_the_delete_locks_the_printer_from_its_archive_sweep_to_its_commit(
+    async_client, db_session, printer_factory, keep
+):
+    """PostgreSQL (measured): a print start adopting a VP-queue or another
+    printer's archive after the sweep passed the foreign key, and the delete's
+    ORM cascade then deleted that archive, also with "keep archives". Locked,
+    the adoption waits and is then refused. (SQLite drops FOR UPDATE; its
+    single writer serialises this anyway, so the statement is what is checked.)"""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import Select
+
+    printer = await printer_factory()
+    real_execute = AsyncSession.execute
+    statements: list = []
+
+    async def recording(self, statement, *args, **kwargs):
+        statements.append(statement)
+        return await real_execute(self, statement, *args, **kwargs)
+
+    with patch.object(AsyncSession, "execute", recording):
+        response = await async_client.delete(
+            f"/api/v1/printers/{printer.id}", params={"delete_archives": str(not keep).lower()}
+        )
+    assert response.status_code == 200, response.text
+
+    def is_lock(s):
+        return isinstance(s, Select) and s._for_update_arg is not None and "printers" in str(s)
+
+    def is_sweep(s):
+        return not isinstance(s, Select) and "print_archives" in str(s)
+
+    locks = [i for i, s in enumerate(statements) if is_lock(s)]
+    sweeps = [i for i, s in enumerate(statements) if is_sweep(s)]
+    assert locks and sweeps and locks[0] < sweeps[0]
+
+
+def _refusing_first_commit_after_the_check(db_session, printer_id, main_module):
+    """The printer deleted right after the handler's check; the next commit is
+    refused by its foreign key (PostgreSQL, the delete holding the printer)."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    real_gone = main_module._printer_gone
+    real_commit = AsyncSession.commit
+    state: list = []
+
+    async def gone(db, pid):
+        if not state:
+            await db_session.execute(delete(Printer).where(Printer.id == printer_id))
+            await db_session.commit()
+            state.append(True)  # refuse the next commit
+            return False  # read before the delete committed
+        return await real_gone(db, pid)
+
+    async def commit(self):
+        if state and state[0]:
+            state[0] = False
+            raise IntegrityError("INSERT INTO print_archives", {}, Exception("violates foreign key constraint"))
+        return await real_commit(self)
+
+    return (
+        patch("backend.app.main._printer_gone", new=gone),
+        patch.object(AsyncSession, "commit", commit),
+    )
+
+
+@pytest.mark.parametrize("download_ok", [False, True], ids=["no-3mf fallback", "downloaded 3mf"])
+async def test_a_refused_new_archive_is_a_deleted_printer_not_an_error(
+    test_engine, db_session, printer_factory, download_ok
+):
+    """With the delete locking the printer, an archive written meanwhile waits
+    and is refused: no error escaping the print start, no "Failed to create
+    fallback archive", no start notification for the deleted printer."""
+    from backend.app import main
+
+    printer = await printer_factory()
+    printer_id = printer.id
+
+    with patch("backend.app.main.forget_printer", new_callable=AsyncMock) as forget:
+        mocks = await _drive_print_start(
+            test_engine,
+            printer,
+            download_ok=download_ok,
+            extra_patches=(
+                patch("backend.app.main.ArchiveService", _ArchiveService),
+                *_refusing_first_commit_after_the_check(db_session, printer_id, main),
+            ),
+        )
+
+    assert await _archives(db_session, printer_id) == []
+    assert not [key for key in _active_prints if key[0] == printer_id]
+    mocks["_maybe_start_layer_timelapse"].assert_not_called()
+    mocks["_send_print_start_notification"].assert_not_awaited()
+    forget.assert_awaited_once_with(printer_id)
+
+
+async def test_an_archive_whose_commit_fails_leaves_no_folder(db_session, printer_factory, tmp_path, monkeypatch):
+    """archive_print copies the 3MF into the new archive's folder before the
+    row is written; a refused commit left that folder behind."""
+    import zipfile
+
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core.config import settings
+    from backend.app.services.archive import ArchiveService
+
+    monkeypatch.setattr(settings, "base_dir", tmp_path)  # archive paths are stored relative to it
+    monkeypatch.setattr(settings, "archive_dir", tmp_path / "archive")
+    source = tmp_path / "Cube.3mf"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr("Metadata/slice_info.config", "<config><plate></plate></config>")
+    printer = await printer_factory()
+
+    async def refused():
+        raise IntegrityError("INSERT INTO print_archives", {}, Exception("violates foreign key constraint"))
+
+    monkeypatch.setattr(db_session, "commit", refused)
+    with pytest.raises(IntegrityError):
+        await ArchiveService(db_session).archive_print(printer_id=printer.id, source_file=source)
+
+    assert [p for p in (tmp_path / "archive").rglob("*") if p.is_file()] == []
+
+
+async def test_a_failed_archive_leaves_a_folder_it_did_not_create(db_session, printer_factory, tmp_path, monkeypatch):
+    """Same name, same second: the folder was another archive's."""
+    import zipfile
+    from datetime import datetime
+
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core.config import settings
+    from backend.app.services import archive as archive_module
+    from backend.app.services.archive import ArchiveService
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 2, 3, 4, 5, tzinfo=tz)
+
+    monkeypatch.setattr(archive_module, "datetime", _Frozen)
+    monkeypatch.setattr(settings, "base_dir", tmp_path)
+    monkeypatch.setattr(settings, "archive_dir", tmp_path / "archive")
+    source = tmp_path / "Cube.3mf"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr("Metadata/slice_info.config", "<config><plate></plate></config>")
+    printer = await printer_factory()
+    other = tmp_path / "archive" / str(printer.id) / "20260102_030405_Cube" / "other.3mf"
+    other.parent.mkdir(parents=True)
+    other.write_bytes(b"another archive's file")
+
+    async def refused():
+        raise IntegrityError("INSERT INTO print_archives", {}, Exception("violates foreign key constraint"))
+
+    monkeypatch.setattr(db_session, "commit", refused)
+    with pytest.raises(IntegrityError):
+        await ArchiveService(db_session).archive_print(printer_id=printer.id, source_file=source)
+
+    assert other.exists()
+
+
+async def test_a_reprint_whose_archive_the_delete_removed_is_a_deleted_printer_not_an_error(
+    test_engine, db_session, printer_factory
+):
+    """ "Delete archives" removes the archive under the adoption (a reprint of
+    the printer's own archive; a queue print is refused earlier by the route's
+    409): the adoption's update matches no row (StaleDataError, not an
+    IntegrityError)."""
+    from backend.app import main
+
+    printer = await printer_factory()
+    printer_id = printer.id
+    archive_id = await _queued_archive(db_session, printer_id)
+    real = main._printer_gone
+    calls = []
+
+    async def deleted_with_its_archives(db, pid):
+        calls.append(pid)
+        if len(calls) == 1:
+            await db_session.execute(delete(PrintArchive).where(PrintArchive.printer_id == printer_id))
+            await db_session.execute(delete(Printer).where(Printer.id == printer_id))
+            await db_session.commit()
+            return False  # read before the delete committed
+        return await real(db, pid)
+
+    with (
+        patch("backend.app.main.forget_printer", new_callable=AsyncMock) as forget,
+        patch("backend.app.main._printer_gone", new=deleted_with_its_archives),
+    ):
+        mocks = await _drive_print_start(test_engine, printer, download_ok=False)
+
+    assert await _archive(db_session, archive_id) is None
+    assert not [key for key in _active_prints if key[0] == printer_id]
+    mocks["_maybe_start_layer_timelapse"].assert_not_called()
+    forget.assert_awaited_once_with(printer_id)
+
+
+async def test_an_archive_whose_commit_may_have_landed_keeps_its_folder(
+    db_session, printer_factory, tmp_path, monkeypatch
+):
+    """A connection lost during COMMIT may still have written the row: its
+    files stay. Only a refusal (IntegrityError) proves the row was not written."""
+    import zipfile
+
+    from sqlalchemy.exc import OperationalError
+
+    from backend.app.core.config import settings
+    from backend.app.services.archive import ArchiveService
+
+    monkeypatch.setattr(settings, "base_dir", tmp_path)
+    monkeypatch.setattr(settings, "archive_dir", tmp_path / "archive")
+    source = tmp_path / "Cube.3mf"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr("Metadata/slice_info.config", "<config><plate></plate></config>")
+    printer = await printer_factory()
+
+    async def connection_lost():
+        raise OperationalError("COMMIT", {}, Exception("connection was closed in the middle of operation"))
+
+    monkeypatch.setattr(db_session, "commit", connection_lost)
+    with pytest.raises(OperationalError):
+        await ArchiveService(db_session).archive_print(printer_id=printer.id, source_file=source)
+
+    assert [p.name for p in (tmp_path / "archive").rglob("*") if p.is_file()] == ["Cube.3mf"]

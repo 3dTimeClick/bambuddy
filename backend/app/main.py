@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, inspect as sa_inspect, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from backend.app.api.routes import (
     ams_history,
@@ -4214,6 +4216,24 @@ async def _drop_archive_of_deleted_printer(db, printer_id: int, archive_id: int)
     return True
 
 
+async def _refused_for_deleted_printer(db, printer_id: int, what: str) -> bool:
+    """After an IntegrityError on a print start's archive write: whether it was
+    the printer being deleted, forgotten then (the caller returns).
+
+    PostgreSQL: the delete route locks the printer from its archive sweep to its
+    commit, so an archive written or adopted for it meanwhile (one that sets
+    printer_id) waits and the printer's foreign key then refuses it. That is
+    the printer being deleted, not an error; anything else is re-raised by the
+    caller.
+    """
+    await db.rollback()
+    if not await _printer_gone(db, printer_id):
+        return False
+    logging.getLogger(__name__).info("Printer %s was deleted while %s; refused", printer_id, what)
+    await forget_printer(printer_id)
+    return True
+
+
 async def _forget_if_printer_gone(printer_id: int) -> None:
     """At the end of a print start: the slow steps after the last check (smart
     plug, notifications, the timelapse baseline's FTP listing) can outlast the
@@ -4698,7 +4718,16 @@ async def on_print_start(printer_id: int, data: dict):
                 # button in ArchivesPage (gated on !archive.printer_id).
                 if archive.printer_id != printer_id:
                     archive.printer_id = printer_id
-                await db.commit()
+                adopting_id = archive.id  # a rollback expires the object
+                try:
+                    await db.commit()
+                except (IntegrityError, StaleDataError):
+                    # The archive stays unchanged, or is gone: "delete archives"
+                    # removed the row under the adoption, which then matched no
+                    # row (StaleDataError) rather than being refused.
+                    if await _refused_for_deleted_printer(db, printer_id, f"archive {adopting_id} was adopted"):
+                        return
+                    raise
 
                 # The printer can be deleted between the check above and this
                 # commit (the route's transaction lasts seconds), and the commit
@@ -5530,7 +5559,14 @@ async def on_print_start(printer_id: int, data: dict):
                 )
 
                 db.add(fallback_archive)
-                await db.commit()
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    # Not "Failed to create fallback archive" below, and no
+                    # start notification for a printer that is gone.
+                    if await _refused_for_deleted_printer(db, printer_id, "its fallback archive was written"):
+                        return
+                    raise
                 await db.refresh(fallback_archive)
 
                 logger.info("Created fallback archive %s for %s (no 3MF available)", fallback_archive.id, print_name)
@@ -5644,12 +5680,18 @@ async def on_print_start(printer_id: int, data: dict):
         try:
             # Archive the file with status "printing"
             service = ArchiveService(db)
-            archive = await service.archive_print(
-                printer_id=printer_id,
-                source_file=temp_path,
-                print_data={**data, "status": "printing"},
-                subtask_id=subtask_id,
-            )
+            try:
+                archive = await service.archive_print(
+                    printer_id=printer_id,
+                    source_file=temp_path,
+                    print_data={**data, "status": "printing"},
+                    subtask_id=subtask_id,
+                )
+            except IntegrityError:
+                # archive_print removed the folder it had copied the 3MF into.
+                if await _refused_for_deleted_printer(db, printer_id, "its archive was written"):
+                    return
+                raise
 
             if archive:
                 # Ask-for-outcome for a print Bambuddy did not dispatch (#1898).

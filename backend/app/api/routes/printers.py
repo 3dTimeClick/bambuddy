@@ -515,6 +515,15 @@ async def delete_printer(
 
     printer_manager.disconnect_printer(printer_id)
 
+    # Locked from the archive sweep to the commit (PostgreSQL; SQLite's single
+    # writer serialises this anyway). A print start adopting or writing an
+    # archive for this printer meanwhile then waits and is refused by the
+    # printer's foreign key, instead of passing it and being deleted by the
+    # ORM delete's cascade below: also an archive the user chose to keep, or
+    # another printer's (measured). Not earlier: retiring a Notify provider
+    # above commits, which ends a lock; nothing commits from here on.
+    await db.execute(select(Printer.id).where(Printer.id == printer_id).with_for_update())
+
     if delete_archives:
         # Delete all archives for this printer
         await db.execute(sql_delete(PrintArchive).where(PrintArchive.printer_id == printer_id))

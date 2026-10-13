@@ -206,6 +206,9 @@ describe('CameraPage', () => {
 
       const stop = fetchMock.mock.calls.map(([url]) => String(url)).find((url) => url.includes('/camera/stop'));
       expect(new URL(stop!, 'http://x').searchParams.get('viewer')).toBe(id);
+      // Restart reopens the stream 100 ms later: let that happen inside the
+      // test, not after its environment is gone.
+      await waitFor(() => expect(document.querySelector('img')).not.toBe(img));
       fetchMock.mockRestore();
     });
 
