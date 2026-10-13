@@ -169,7 +169,7 @@ async def test_forget_printer_clears_the_services():
     camera._last_frames[GONE] = b"jpg"
     camera._last_frame_times[GONE] = 1.0
     camera._stream_start_times[GONE] = 1.0
-    camera._active_external_streams.add(GONE)
+    camera._active_external_streams[GONE] = 1
     from backend.app.api.routes import printers
 
     printers._cover_cache[GONE] = {("Cube", "front"): b"png"}

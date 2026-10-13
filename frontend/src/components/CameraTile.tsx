@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, VideoOff, WifiOff } from 'lucide-react';
 import { getAuthToken, withStreamToken } from '../api/client';
@@ -31,6 +31,15 @@ interface CameraTileProps {
 // no drag/resize/zoom shell, and snapshot fallback when off-cap. The server
 // still does the MJPEG fan-out, so per-tile cost is one TLS pull on the wire.
 const LIVE_FPS = 8;
+const LIVE_RENEWAL_MS = 60_000;
+// Between closing the old stream and opening the new one: a USB camera serves
+// one reader, and the old ffmpeg must let go of the device first.
+const RENEWAL_GAP_MS = 200;
+// A renewal that failed is tried once more after this.
+const RENEWAL_RETRY_MS = 5_000;
+// A renewal with no frame by then has failed too: a snapshot camera that is
+// down keeps its stream open without one, and the img fires no event at all.
+const RENEWAL_FIRST_FRAME_MS = 15_000;
 
 type StatusBucket = 'printing' | 'paused' | 'finished' | 'error' | 'idle';
 
@@ -77,7 +86,31 @@ export function CameraTile({
   const { t } = useTranslation();
   const [bust, setBust] = useState(0);
   const [errored, setErrored] = useState(false);
+  // The old stream is closed and the new one not yet due: the img renders with
+  // no src (removing it closes the connection), so no re-render reopens it early.
+  const [reopening, setReopening] = useState(false);
   const lastModeRef = useRef<CameraTileMode>(mode);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // Every img this tile drops (leaving live mode, a renewal, unmounting) has
+  // its stream closed: a detached img keeps its MJPEG connection open, and the
+  // /camera/stop sent on leaving live mode is skipped while it does.
+  const attachImg = useCallback((img: HTMLImageElement | null) => {
+    imgRef.current = img;
+    if (!img) return;
+    return () => {
+      if (imgRef.current === img) imgRef.current = null;
+      // Once the commit is done: React runs this with the img still in the
+      // page, and in development (StrictMode) also for an img that stays.
+      queueMicrotask(() => {
+        if (!img.isConnected) img.removeAttribute('src');
+      });
+    };
+  }, []);
+  // 'renewed': the current img is a renewal not yet showing a frame; 'retried':
+  // it is the one retry of a renewal that failed.
+  const renewalRef = useRef<'none' | 'renewed' | 'retried'>('none');
+  const renewalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstFrameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tell the backend to release its MJPEG transcoder when this tile stops
   // being live — either by unmounting or by transitioning to snapshot/paused.
@@ -120,6 +153,76 @@ export function CameraTile({
     const interval = setInterval(() => setBust((b) => b + 1), snapshotIntervalMs);
     return () => clearInterval(interval);
   }, [mode, snapshotIntervalMs]);
+
+  // A stream the server ended (its re-check, the camera dropping) fires no img
+  // event: the tile would keep its last frame. Renew it, closing the old
+  // connection first (a detached img keeps it open). No /camera/stop: other
+  // viewers of the printer share the stream. Not in a hidden page, where the
+  // stream token is not refreshed. A tile showing no signal is left alone:
+  // each failed camera img makes the app re-mint the stream token and
+  // reconnect every camera on the page.
+  //
+  // Built once: they only use refs and state setters, and call each other.
+  const { clearFirstFrameTimer, streamFailed, reopenAfter } = useMemo(() => {
+    const clearFirstFrameTimer = () => {
+      if (firstFrameTimerRef.current !== null) clearTimeout(firstFrameTimerRef.current);
+      firstFrameTimerRef.current = null;
+    };
+
+    // The stream failed (an error, or a renewal with no frame in time): a
+    // renewal is retried once, anything else shows no signal.
+    const streamFailed = () => {
+      clearFirstFrameTimer();
+      if (renewalRef.current === 'renewed') {
+        renewalRef.current = 'retried';
+        reopenAfter(RENEWAL_RETRY_MS);
+        return;
+      }
+      renewalRef.current = 'none';
+      setErrored(true);
+    };
+
+    const reopenAfter = (ms: number) => {
+      // Closed now, not at the next render: React may batch this with the reopen.
+      imgRef.current?.removeAttribute('src');
+      setReopening(true);
+      if (renewalTimerRef.current !== null) clearTimeout(renewalTimerRef.current);
+      renewalTimerRef.current = setTimeout(() => {
+        renewalTimerRef.current = null;
+        setReopening(false);
+        setBust((b) => b + 1);
+        clearFirstFrameTimer();
+        // A hidden page does not load a lazy img: that time does not count.
+        const deadline = () => {
+          if (document.hidden) {
+            firstFrameTimerRef.current = setTimeout(deadline, RENEWAL_FIRST_FRAME_MS);
+            return;
+          }
+          streamFailed();
+        };
+        firstFrameTimerRef.current = setTimeout(deadline, RENEWAL_FIRST_FRAME_MS);
+      }, ms);
+    };
+
+    return { clearFirstFrameTimer, streamFailed, reopenAfter };
+  }, []);
+
+  useEffect(() => {
+    renewalRef.current = 'none';
+    if (mode !== 'live' || !connected) return;
+    const interval = setInterval(() => {
+      if (document.hidden || !imgRef.current || renewalTimerRef.current !== null) return;
+      renewalRef.current = 'renewed';
+      reopenAfter(RENEWAL_GAP_MS);
+    }, LIVE_RENEWAL_MS);
+    return () => {
+      clearInterval(interval);
+      if (renewalTimerRef.current !== null) clearTimeout(renewalTimerRef.current);
+      renewalTimerRef.current = null;
+      clearFirstFrameTimer();
+      setReopening(false);
+    };
+  }, [mode, connected, reopenAfter, clearFirstFrameTimer]);
 
   const liveUrl = withStreamToken(
     `/api/v1/printers/${printerId}/camera/stream?fps=${LIVE_FPS}&t=${bust}`,
@@ -168,14 +271,23 @@ export function CameraTile({
         </div>
       ) : (
         <img
+          ref={attachImg}
           key={`${mode}-${bust}`}
-          src={mode === 'live' ? liveUrl : snapshotUrl}
+          src={reopening ? undefined : mode === 'live' ? liveUrl : snapshotUrl}
           alt={printerName}
           draggable={false}
           loading="lazy"
           className="h-full w-full select-none object-contain"
           style={{ transform }}
-          onError={() => setErrored(true)}
+          onLoad={() => {
+            clearFirstFrameTimer();
+            renewalRef.current = 'none';
+          }}
+          onError={(e) => {
+            // Closing the old stream (src removed) fires error too.
+            if (!e.currentTarget.getAttribute('src')) return;
+            streamFailed();
+          }}
         />
       )}
 

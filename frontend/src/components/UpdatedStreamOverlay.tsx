@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, Layers, Printer, Timer } from 'lucide-react';
 import './UpdatedStreamOverlay.css';
@@ -12,7 +12,13 @@ interface UpdatedStreamOverlayProps {
   customLogo?: ReactNode;
   progressBackground?: string;
   size: 'small' | 'medium' | 'large';
-  camera: { url: string; rotation: number; onError: () => void } | null;
+  // url is undefined while the stream is closed for a renewal (useOverlayCameraRecovery).
+  camera: {
+    url: string | undefined;
+    rotation: number;
+    onError: (event: SyntheticEvent<HTMLImageElement>) => void;
+    imgRef?: Ref<HTMLImageElement>;
+  } | null;
   name: string | null;
   model: string | null;
   filename: string | null;
@@ -133,7 +139,7 @@ export function UpdatedStreamOverlay(props: UpdatedStreamOverlayProps) {
       {camera && (
         <div className="updated-overlay__camera" ref={cameraRef}>
           <img
-            key={camera.url}
+            ref={camera.imgRef}
             src={camera.url}
             alt={t('streamOverlay.cameraStream')}
             style={{

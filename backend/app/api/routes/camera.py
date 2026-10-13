@@ -110,8 +110,10 @@ _last_frame_times: dict[int, float] = {}
 # Track stream start times for each printer
 _stream_start_times: dict[int, float] = {}
 
-# Track active external camera streams by printer ID
-_active_external_streams: set[int] = set()
+# Open external camera streams per printer ID: a count, so one viewer's stream
+# ending (a Cam Wall tile renews every minute) leaves the printer active for
+# the others while theirs still run.
+_active_external_streams: dict[int, int] = {}
 
 # Track ALL spawned ffmpeg PIDs (persists even if _active_streams entries are removed)
 # Maps PID -> spawn timestamp — used by cleanup to find truly orphaned OS processes
@@ -960,17 +962,43 @@ async def create_stream_token(
 # runs for hours on a token checked once, and a session ending, a key disabled
 # or a Cam Wall token revoked must stop it.
 STREAM_RECHECK_SECONDS = 30.0
+# A re-check that could not be read (the database briefly unavailable) is
+# tried once more after this; only a second failure in a row ends the stream.
+STREAM_RECHECK_RETRY_SECONDS = 5.0
+
+
+async def _opener_allowed(opener: StreamOpener, printer_id: int) -> bool | None:
+    """The stream re-check; None when it could not be read. Unknown is never
+    allowed: _while_allowed retries once, then ends the stream (SECURITY.md section 2)."""
+    try:
+        return await stream_opener_still_allowed(opener, printer_id)
+    except Exception:  # could not be read; never treated as allowed
+        return None
 
 
 async def _while_allowed(frames, opener: StreamOpener, printer_id: int):
     """Pass the stream's chunks on until its opener may no longer watch."""
     next_check = time.monotonic() + STREAM_RECHECK_SECONDS
+    failed = False
     async with contextlib.aclosing(frames) as chunks:
         async for chunk in chunks:
             if time.monotonic() >= next_check:
-                if not await stream_opener_still_allowed(opener, printer_id):
+                started = time.monotonic()
+                allowed = await _opener_allowed(opener, printer_id)
+                if allowed is None and not failed:
+                    # Could not be read: one retry, timed from when this check
+                    # began. Due already (it failed slowly, a pool timeout)?
+                    # Then now, with no frame in between.
+                    failed = True
+                    next_check = started + STREAM_RECHECK_RETRY_SECONDS
+                    if time.monotonic() < next_check:
+                        yield chunk
+                        continue
+                    allowed = await _opener_allowed(opener, printer_id)
+                if not allowed:
                     logger.info("Camera stream for printer %s ended: its opener may no longer watch", printer_id)
                     return
+                failed = False
                 next_check = time.monotonic() + STREAM_RECHECK_SECONDS
             yield chunk
 
@@ -1042,7 +1070,6 @@ async def camera_stream(
         _disconnect_events[stream_id] = stop_event
         # Track stream start
         _stream_start_times[printer_id] = time.time()
-        _active_external_streams.add(printer_id)
 
         # Mutable holder so the wrapper's finally can unregister whatever process
         # is currently registered (the RTSP path may respawn across reconnects).
@@ -1077,6 +1104,9 @@ async def camera_stream(
         async def external_stream_wrapper():
             """Wrap external stream to track start/stop and update frame times."""
             try:
+                # Counted here, not in the handler: a body that never starts (the
+                # client left first) never runs the finally that uncounts it.
+                _active_external_streams[printer_id] = _active_external_streams.get(printer_id, 0) + 1
                 # Chamber light while the viewer watches (#1655).
                 async with (
                     camera_light(printer, wait=False),
@@ -1114,12 +1144,17 @@ async def camera_stream(
                 _active_streams.pop(stream_id, None)
                 _disconnect_events.pop(stream_id, None)
                 _stream_last_frame_times.pop(stream_id, None)
-                _active_external_streams.discard(printer_id)
-                # Now that this path publishes a buffered frame, it has to
-                # retract it too — ownership-checked, so a concurrent viewer of
-                # the same printer keeps its own. Also clears the per-printer
-                # timings this path used to leave behind.
-                _release_printer_frame_state(printer_id)
+                remaining = _active_external_streams.get(printer_id, 0) - 1
+                if remaining > 0:
+                    _active_external_streams[printer_id] = remaining
+                else:
+                    _active_external_streams.pop(printer_id, None)
+                    # Now that this path publishes a buffered frame, it has to
+                    # retract it too, and the per-printer timings it used to
+                    # leave behind. Only with the printer's last external stream:
+                    # is_stream_active() cannot see an MJPEG or snapshot camera's
+                    # other viewers, whose stall detection needs these.
+                    _release_printer_frame_state(printer_id)
                 logger.info("External camera stream ended for printer %s", printer_id)
 
         return StreamingResponse(
@@ -1281,7 +1316,7 @@ async def forget_printer(printer_id: int) -> None:
     _last_frames.pop(printer_id, None)
     _last_frame_times.pop(printer_id, None)
     _stream_start_times.pop(printer_id, None)
-    _active_external_streams.discard(printer_id)
+    _active_external_streams.pop(printer_id, None)
 
 
 async def _stop_printer_streams(printer_id: int) -> int:

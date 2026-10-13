@@ -60,6 +60,7 @@ def _frames(monkeypatch):
             await asyncio.sleep(0)
 
     monkeypatch.setattr(camera, "STREAM_RECHECK_SECONDS", 0.0)
+    monkeypatch.setattr(camera, "STREAM_RECHECK_RETRY_SECONDS", 0.0)
     with patch("backend.app.services.external_camera.generate_mjpeg_stream", frames):
         yield
 
@@ -249,3 +250,152 @@ async def test_the_cam_wall_and_overlay_feeds_refuse_a_token_whose_owner_lost_ca
     await _take_camera_view(async_client, group, headers)
 
     assert await verify(created.plaintext) is None
+
+
+def _session_failing(times: int):
+    """The re-check's database session, failing its first `times` uses."""
+    real = auth.async_session
+    calls = {"n": 0}
+
+    def session():
+        calls["n"] += 1
+        if calls["n"] <= times:
+            raise RuntimeError("database briefly unavailable")
+        return real()
+
+    return patch.object(auth, "async_session", session)
+
+
+async def test_one_failed_re_check_does_not_end_a_valid_stream(admin, printer):
+    """A database hiccup froze every open camera view: browsers fire no event
+    when an MJPEG stream ends, so a Cam Wall tile kept its last frame."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    stream = await _open(printer, await _opener(token))
+
+    with _session_failing(1):
+        assert not await _ended(stream)
+        assert not await _ended(stream)
+        assert not await _ended(stream)
+
+
+async def test_a_re_check_failing_twice_in_a_row_ends_the_stream(admin, printer):
+    """Still fail-closed: an opener that cannot be checked does not keep watching."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    stream = await _open(printer, await _opener(token))
+
+    with _session_failing(1000):
+        ended = [await _ended(stream) for _ in range(3)]
+
+    assert True in ended
+
+
+async def test_a_definite_no_ends_the_stream_without_a_retry(admin, printer, db_session, monkeypatch):
+    monkeypatch.setattr(camera, "STREAM_RECHECK_RETRY_SECONDS", 3600.0)
+    token = await auth.create_camera_stream_token(username="camadmin")
+    stream = await _open(printer, await _opener(token))
+
+    await db_session.execute(text("UPDATE users SET is_active = 0 WHERE id = :id"), {"id": admin})
+    await db_session.commit()
+
+    assert await _ended(stream)
+
+
+async def test_a_re_check_that_cannot_be_read_raises(admin):
+    """Fail-closed in auth code (SECURITY.md section 2): no permissive value from
+    a catch-all; the stream decides how long it may run unchecked."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    opener = await _opener(token)
+
+    with _session_failing(1), pytest.raises(RuntimeError):
+        await auth.stream_opener_still_allowed(opener, 1)
+
+
+def _session_failing_slowly(seconds: float):
+    """The re-check's database session, failing every use after `seconds` (a pool timeout)."""
+
+    class _Slow:
+        async def __aenter__(self):
+            await asyncio.sleep(seconds)
+            raise RuntimeError("pool timeout")
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    return patch.object(auth, "async_session", lambda: _Slow())
+
+
+async def test_a_slow_failing_re_check_sends_no_frame_past_the_retry_deadline(admin, printer, monkeypatch):
+    """SECURITY.md: no frame more than about 35 s after the last check that allowed
+    the stream. The retry deadline counts from when the failed check started."""
+    monkeypatch.setattr(camera, "STREAM_RECHECK_RETRY_SECONDS", 0.01)
+    token = await auth.create_camera_stream_token(username="camadmin")
+    stream = await _open(printer, await _opener(token))
+
+    with _session_failing_slowly(0.05):
+        assert await _ended(stream)
+
+
+async def _status(printer_id: int) -> bool:
+    return (await camera.camera_status(printer_id, None))["active"]
+
+
+async def test_one_viewer_leaving_keeps_a_shared_external_camera_active(admin, printer):
+    """A Cam Wall tile renews its stream every minute; the printer's other open
+    viewer must not read the camera as stopped and reconnect."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    tile = await _open(printer, await _opener(token))
+    viewer = await _open(printer, await _opener(token))
+
+    await tile.aclose()
+    assert await _status(printer)
+
+    await viewer.aclose()
+    assert not await _status(printer)
+
+
+async def test_a_re_check_failing_again_at_the_retry_ends_the_stream_after_frames_meanwhile(
+    admin, printer, monkeypatch
+):
+    """The usual production path: the check fails fast, frames go on until the
+    retry is due, and the retry failing too ends the stream (never deferred again)."""
+    monkeypatch.setattr(camera, "STREAM_RECHECK_RETRY_SECONDS", 0.2)
+    token = await auth.create_camera_stream_token(username="camadmin")
+    stream = await _open(printer, await _opener(token))
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    frames = 0
+
+    with _session_failing(1000), pytest.raises(StopAsyncIteration):
+        while loop.time() - start < 2:
+            await asyncio.wait_for(anext(stream), 1)
+            frames += 1
+
+    assert frames > 1  # it waited for the retry rather than ending at once
+
+
+async def test_a_stream_whose_body_never_starts_leaves_the_camera_inactive(admin, printer):
+    """The client went away before the first chunk: no finally runs, so the
+    count must only go up once the stream really runs."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=await _opener(token))
+
+    await response.body_iterator.aclose()
+
+    assert not await _status(printer)
+
+
+async def test_one_viewer_leaving_keeps_the_printers_frame_state_for_the_others(admin, printer):
+    """Without it /camera/status has no stream_uptime, so the remaining viewer can
+    never read the camera as stalled and would not reconnect if it stops."""
+    token = await auth.create_camera_stream_token(username="camadmin")
+    tile = await _open(printer, await _opener(token))
+    viewer = await _open(printer, await _opener(token))
+
+    await tile.aclose()
+    status = await camera.camera_status(printer, None)
+    assert status["stream_uptime"] is not None
+    assert printer in camera._last_frames
+
+    await viewer.aclose()
+    assert (await camera.camera_status(printer, None))["stream_uptime"] is None
+    assert printer not in camera._last_frames

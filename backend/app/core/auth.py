@@ -1239,8 +1239,8 @@ async def verify_camera_stream_token(token: str) -> PrinterScope | None:
 
 
 async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> bool:
-    """Whether a stream's opener may still watch this printer (False also when
-    it can't be read).
+    """Whether a stream's opener may still watch this printer. Raises when it
+    can't be read: the stream decides how long it may run unchecked.
 
     A user's sessions must not have ended since the stream started (password
     change or reset, 2FA removal, restore), and they must still exist and be
@@ -1288,9 +1288,9 @@ async def stream_opener_still_allowed(opener: StreamOpener, printer_id: int) -> 
             else:
                 return False
             return scope.allows(printer_id)
-    except Exception:  # SEC-AUTH-EXC: a failed re-check ends the stream (fail-closed)
+    except Exception:  # SEC-AUTH-EXC: logged and re-raised, never an answer
         logger.warning("Camera stream re-check failed", exc_info=True)
-        return False
+        raise
 
 
 async def verify_camwall_token(token: str) -> PrinterScope | None:
