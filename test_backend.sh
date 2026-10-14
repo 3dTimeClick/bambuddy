@@ -42,8 +42,8 @@ else
 echo "Skipping the type check: no .typecheck-venv (see CONTRIBUTING.md)."
 fi
 
-# PostgreSQL upgrade check, as CI runs it, in a throwaway container (the tests
-# below run on SQLite only). Needs Docker and the release tags.
+# PostgreSQL upgrade check, as CI runs it, in a throwaway container. Needs
+# Docker and the release tags.
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
 echo "Skipping the PostgreSQL upgrade check: Docker is not available."
 elif [ -z "$(git tag --list v0.2.3)" ]; then
@@ -73,7 +73,37 @@ else
 fi
 
 if [ "$1" = "--full" ]; then
-../venv/bin/python3 -m pytest tests/ -v -n 30
+../venv/bin/python3 -m pytest tests/ -v -n 30 || exit 1
 else
-../venv/bin/python3 -m pytest tests/ -v -n 30 --ignore=tests/unit/services/test_bambu_ftp.py
+../venv/bin/python3 -m pytest tests/ -v -n 30 --ignore=tests/unit/services/test_bambu_ftp.py || exit 1
+fi
+
+# The same tests on PostgreSQL, in a throwaway container (--full only: about
+# eight minutes). Tests of SQLite-only behaviour are skipped there.
+if [ "$1" != "--full" ]; then
+echo "Skipping the tests on PostgreSQL (run with --full)."
+elif ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+echo "Skipping the tests on PostgreSQL: Docker is not available."
+else
+(
+    name="bambuddy-pg-tests-$$"
+    port=$(../venv/bin/python -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])') || exit 1
+    # One database pair per test worker, each with its own connection pool.
+    docker run -d --rm --name "$name" --tmpfs /var/lib/postgresql/data -e POSTGRES_PASSWORD=tests \
+        -p "127.0.0.1:$port:5432" postgres:16-alpine \
+        -c max_connections=2000 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null || exit 1
+    trap 'docker rm -f "$name" >/dev/null 2>&1' EXIT
+    trap 'docker rm -f "$name" >/dev/null 2>&1; exit 130' INT TERM
+    ready=0
+    for _ in $(seq 60); do
+        if docker exec "$name" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then ready=1; break; fi
+        sleep 1
+    done
+    if [ "$ready" != 1 ]; then
+        echo "Tests on PostgreSQL: the container did not become ready."
+        exit 1
+    fi
+    TEST_POSTGRES_URL="postgresql+asyncpg://postgres:tests@127.0.0.1:$port/postgres" \
+        ../venv/bin/python3 -m pytest tests/ -v -n 30
+) || exit 1
 fi
