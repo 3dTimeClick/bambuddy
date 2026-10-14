@@ -50,6 +50,7 @@ async def test_signs_every_user_out_and_drops_short_lived_auth_records(test_engi
     assert (await db_session.execute(select(AuthRateLimitEvent))).scalars().all() == []
 
 
+@pytest.mark.sqlite_only  # switches the app to its own SQLite database file
 @pytest.mark.asyncio
 async def test_restore_ends_by_invalidating_all_sessions(async_client, monkeypatch, tmp_path):
     from backend.app.api.routes.settings import create_backup_zip

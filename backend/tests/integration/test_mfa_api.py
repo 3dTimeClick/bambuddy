@@ -5139,6 +5139,7 @@ class TestListOidcLinksDefensiveProviderNull:
     row is removed without the ORM cascade running.
     """
 
+    @pytest.mark.sqlite_only  # a dangling reference needs foreign keys off
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_list_oidc_links_returns_deleted_marker_for_orphan_provider(

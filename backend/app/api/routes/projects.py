@@ -52,6 +52,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
+# The priorities the project editor accepts.
+PROJECT_PRIORITIES = ("low", "normal", "high", "urgent")
+
+
+def _imported_priority(value: object) -> str:
+    """An imported project's priority: one the editor accepts, else "normal"."""
+    return value if isinstance(value, str) and value in PROJECT_PRIORITIES else "normal"
+
 
 _FAILURE_STATUSES = ("failed", "aborted", "cancelled", "stopped")
 
@@ -827,7 +835,7 @@ async def update_project(
     if "due_date" in data.model_fields_set:
         project.due_date = data.due_date
     if data.priority is not None:
-        if data.priority not in ["low", "normal", "high", "urgent"]:
+        if data.priority not in PROJECT_PRIORITIES:
             raise HTTPException(status_code=400, detail="Invalid priority")
         project.priority = data.priority
     if "budget" in data.model_fields_set:
@@ -2071,7 +2079,7 @@ async def import_project(
         notes=data.notes,
         tags=data.tags,
         due_date=data.due_date,
-        priority=data.priority,
+        priority=_imported_priority(data.priority),
         budget=data.budget,
     )
     db.add(project)
@@ -2201,7 +2209,7 @@ async def import_project_file(
         notes=data.get("notes"),
         tags=data.get("tags"),
         due_date=datetime.fromisoformat(data["due_date"]) if data.get("due_date") else None,
-        priority=data.get("priority", 0),
+        priority=_imported_priority(data.get("priority")),
         budget=data.get("budget"),
     )
     db.add(project)

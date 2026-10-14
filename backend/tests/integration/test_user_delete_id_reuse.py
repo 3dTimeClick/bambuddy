@@ -166,6 +166,7 @@ async def test_the_next_user_with_the_id_is_not_asked_for_an_email_code(async_cl
     assert await _get_email_2fa_enabled(db_session, bob) is False
 
 
+@pytest.mark.sqlite_only  # the startup repair of SQLite leftovers
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_the_startup_repair_drops_email_2fa_of_users_already_deleted(db_session):

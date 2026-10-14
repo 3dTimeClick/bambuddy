@@ -100,6 +100,7 @@ def _socket(user_id=None, key_id=None):
     return socket
 
 
+@pytest.mark.sqlite_only  # switches the app to its own SQLite database file
 @pytest.mark.parametrize("auth_on", [True, False])
 async def test_a_backup_restore_closes_the_signed_in_sockets(async_client: AsyncClient, monkeypatch, tmp_path, auth_on):
     """With auth on in the restored data, sessions end, and what the restored
@@ -151,6 +152,7 @@ async def test_a_backup_restore_closes_the_signed_in_sockets(async_client: Async
                 ws_manager.active_connections.remove(socket)
 
 
+@pytest.mark.sqlite_only  # switches the app to its own SQLite database file
 async def test_a_restore_that_turns_authentication_on_closes_the_anonymous_sockets(
     async_client: AsyncClient, monkeypatch, tmp_path
 ):
@@ -484,6 +486,7 @@ async def test_turning_authentication_on_drops_the_tokens_minted_while_it_was_of
     assert sorted(left.scalars().all()) == ["logged-out"]
 
 
+@pytest.mark.sqlite_only  # switches the app to its own SQLite database file
 async def test_a_restore_reads_the_restored_auth_setting_not_the_cached_one(
     async_client: AsyncClient, monkeypatch, tmp_path
 ):

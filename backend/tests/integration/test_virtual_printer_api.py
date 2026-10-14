@@ -706,6 +706,7 @@ class TestVirtualPrinterSerialSurface:
         # shape — model-specific prefix + 8-char hex suffix from `vp.serial_suffix`.
         assert len(create_resp.json()["serial"]) >= 8
 
+    @pytest.mark.sqlite_only  # a dangling reference needs foreign keys off
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_proxy_vp_falls_back_to_self_generated_when_target_missing(

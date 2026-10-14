@@ -355,6 +355,7 @@ async def test_another_printers_archive_adopted_for_a_deleted_printer_stays_that
     assert archive.status == "completed"
 
 
+@pytest.mark.sqlite_only  # deletes the printer with its archives still attached
 @pytest.mark.parametrize("branch", ["fallback", "downloaded", "queued"])
 async def test_a_printer_deleted_during_the_last_steps_is_forgotten_again(
     test_engine, db_session, printer_factory, branch

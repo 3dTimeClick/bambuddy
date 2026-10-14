@@ -161,6 +161,7 @@ def test_the_upgrade_gives_what_a_fresh_install_gets():
     assert _db._PASSWORD_RESET_TEMPLATE_BODY[1] == DEFAULT["body_template"]
 
 
+@pytest.mark.sqlite_only  # upgrades its own SQLite database
 async def test_start_up_runs_the_upgrade(tmp_path):
     from sqlalchemy.ext.asyncio import AsyncSession as Session
 

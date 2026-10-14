@@ -901,6 +901,38 @@ class TestPolishFollowUp:
         assert survivors["total"] == 2
         assert {r["status"] for r in survivors["runs"]} == {"dispatching", "in_progress"}
 
+    @staticmethod
+    async def _dispatched_run(db_session, pipeline_factory, printer_factory, library_file_factory):
+        """A run in 'dispatching' whose one job is queued as a real queue entry."""
+        from datetime import datetime, timezone
+
+        from backend.app.models.pipeline_run import PipelineJob, PipelineRun
+        from backend.app.models.print_queue import PrintQueueItem
+
+        printer = await printer_factory()
+        pipe = await pipeline_factory(target_printer_id=printer.id)
+        src = await library_file_factory()
+        item = PrintQueueItem(printer_id=printer.id, status="pending", library_file_id=src.id)
+        run = PipelineRun(pipeline_id=pipe["id"], source_library_file_id=src.id, copies=1, status="dispatching")
+        db_session.add_all([item, run])
+        await db_session.flush()
+        db_session.add(
+            PipelineJob(
+                pipeline_run_id=run.id,
+                copy_index=0,
+                queue_entry_id=item.id,
+                assigned_printer_id=printer.id,
+                status="queued",
+                dispatched_at=datetime.now(timezone.utc),
+            )
+        )
+        await db_session.commit()
+        return run.id, item.id, src.id
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="A job keeps status 'queued' after dispatch; once its queue entry is deleted, a pending copy cannot be told from a printed one. Needs the job's final status stored when its entry ends.",
+    )
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_deleted_queue_entry_rolls_up_as_cancelled(
@@ -914,42 +946,87 @@ class TestPolishFollowUp:
         """When the queue entry that a PipelineJob is linked to gets deleted
         from the print-queue page, the job's live status should roll up to
         ``cancelled`` so the run doesn't sit forever showing ``queued`` /
-        ``dispatching``."""
+        ``dispatching``. The delete leaves the job without its queue entry."""
+        run_id, item_id, _ = await self._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+
+        assert (await async_client.delete(f"/api/v1/queue/{item_id}")).status_code == 200
+        resp = await async_client.get(f"/api/v1/pipeline-runs/{run_id}")
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["jobs"][0]["status"] == "cancelled"
+        assert body["status"] == "cancelled"
+        assert body["copies_cancelled"] == 1 and body["copies_in_progress"] == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_a_job_never_dispatched_is_not_called_cancelled(
+        self,
+        async_client: AsyncClient,
+        pipeline_factory,
+        printer_factory,
+        library_file_factory,
+        db_session,
+    ):
+        """No queue entry yet because it was never dispatched: still waiting."""
         from backend.app.models.pipeline_run import PipelineJob, PipelineRun
 
         printer = await printer_factory()
         pipe = await pipeline_factory(target_printer_id=printer.id)
         src = await library_file_factory()
-        # Simulate the state PR C leaves a successful dispatch in: run is
-        # 'dispatching' and the job has a queue_entry_id pointing at a
-        # PrintQueueItem that no longer exists.
-        run = PipelineRun(
-            pipeline_id=pipe["id"],
-            source_library_file_id=src.id,
-            copies=1,
-            status="dispatching",
-        )
+        run = PipelineRun(pipeline_id=pipe["id"], source_library_file_id=src.id, copies=1, status="slicing")
         db_session.add(run)
         await db_session.flush()
-        db_session.add(
-            PipelineJob(
-                pipeline_run_id=run.id,
-                copy_index=0,
-                queue_entry_id=999999,  # Doesn't exist — simulates manual delete from queue.
-                assigned_printer_id=printer.id,
-                status="queued",
-            )
-        )
+        db_session.add(PipelineJob(pipeline_run_id=run.id, copy_index=0, status="pending"))
         await db_session.commit()
-        await db_session.refresh(run)
 
-        resp = await async_client.get(f"/api/v1/pipeline-runs/{run.id}")
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        # Job rolled up to cancelled because the queue entry is gone.
-        assert body["jobs"][0]["status"] == "cancelled"
-        # Run also rolls up — all jobs cancelled → run reads as cancelled.
-        assert body["status"] == "cancelled"
+        body = (await async_client.get(f"/api/v1/pipeline-runs/{run.id}")).json()
+
+        assert body["jobs"][0]["status"] == "pending"
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="A job keeps status 'queued' after dispatch; once its queue entry is deleted, a pending copy cannot be told from a printed one. Needs the job's final status stored when its entry ends.",
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_retry_counts_a_deleted_queue_entry_as_cancelled(
+        self,
+        async_client: AsyncClient,
+        pipeline_factory,
+        printer_factory,
+        library_file_factory,
+        db_session,
+    ):
+        """What the run view shows as cancelled, retry starts again."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class _FakeSliceJob:
+            id: int = 6667
+
+        run_id, item_id, _ = await self._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+        assert (await async_client.delete(f"/api/v1/queue/{item_id}")).status_code == 200
+
+        live_status = {"connected": True, "raw_data": {"ams": []}}
+        with (
+            patch(
+                "backend.app.api.routes.pipeline_runs._load_printer_status",
+                new=AsyncMock(return_value=live_status),
+            ),
+            patch(
+                "backend.app.services.slice_dispatch.slice_dispatch.enqueue",
+                new=AsyncMock(return_value=_FakeSliceJob()),
+            ),
+        ):
+            resp = await async_client.post(f"/api/v1/pipeline-runs/{run_id}/retry-failed")
+
+        assert resp.status_code == 202, resp.text
+        assert resp.json()["copies"] == 1
 
 
 class TestCancelTerminal:

@@ -199,6 +199,7 @@ async def test_obico_detection_drops_the_deleted_printer(async_client: AsyncClie
     assert (await db_session.execute(statement.execution_options(populate_existing=True))).scalar() == f"[{a},{c.id}]"
 
 
+@pytest.mark.sqlite_only  # stages stale ids with a raw delete, which foreign keys refuse or null out
 async def test_the_startup_repair_drops_deleted_printers_from_obico_and_virtual_printers(db_session):
     from backend.app.models.settings import Settings
     from backend.app.models.virtual_printer import VirtualPrinter
@@ -346,6 +347,7 @@ async def test_obico_ids_already_stored_dont_block_a_save(async_client: AsyncCli
     assert response.status_code == 400, response.text
 
 
+@pytest.mark.sqlite_only  # stages stale ids with a raw delete, which foreign keys refuse or null out
 async def test_the_startup_trim_of_printer_lists_runs_on_postgresql_too(db_session):
     """PostgreSQL holds stale ids too: kept by its own earlier deletes, or copied
     from a SQLite backup, after which its sequence hands out the deleted id again."""

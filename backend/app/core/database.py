@@ -128,26 +128,31 @@ def _resolve_connect_args() -> dict:
     return {"options": "-c timezone=UTC"}
 
 
-def _create_engine():
-    """Create the async engine with dialect-appropriate settings."""
+def _create_engine(url: str | None = None):
+    """Create the async engine with dialect-appropriate settings.
+
+    *url* defaults to the configured database; the test suite passes its own
+    database of the same dialect.
+    """
     kwargs = _resolve_pool_kwargs()
     connect_args = _resolve_connect_args()
     if connect_args:
         kwargs["connect_args"] = connect_args
 
-    global _pool_config
-    _pool_config = {
-        "pool_size": kwargs["pool_size"],
-        "max_overflow": kwargs["max_overflow"],
-        # SQLAlchemy's own defaults when we don't pass the kwarg.
-        "pool_timeout": kwargs.get("pool_timeout", 30),
-        "pool_recycle": kwargs.get("pool_recycle", -1),
-        "pool_pre_ping": kwargs.get("pool_pre_ping", False),
-        "pool_use_lifo": kwargs.get("pool_use_lifo", False),
-    }
+    if url is None:
+        global _pool_config
+        _pool_config = {
+            "pool_size": kwargs["pool_size"],
+            "max_overflow": kwargs["max_overflow"],
+            # SQLAlchemy's own defaults when we don't pass the kwarg.
+            "pool_timeout": kwargs.get("pool_timeout", 30),
+            "pool_recycle": kwargs.get("pool_recycle", -1),
+            "pool_pre_ping": kwargs.get("pool_pre_ping", False),
+            "pool_use_lifo": kwargs.get("pool_use_lifo", False),
+        }
 
     eng = create_async_engine(
-        settings.database_url,
+        url or settings.database_url,
         echo=settings.debug,
         # The debug SQL echo shows statements, never their values: those
         # include every secret saved and every password hash.

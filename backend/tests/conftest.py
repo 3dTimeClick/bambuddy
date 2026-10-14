@@ -36,6 +36,45 @@ os.environ["DEBUG"] = "false"
 # closed a queue item belonging to an actual running print that way.
 _TEST_APP_DB_DIR = Path(tempfile.mkdtemp(prefix="bambuddy_test_appdb_"))
 APP_DATABASE_URL = f"sqlite+aiosqlite:///{_TEST_APP_DB_DIR / 'app.db'}"
+
+# Opt-in PostgreSQL run. TEST_POSTGRES_URL names a throwaway local server
+# (postgresql+asyncpg://user:password@127.0.0.1:port/postgres). Each xdist
+# worker gets two fresh databases there, under a prefix this file owns: one for
+# the app's own engine, one for the fixtures, kept apart as they are on SQLite.
+# Nothing else on that server is touched.
+_PG_DB_PREFIX = "bambuddy_testpg_"
+TEST_PG_URL: str | None = None
+if os.environ.get("TEST_POSTGRES_URL"):
+    from sqlalchemy.engine import make_url
+
+    _pg_server = make_url(os.environ["TEST_POSTGRES_URL"])
+    if _pg_server.drivername != "postgresql+asyncpg" or _pg_server.host not in ("127.0.0.1", "localhost"):
+        raise RuntimeError("TEST_POSTGRES_URL must be a postgresql+asyncpg URL of a local throwaway server")
+    _pg_worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    _pg_app_db = f"{_PG_DB_PREFIX}{_pg_worker}_app"
+    _pg_test_db = f"{_PG_DB_PREFIX}{_pg_worker}_test"
+
+    async def _recreate_pg_databases() -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(
+            user=_pg_server.username,
+            password=_pg_server.password,
+            host=_pg_server.host,
+            port=_pg_server.port or 5432,
+            database=_pg_server.database or "postgres",
+        )
+        try:
+            for name in (_pg_app_db, _pg_test_db):
+                await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+                await conn.execute(f'CREATE DATABASE "{name}"')
+        finally:
+            await conn.close()
+
+    asyncio.run(_recreate_pg_databases())
+    APP_DATABASE_URL = _pg_server.set(database=_pg_app_db).render_as_string(hide_password=False)
+    TEST_PG_URL = _pg_server.set(database=_pg_test_db).render_as_string(hide_password=False)
+
 os.environ["DATABASE_URL"] = APP_DATABASE_URL
 
 
@@ -56,6 +95,14 @@ def _assert_disposable_database(url, source: str) -> None:
     instead of reaching the database.
     """
     database = str(getattr(url, "database", "") or "")
+    if TEST_PG_URL is not None:
+        if (
+            str(getattr(url, "drivername", "")) == "postgresql+asyncpg"
+            and getattr(url, "host", None) in ("127.0.0.1", "localhost")
+            and database.startswith(_PG_DB_PREFIX)
+        ):
+            return
+        raise RuntimeError(f"Refusing to run tests: {source} resolves to {url!r}, not a {_PG_DB_PREFIX}* database.")
     if not str(getattr(url, "drivername", "")).startswith("sqlite") or not database.startswith(str(_TEST_APP_DB_DIR)):
         raise RuntimeError(
             f"Refusing to run tests: {source} resolves to {url!r}, which is not the "
@@ -97,8 +144,37 @@ from backend.app.core.database import Base, engine as _app_engine  # noqa: E402
 # case where that override did not take effect for whatever reason.
 _assert_disposable_database(_app_engine.url, "backend.app.core.database.engine")
 
+
+if TEST_PG_URL is not None:
+    # The app's own database gets the schema too, once per worker, as a real
+    # install's has it: code that opens its own session (the backup export,
+    # print completion) reads and writes it. A short-lived engine, so the app
+    # engine's pool holds no connection from this event loop.
+    async def _create_app_schema() -> None:
+        from backend.app.core.database import _create_engine, load_all_models
+
+        load_all_models()
+        schema_engine = _create_engine(APP_DATABASE_URL)
+        try:
+            async with schema_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        finally:
+            await schema_engine.dispose()
+
+    asyncio.run(_create_app_schema())
+
 # Use in-memory SQLite for tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+def pytest_collection_modifyitems(config, items):
+    """On PostgreSQL, skip the tests of SQLite-specific behaviour."""
+    if TEST_PG_URL is None:
+        return
+    skip = pytest.mark.skip(reason="SQLite-specific behaviour; the suite runs on PostgreSQL")
+    for item in items:
+        if item.get_closest_marker("sqlite_only"):
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)
@@ -285,6 +361,23 @@ async def test_engine():
         user_totp,
         virtual_printer,
     )
+
+    if TEST_PG_URL is not None:
+        # The same engine setup as the app's (UTC session, aware datetimes
+        # made naive), on this worker's own database, emptied for each test.
+        from sqlalchemy import text
+
+        from backend.app.core.database import _create_engine
+
+        await engine.dispose()
+        engine = _create_engine(TEST_PG_URL)
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP SCHEMA public CASCADE"))
+            await conn.execute(text("CREATE SCHEMA public"))
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+        await engine.dispose()
+        return
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -587,6 +680,29 @@ def smart_plug_factory(db_session):
         return plug
 
     return _create_plug
+
+
+@pytest.fixture
+async def printer_1(db_session):
+    """A printer with id 1, for tests whose rows refer to printer 1 directly.
+
+    Without it those rows point at nothing, which only SQLite (foreign keys
+    off) accepts.
+    """
+    from sqlalchemy import text
+
+    from backend.app.models.printer import Printer
+
+    printer = Printer(
+        id=1, name="Printer 1", serial_number="00M09A900000001", ip_address="192.168.1.250", access_code="12345678"
+    )
+    db_session.add(printer)
+    await db_session.flush()
+    if TEST_PG_URL is not None:
+        # An explicit id does not move the sequence on.
+        await db_session.execute(text("SELECT setval(pg_get_serial_sequence('printers', 'id'), 1)"))
+    await db_session.commit()
+    return printer
 
 
 @pytest.fixture

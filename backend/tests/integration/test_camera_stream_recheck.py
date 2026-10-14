@@ -103,7 +103,7 @@ async def test_a_deactivated_users_stream_ends(admin, printer, db_session):
     token = await auth.create_camera_stream_token(username="camadmin")
     stream = await _open(printer, await _opener(token))
 
-    await db_session.execute(text("UPDATE users SET is_active = 0 WHERE id = :id"), {"id": admin})
+    await db_session.execute(text("UPDATE users SET is_active = false WHERE id = :id"), {"id": admin})
     await db_session.commit()
 
     assert await _ended(stream)
@@ -128,7 +128,7 @@ async def test_a_disabled_keys_stream_ends(admin, printer, db_session):
     token = await auth.create_camera_stream_token(api_key_id=key.id)
     stream = await _open(printer, await _opener(token))
 
-    await db_session.execute(text("UPDATE api_keys SET enabled = 0 WHERE id = :id"), {"id": key.id})
+    await db_session.execute(text("UPDATE api_keys SET enabled = false WHERE id = :id"), {"id": key.id})
     await db_session.commit()
 
     assert await _ended(stream)
@@ -212,7 +212,7 @@ async def test_a_key_losing_status_access_ends_its_stream(admin, printer, db_ses
     token = await auth.create_camera_stream_token(api_key_id=key.id)
     stream = await _open(printer, await _opener(token))
 
-    await db_session.execute(text("UPDATE api_keys SET can_read_status = 0 WHERE id = :id"), {"id": key.id})
+    await db_session.execute(text("UPDATE api_keys SET can_read_status = false WHERE id = :id"), {"id": key.id})
     await db_session.commit()
 
     assert await _ended(stream)
@@ -294,7 +294,7 @@ async def test_a_definite_no_ends_the_stream_without_a_retry(admin, printer, db_
     token = await auth.create_camera_stream_token(username="camadmin")
     stream = await _open(printer, await _opener(token))
 
-    await db_session.execute(text("UPDATE users SET is_active = 0 WHERE id = :id"), {"id": admin})
+    await db_session.execute(text("UPDATE users SET is_active = false WHERE id = :id"), {"id": admin})
     await db_session.commit()
 
     assert await _ended(stream)

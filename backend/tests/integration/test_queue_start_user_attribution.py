@@ -132,9 +132,14 @@ class TestStartCreditsTheClicker:
 
         # Pre-set a different owner on the queue item using a fresh session
         # (the test's `db_session` is detached from the route's session pool).
-        prior_owner_id = admin_user["id"] + 9999
+        from backend.app.models.user import User
+
         maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
         async with maker() as fresh:
+            prior_owner = User(username="prior-owner", password_hash="x")
+            fresh.add(prior_owner)
+            await fresh.flush()
+            prior_owner_id = prior_owner.id
             item = (await fresh.execute(select(PrintQueueItem).where(PrintQueueItem.id == queue_item.id))).scalar_one()
             item.created_by_id = prior_owner_id
             await fresh.commit()
@@ -219,6 +224,7 @@ class TestSchedulerPropagatesOwnerToPrinterManager:
         await PrintScheduler()._propagate_owner_to_printer_manager(db_session, queue_item)
         assert captured == []
 
+    @pytest.mark.sqlite_only  # a dangling reference needs foreign keys off
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_noop_when_user_row_missing(self, db_session, queue_item, monkeypatch):

@@ -150,6 +150,7 @@ def test_the_upgrade_gives_what_a_fresh_install_gets():
     assert _db._WELCOME_TEMPLATE_BODY[1] == DEFAULT["body_template"]
 
 
+@pytest.mark.sqlite_only  # upgrades its own SQLite database
 async def test_start_up_runs_the_upgrade(tmp_path):
     from backend.app.core.database import Base, run_migrations
     from backend.app.main import app  # noqa: F401  registers every model, as init_db does

@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.app.core.database import AUTOINCREMENT_TABLES, Base, _migrate_sqlite_autoincrement, load_all_models
 
-pytestmark = pytest.mark.asyncio
+# SQLite behaviour: PostgreSQL sequences never hand an id out twice.
+pytestmark = [pytest.mark.asyncio, pytest.mark.sqlite_only]
 
 
 @pytest.fixture

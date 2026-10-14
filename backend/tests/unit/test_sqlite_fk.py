@@ -17,6 +17,9 @@ from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
 from backend.app.models.printer import Printer
 
+# The SQLite stand-in for foreign key rules PostgreSQL applies itself.
+pytestmark = pytest.mark.sqlite_only
+
 
 async def _archive_with_dependents(db):
     printer = Printer(name="P", serial_number="S1", ip_address="192.0.2.1", access_code="x")

@@ -85,6 +85,7 @@ async def test_the_print_being_tracked_goes_with_the_printer(async_client: Async
     assert await _session_rows(db_session) == ([], [])
 
 
+@pytest.mark.sqlite_only  # stages stale ids with a raw delete, which foreign keys refuse or null out
 async def test_the_startup_repair_drops_print_tracking_of_deleted_printers(db_session):
     from sqlalchemy import text
 
