@@ -21,6 +21,7 @@ from backend.app.models.spool import Spool
 from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
 from backend.app.services.git_providers.factory import get_provider_backend
+from backend.app.services.github_restore import is_restorable_setting_key
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.secret_fields import SECRET_PLACEHOLDER, is_secret_setting_key, mask_preset
 
@@ -750,11 +751,14 @@ class GitHubBackupService:
         # unset, as it does for the restore), so the restore can still tell
         # whether a switch had one. A URL with a login in it is
         # left out: masked, it would be restored over a working one.
+        # Anything else a restore would not write is left out: keys earlier
+        # versions left behind (some hold a credential under a name no rule
+        # recognises), runtime state and Bambuddy's own flags.
         settings_data = {}
         for s in settings:
             if is_secret_setting_key(s.key):
                 settings_data[s.key] = SECRET_PLACEHOLDER if (s.value or "").strip() else s.value
-            elif not URL_CREDENTIALS_PATTERN.search(s.value or ""):
+            elif is_restorable_setting_key(s.key) and not URL_CREDENTIALS_PATTERN.search(s.value or ""):
                 settings_data[s.key] = s.value
 
         files["settings/app_settings.json"] = {

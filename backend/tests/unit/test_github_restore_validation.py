@@ -275,3 +275,14 @@ def test_every_address_key_is_one_a_restore_would_otherwise_write():
     from backend.app.services.github_restore import _checked_setting
 
     assert set(_ADDRESS_KEYS) == {key for key in _ADDRESS_KEYS if _checked_setting(key, "")[0] is not None}
+
+
+def test_the_backup_and_the_restore_agree_on_which_keys_are_settings():
+    """The backup keeps exactly the keys a restore writes; the two must not drift."""
+    from backend.app.schemas.settings import AppSettingsUpdate
+    from backend.app.services.github_restore import _EXTRA_RESTORABLE_KEYS, _checked_setting, is_restorable_setting_key
+
+    keys = {*AppSettingsUpdate.model_fields, *_EXTRA_RESTORABLE_KEYS, "manyfold_url", "manyfold_client_id"}
+    keys |= {"vapid_private_key", "dark_theme", "_backfill_x_done", "user_1_email_2fa_enabled", "auth_enabled"}
+    for key in keys:
+        assert is_restorable_setting_key(key) is (_checked_setting(key, "")[0] is not None), key

@@ -259,6 +259,17 @@ _MANYFOLD_CLIENT_ID_KEY = "manyfold_client_id"
 _READS_A_SAVED_NULL = frozenset({"ams_temp_alarm", "default_printer_id", "open_in_slicer"})
 
 
+def is_restorable_setting_key(key: str) -> bool:
+    """Whether a restore writes this settings key at all (with a value its
+    editor accepts). The Git backup holds only these, so nothing a restore
+    would refuse as unknown leaves the instance."""
+    return (
+        key in AppSettingsUpdate.model_fields
+        or key in _EXTRA_RESTORABLE_KEYS
+        or key in (_MANYFOLD_URL_KEY, _MANYFOLD_CLIENT_ID_KEY)
+    )
+
+
 def _stored_form(value: object) -> str:
     """A checked value as its editor stores it."""
     if isinstance(value, bool):

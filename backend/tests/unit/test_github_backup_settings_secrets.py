@@ -68,7 +68,7 @@ async def test_a_backed_up_secret_is_refused_on_restore(db_session):
 
 @pytest.mark.asyncio
 async def test_the_backup_hides_exactly_what_the_restore_refuses(db_session):
-    rows = {**SECRETS, "currency": "EUR", "mqtt_enabled": "true", "theme_api": "x", "ldap_server_url": "ldap://h"}
+    rows = {**SECRETS, "currency": "EUR", "mqtt_enabled": "true", "ldap_server_url": "ldap://h"}
     collected = await _collect(db_session, rows)
 
     for key in rows:
@@ -104,3 +104,34 @@ async def test_a_switch_whose_credential_stayed_behind_is_still_left_off_on_rest
 
     assert plan.companion == ("mqtt_enabled",)
     assert "mqtt_password" in plan.blocked
+
+
+LEGACY = {
+    "virtual_printer_tailscale_auth_key": "value-legacy-one",
+    "vapid_private_key": "value-legacy-two",
+    "dark_theme": "true",
+    "_backfill_1425_pipeline_permissions_done": "true",
+    "debug_logging_enabled": "true",
+}
+
+
+@pytest.mark.asyncio
+async def test_a_key_a_restore_does_not_write_is_not_backed_up(db_session):
+    """Keys earlier versions left behind, runtime state and Bambuddy's own
+    flags: a restore refuses them, so the backup leaves them out, secrets
+    named in no recognisable way among them."""
+    collected = await _collect(db_session, {**LEGACY, "currency": "EUR", "smtp_host": "mail.local"})
+
+    assert not set(LEGACY) & set(collected)
+    assert "value-legacy" not in json.dumps(collected)
+    assert collected["currency"] == "EUR" and collected["smtp_host"] == "mail.local"
+
+
+@pytest.mark.asyncio
+async def test_everything_backed_up_is_something_a_restore_knows(db_session):
+    rows = {**SECRETS, **LEGACY, "currency": "EUR", "ldap_server_url": "ldap://h", "manyfold_client_id": "id"}
+    collected = await _collect(db_session, rows)
+
+    plan = await GitHubRestoreService()._plan_settings(db_session, collected)
+
+    assert plan.unknown == () and plan.internal == ()
