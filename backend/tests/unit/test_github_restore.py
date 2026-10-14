@@ -235,13 +235,13 @@ class TestRestoreSettings:
     @pytest.mark.asyncio
     async def test_inserts_missing_keys(self, db_session):
         tally = _CategoryTally()
-        payload = {"version": "1.0", "settings": {"currency": "EUR", "theme": "dark"}}
+        payload = {"version": "1.0", "settings": {"currency": "EUR", "language": "de"}}
 
         await _service()._restore_settings(db_session, payload, overwrite=False, tally=tally)
         await db_session.commit()
 
         rows = {s.key: s.value for s in (await db_session.execute(select(Settings))).scalars().all()}
-        assert rows == {"currency": "EUR", "theme": "dark"}
+        assert rows == {"currency": "EUR", "language": "de"}
         assert tally.restored == 2
 
     @pytest.mark.asyncio
@@ -428,11 +428,11 @@ class TestCompanionCredentials:
     @pytest.mark.asyncio
     async def test_ha_toggle_is_refused_when_the_environment_has_no_token(self, db_session, monkeypatch):
         monkeypatch.delenv("HA_TOKEN", raising=False)
-        await self._restore(db_session, ha_enabled="true", ha_token="s3cret", ha_url="http://ha.local")
+        await self._restore(db_session, ha_enabled="true", ha_token="s3cret", currency="EUR")
 
         rows = await self._rows(db_session)
         assert "ha_enabled" not in rows
-        assert rows["ha_url"] == "http://ha.local"
+        assert rows["currency"] == "EUR"
 
     @pytest.mark.asyncio
     async def test_a_blank_local_credential_row_is_not_usable(self, db_session):
@@ -464,12 +464,12 @@ class TestCompanionCredentials:
         companion one were all counted as ``skipped`` despite never being in the
         preview's count.
         """
-        db_session.add(Settings(key="theme", value="light"))
+        db_session.add(Settings(key="language", value="en"))
         await db_session.commit()
 
         values = {
             "currency": "EUR",  # inserted    -> restored
-            "theme": "dark",  # exists, overwrite off -> skipped
+            "language": "de",  # exists, overwrite off -> skipped
             "low_stock_threshold": None,  # no value    -> skipped
             "": "junk",  # unusable key -> failed
             "bambu_cloud_token": "x",  # blocked     -> refused
@@ -666,9 +666,11 @@ class TestCompanionCredentials:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("value", ["1", "on", "yes"])
-    async def test_spellings_no_reader_treats_as_on_are_written(self, db_session, value):
+    async def test_spellings_the_editor_reads_as_on_are_judged_as_on(self, db_session, value):
+        """The restore writes them as the editor stores them, "true", so the
+        rule judges them as on: no usable token here, the switch stays off."""
         await self._restore(db_session, prometheus_enabled=value, prometheus_token="s3cret")
-        assert (await self._rows(db_session))["prometheus_enabled"] == value
+        assert "prometheus_enabled" not in await self._rows(db_session)
 
     @pytest.mark.asyncio
     async def test_ha_token_in_the_environment_counts_as_usable(self, db_session, monkeypatch):
@@ -708,7 +710,8 @@ class TestCompanionCredentials:
     async def test_plan_leaves_unusable_key_names_in_no_bucket(self, db_session):
         """They are the restore's ``failed``, not a refusal."""
         plan = await _service()._plan_settings(db_session, {"": "x", 7: "y", "currency": "EUR"})
-        assert plan == _SettingsPlan()
+        assert plan.refused == frozenset()
+        assert plan.stored == {"currency": "EUR"}
 
 
 class TestSpoolTagOverwrite:
@@ -3080,12 +3083,12 @@ class TestMqttRelayReconfigure:
 
     @pytest.mark.asyncio
     async def test_restore_settings_reports_the_keys_it_wrote(self, db_session):
-        db_session.add(Settings(key="mqtt_broker", value="old.local"))
+        db_session.add(Settings(key="mqtt_topic_prefix", value="old.local"))
         await db_session.commit()
         written: set[str] = set()
         payload = {
             "settings": {
-                "mqtt_broker": "new.local",
+                "mqtt_topic_prefix": "new.local",
                 "currency": "EUR",
                 "mqtt_password": "leaked",
                 "auth_enabled": "false",
@@ -3098,17 +3101,17 @@ class TestMqttRelayReconfigure:
 
         # Skipped keys are not "written", or a blocked mqtt_password would
         # trigger a pointless reconnect.
-        assert written == {"mqtt_broker", "currency"}
+        assert written == {"mqtt_topic_prefix", "currency"}
 
     @pytest.mark.asyncio
     async def test_keys_skipped_for_overwrite_off_are_not_reported(self, db_session):
-        db_session.add(Settings(key="mqtt_broker", value="old.local"))
+        db_session.add(Settings(key="mqtt_topic_prefix", value="old.local"))
         await db_session.commit()
         written: set[str] = set()
 
         await _service()._restore_settings(
             db_session,
-            {"settings": {"mqtt_broker": "new.local"}},
+            {"settings": {"mqtt_topic_prefix": "new.local"}},
             overwrite=False,
             tally=_CategoryTally(),
             keys_written=written,
@@ -3129,13 +3132,13 @@ class TestMqttRelayReconfigure:
 
         await _service()._restore_settings(
             db_session,
-            {"settings": {"mqtt_enabled": "true", "mqtt_password": "refused", "mqtt_broker": "new.local"}},
+            {"settings": {"mqtt_enabled": "true", "mqtt_password": "refused", "mqtt_topic_prefix": "new.local"}},
             overwrite=True,
             tally=_CategoryTally(),
             keys_written=written,
         )
 
-        assert written == {"mqtt_broker"}
+        assert written == {"mqtt_topic_prefix"}
 
 
 class TestApplyOrdering:
@@ -3236,7 +3239,7 @@ class TestKprofilePhaseFailure:
     leaving the relay pointed at the pre-restore broker.
     """
 
-    _SETTINGS = {"version": "1.0", "settings": {"mqtt_broker": "restored.local", "currency": "EUR"}}
+    _SETTINGS = {"version": "1.0", "settings": {"mqtt_topic_prefix": "restored.local", "currency": "EUR"}}
 
     def _payload(self, profiles=None):
         return {
@@ -3278,7 +3281,9 @@ class TestKprofilePhaseFailure:
 
         assert results[RestoreCategory.SETTINGS.value].restored == 2
         rows = {s.key: s.value for s in (await db_session.execute(select(Settings))).scalars().all()}
-        assert rows == {"mqtt_broker": "restored.local", "currency": "EUR"}, "committed before the phase that failed"
+        assert rows == {"mqtt_topic_prefix": "restored.local", "currency": "EUR"}, (
+            "committed before the phase that failed"
+        )
 
     @pytest.mark.asyncio
     async def test_the_failure_is_counted_and_explained(self, db_session):
@@ -3315,7 +3320,7 @@ class TestKprofilePhaseFailure:
         assert result["results"][RestoreCategory.SETTINGS.value]["restored"] == 2
         assert result["results"][RestoreCategory.KPROFILES.value]["failed"] == 1
         relay.configure.assert_awaited_once()
-        assert relay.configure.await_args.args[0]["mqtt_broker"] == "restored.local"
+        assert relay.configure.await_args.args[0]["mqtt_topic_prefix"] == "restored.local"
 
     @pytest.mark.asyncio
     async def test_a_failure_before_the_commit_still_reports_nothing_restored(self, db_session):

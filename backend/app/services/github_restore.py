@@ -40,9 +40,11 @@ from dataclasses import dataclass, field as dataclasses_field
 from datetime import datetime, timezone
 
 import httpx
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.api.routes._spoolman_helpers import assert_safe_spoolman_url
 from backend.app.core.database import async_session
 from backend.app.core.printer_scope import drop_printers_from_obico
 from backend.app.models.archive import PrintArchive
@@ -53,9 +55,11 @@ from backend.app.models.settings import Settings
 from backend.app.models.spool import Spool
 from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
+from backend.app.schemas.auth import SMTPSettings
 from backend.app.schemas.github_backup import RestoreCategory
-from backend.app.schemas.settings import AppSettings
+from backend.app.schemas.settings import AppSettings, AppSettingsUpdate
 from backend.app.services.git_providers.factory import get_provider_backend
+from backend.app.services.model_providers.manyfold.config import normalize_url
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.secret_fields import SETTINGS_SECRETS, SMTP_DESTINATIONS, is_secret_setting_key
 
@@ -198,6 +202,102 @@ def _is_protected_setting_key(key: str) -> bool:
     return key in _PROTECTED_SETTING_KEYS or key.lower().startswith(_PROTECTED_SETTING_PREFIXES)
 
 
+# A user's email code sign-in switch. Per user, and it decides how that user
+# signs in: never taken from a backup, whatever its value.
+_TWO_FACTOR_KEY = re.compile(r"^user_\d+_email_2fa_enabled$")
+
+# Settings kept outside AppSettings that a restore writes, each checked as the
+# editor that owns it checks it: (model, field) for a field of that editor's
+# request model. Anything else outside AppSettings is runtime state, a login's
+# account state, automation that needs its own permission (the purge
+# schedules), a migration flag or unknown, and is not restored.
+_EXTRA_RESTORABLE_KEYS: dict[str, tuple[type[BaseModel], str]] = {
+    key: (SMTPSettings, key)
+    for key in (
+        "smtp_host",
+        "smtp_port",
+        "smtp_security",
+        "smtp_auth_enabled",
+        "smtp_from_email",
+        "smtp_from_name",
+        "smtp_username",
+        "smtp_use_tls",
+    )
+}
+
+# Settings that decide where Bambuddy sends something: the links in its emails
+# (password reset and welcome links carry a sign-in token), the mail server
+# itself, the full database backups, printer status, camera snapshots, model
+# files, inventory. A backup naming another address would send it there, so a
+# value that differs from this instance's is kept as it is here.
+_ADDRESS_KEYS = (
+    "external_url",
+    "smtp_host",
+    "smtp_port",
+    "smtp_security",
+    "smtp_use_tls",
+    "local_backup_path",
+    "mqtt_broker",
+    "mqtt_port",
+    "mqtt_use_tls",
+    "ha_url",
+    "obico_ml_url",
+    "bambuddy_internal_url",
+    "orcaslicer_api_url",
+    "bambu_studio_api_url",
+    "spoolman_url",
+    "manyfold_url",
+)
+
+# Restored without a model check: the Manyfold editor checks the URL with
+# normalize_url and takes the client id as text.
+_MANYFOLD_URL_KEY = "manyfold_url"
+_MANYFOLD_CLIENT_ID_KEY = "manyfold_client_id"
+
+# The settings whose saved null (the text "None") the settings reader reads as
+# null. Anywhere else it is refused, as the editor refuses a null.
+_READS_A_SAVED_NULL = frozenset({"ams_temp_alarm", "default_printer_id", "open_in_slicer"})
+
+
+def _stored_form(value: object) -> str:
+    """A checked value as its editor stores it."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "None"
+    return str(value)
+
+
+def _checked_setting(key: str, value: object) -> tuple[bool | None, str]:
+    """A restored value checked as its editor checks it.
+
+    ``(True, stored form)`` if the editor would accept it, ``(False, "")`` if
+    not, ``(None, "")`` if no editor writes the key, so it is not restored.
+    The stored form is what the editor would write: a value the check only
+    coerced ("587.0", "yes") is written as the editor writes it.
+    """
+    candidate = None if value == "None" and key in _READS_A_SAVED_NULL else value
+    try:
+        if key in AppSettingsUpdate.model_fields:
+            checked = getattr(AppSettingsUpdate.model_validate({key: candidate}), key)
+            # Checked where it is used rather than where it is saved: checked
+            # here as well, before it is written.
+            if key == "spoolman_url" and checked:
+                assert_safe_spoolman_url(str(checked))
+            return True, _stored_form(checked)
+        if key in _EXTRA_RESTORABLE_KEYS:
+            model, field = _EXTRA_RESTORABLE_KEYS[key]
+            instance = model.__pydantic_validator__.validate_assignment(model.model_construct(), field, candidate)
+            return True, _stored_form(getattr(instance, field))
+        if key == _MANYFOLD_URL_KEY:
+            return True, normalize_url(str(candidate)) if candidate else ""
+    except ValueError:
+        return False, ""
+    if key == _MANYFOLD_CLIENT_ID_KEY:
+        return True, str(value)
+    return None, ""
+
+
 # There used to be an ``_is_skipped_setting_key`` here, the union of the two
 # predicates above, shared by the preview and the restore so neither could drift
 # from the other. It is gone because a name is no longer enough to decide: the
@@ -325,19 +425,37 @@ class _SettingsPlan:
     protected: tuple[str, ...] = ()
     companion: tuple[str, ...] = ()
     destination: tuple[str, ...] = ()
+    two_factor: tuple[str, ...] = ()
+    invalid: tuple[str, ...] = ()
+    unknown: tuple[str, ...] = ()
+    # Bambuddy's own one-shot flags (a leading underscore): refused without a
+    # word, as every backup carries them.
+    internal: tuple[str, ...] = ()
+    address: tuple[str, ...] = ()
+    # Each key to write, in the form its editor stores.
+    stored: dict[str, str] = dataclasses_field(default_factory=dict)
 
     @property
-    def refused(self) -> frozenset[str]:
+    def _buckets(self) -> tuple[tuple[str, ...], ...]:
         return (
-            frozenset(self.blocked)
-            | frozenset(self.protected)
-            | frozenset(self.companion)
-            | frozenset(self.destination)
+            self.blocked,
+            self.protected,
+            self.companion,
+            self.destination,
+            self.two_factor,
+            self.invalid,
+            self.unknown,
+            self.internal,
+            self.address,
         )
 
     @property
+    def refused(self) -> frozenset[str]:
+        return frozenset(key for bucket in self._buckets for key in bucket)
+
+    @property
     def refused_count(self) -> int:
-        return len(self.blocked) + len(self.protected) + len(self.companion) + len(self.destination)
+        return sum(len(bucket) for bucket in self._buckets)
 
 
 @dataclass(frozen=True)
@@ -507,6 +625,11 @@ class GitHubRestoreService:
         """
         blocked: list[str] = []
         protected: list[str] = []
+        two_factor: list[str] = []
+        invalid: list[str] = []
+        unknown: list[str] = []
+        internal: list[str] = []
+        stored: dict[str, str] = {}
         # Toggle -> credential for the pairs that survived the payload-only
         # conditions and still need local state to judge.
         candidates: dict[str, str] = {}
@@ -520,12 +643,29 @@ class GitHubRestoreService:
             if _is_protected_setting_key(key):
                 protected.append(key)
                 continue
+            if _TWO_FACTOR_KEY.match(key):
+                two_factor.append(key)
+                continue
+            if key.startswith("_"):
+                internal.append(key)
+                continue
+            # A null is skipped by the restore itself, not refused.
+            if value is not None:
+                valid, form = _checked_setting(key, value)
+                if valid is None:
+                    unknown.append(key)
+                    continue
+                if not valid:
+                    invalid.append(key)
+                    continue
+                stored[key] = form
 
             credential = _COMPANION_CREDENTIALS.get(key)
             if credential is None:
                 continue
             # Turning something *off* is always safe to write.
-            if not _setting_value_is_true(value):
+            # Judged as written: a spelling the check reads as on is stored as on.
+            if not _setting_value_is_true(stored.get(key, value)):
                 continue
             # Expressed as the predicate rather than assumed, so the map cannot
             # go quietly inert if the secret hints are ever edited: a credential
@@ -548,15 +688,31 @@ class GitHubRestoreService:
         destinations = {
             key: secrets
             for key, value in values.items()
-            if value is not None and (secrets := _DESTINATION_SECRETS.get(key)) and key not in protected
+            if value is not None
+            and (secrets := _DESTINATION_SECRETS.get(key))
+            and key not in protected
+            and key not in invalid
+            and key not in unknown
+            and key not in internal
         }
 
-        if not candidates and not destinations:
-            return _SettingsPlan(blocked=tuple(blocked), protected=tuple(protected))
+        addresses = [key for key in _ADDRESS_KEYS if key in stored]
+
+        if not candidates and not destinations and not addresses:
+            return _SettingsPlan(
+                blocked=tuple(blocked),
+                protected=tuple(protected),
+                two_factor=tuple(two_factor),
+                invalid=tuple(invalid),
+                unknown=tuple(unknown),
+                internal=tuple(internal),
+                stored=stored,
+            )
 
         # One SELECT covering both halves of every candidate pair.
         wanted = set(candidates) | set(candidates.values()) | set(destinations)
         wanted |= {secret for secrets in destinations.values() for secret in secrets}
+        wanted |= set(addresses)
         rows = await db.execute(select(Settings).where(Settings.key.in_(wanted)))
         local = {row.key: row.value for row in rows.scalars().all()}
 
@@ -600,14 +756,38 @@ class GitHubRestoreService:
                 # counted as a change.
                 destination.append(key)
                 continue
-            if _as_setting_text(values[key]) != _as_setting_text(current):
+            if _as_setting_text(stored.get(key, values[key])) != _as_setting_text(current):
                 destination.append(key)
+
+        # Compared as written with this instance's value: its row, else the
+        # schema default, else nothing.
+        address = [
+            key
+            for key in addresses
+            if key not in destination
+            and _as_setting_text(stored[key])
+            != _as_setting_text(
+                local[key]
+                if key in local
+                else AppSettings.model_fields[key].get_default(call_default_factory=True)
+                if key in AppSettings.model_fields
+                else None
+            )
+        ]
+        for key in address:
+            del stored[key]
 
         return _SettingsPlan(
             blocked=tuple(blocked),
             protected=tuple(protected),
             companion=tuple(companion),
+            address=tuple(address),
             destination=tuple(destination),
+            two_factor=tuple(two_factor),
+            invalid=tuple(invalid),
+            unknown=tuple(unknown),
+            internal=tuple(internal),
+            stored=stored,
         )
 
     async def preview(self, db: AsyncSession, config: GitHubBackupConfig, ref: str = "HEAD") -> dict:
@@ -719,12 +899,20 @@ class GitHubRestoreService:
             # policy keys stay unmentioned on purpose.
             plan = await self._plan_settings(db, values)
             detail = None
+            not_restorable = len(plan.two_factor) + len(plan.invalid) + len(plan.unknown) + len(plan.address)
             if plan.destination:
                 detail = _Detail(
                     "settingsDestinationWillKeep",
                     f"{len(plan.destination)} setting(s) will be left as they are - they would send a credential "
                     "stored here somewhere else; credentials are never restored",
                     {"destination": len(plan.destination)},
+                )
+            elif not_restorable:
+                detail = _Detail(
+                    "settingsNotRestorableWillSkip",
+                    f"{not_restorable} setting(s) will be skipped - values Settings would not accept, or keys a "
+                    "backup does not restore",
+                    {"count": not_restorable},
                 )
             elif plan.companion and not plan.blocked:
                 # An exposure toggle becomes a candidate whether or not the
@@ -1667,13 +1855,13 @@ class GitHubRestoreService:
                 if not overwrite:
                     tally.skipped += 1
                     continue
-                existing.value = str(value)
+                existing.value = plan.stored[key]
                 tally.restored += 1
                 if keys_written is not None:
                     keys_written.add(key)
                 continue
 
-            db.add(Settings(key=key, value=str(value)))
+            db.add(Settings(key=key, value=plan.stored[key]))
             tally.restored += 1
             if keys_written is not None:
                 keys_written.add(key)
@@ -1704,6 +1892,38 @@ class GitHubRestoreService:
                 "integration unauthenticated",
                 keys=keys,
                 count=len(plan.companion),
+            )
+        if plan.two_factor:
+            tally.note(
+                "settingsTwoFactorSkipped",
+                f"{len(plan.two_factor)} email sign-in code setting(s) skipped - each user switches email codes "
+                "on or off in their own account",
+                count=len(plan.two_factor),
+            )
+        if plan.address:
+            keys = ", ".join(sorted(plan.address))
+            tally.note(
+                "settingsAddressKept",
+                f"{keys} left as they are - they decide where Bambuddy sends data, emails or backups; change them "
+                "in Settings",
+                keys=keys,
+                count=len(plan.address),
+            )
+        if plan.invalid:
+            keys = ", ".join(sorted(plan.invalid))
+            tally.note(
+                "settingsInvalidSkipped",
+                f"{keys} skipped - the value in the backup is not one Settings would accept",
+                keys=keys,
+                count=len(plan.invalid),
+            )
+        if plan.unknown:
+            keys = ", ".join(sorted(plan.unknown))
+            tally.note(
+                "settingsUnknownSkipped",
+                f"{keys} skipped - not settings a backup restores (runtime state, account sessions or unknown keys)",
+                keys=keys,
+                count=len(plan.unknown),
             )
         if plan.destination:
             keys = ", ".join(sorted(plan.destination))

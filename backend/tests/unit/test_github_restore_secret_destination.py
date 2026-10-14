@@ -49,13 +49,16 @@ async def test_a_changed_broker_is_left_as_it_is_while_the_password_is_kept(db_s
 
 
 @pytest.mark.asyncio
-async def test_without_a_stored_credential_the_destination_is_restored(db_session):
+async def test_without_a_stored_credential_the_destination_is_still_kept(db_session):
+    """No credential to protect, but the broker still decides where printer
+    status goes: kept as an address."""
     await _local(db_session, {"mqtt_broker": "here.local", "mqtt_password": "  "})
 
-    _, written = await _restore(db_session, {"mqtt_broker": "elsewhere.example"})
+    tally, written = await _restore(db_session, {"mqtt_broker": "elsewhere.example"})
 
-    assert await _value(db_session, "mqtt_broker") == "elsewhere.example"
-    assert written == {"mqtt_broker"}
+    assert await _value(db_session, "mqtt_broker") == "here.local"
+    assert written == set()
+    assert "settingsAddressKept" in [note["code"] for note in tally.notes]
 
 
 @pytest.mark.asyncio
@@ -100,14 +103,16 @@ async def test_a_token_does_not_follow_a_changed_url(db_session, monkeypatch, se
 
 
 @pytest.mark.asyncio
-async def test_a_deployment_token_may_follow_a_changed_url(db_session, monkeypatch):
-    """Set in the environment, the token is the deployment's own: as in the editor."""
+async def test_with_a_deployment_token_a_changed_url_is_still_kept_as_an_address(db_session, monkeypatch):
+    """The environment's token may follow a URL change in the editor, but a
+    restore never changes where Bambuddy sends things."""
     monkeypatch.setenv("HA_TOKEN", "env-value")
     await _local(db_session, {"ha_token": "local-value", "ha_url": "http://here.local"})
 
-    await _restore(db_session, {"ha_url": "http://elsewhere.example"})
+    tally, _written = await _restore(db_session, {"ha_url": "http://elsewhere.example"})
 
-    assert await _value(db_session, "ha_url") == "http://elsewhere.example"
+    assert await _value(db_session, "ha_url") == "http://here.local"
+    assert "settingsAddressKept" in [note["code"] for note in tally.notes]
 
 
 @pytest.mark.asyncio
@@ -163,10 +168,24 @@ async def test_the_manyfold_secret_does_not_follow_a_changed_url(db_session):
 
 
 @pytest.mark.asyncio
-async def test_without_a_stored_smtp_password_the_server_is_restored(db_session):
+async def test_without_a_stored_smtp_password_the_server_is_still_kept(db_session):
+    """An unauthenticated relay: no password to protect, but the server still
+    receives every email, password reset tokens among them."""
     await _local(db_session, {"smtp_host": "mail.here.local"})
 
     _, written = await _restore(db_session, {"smtp_host": "mail.elsewhere.example", "smtp_security": "ssl"})
 
-    assert await _value(db_session, "smtp_host") == "mail.elsewhere.example"
-    assert written == {"smtp_host", "smtp_security"}
+    assert await _value(db_session, "smtp_host") == "mail.here.local"
+    assert await _value(db_session, "smtp_security") is None
+    assert written == set()
+
+
+@pytest.mark.asyncio
+async def test_a_destination_is_compared_as_it_would_be_written(db_session):
+    """ " 587" is stored as "587": the same port, so not held back."""
+    await _local(db_session, {"smtp_password": "local-value", "smtp_port": "587"})
+
+    tally, written = await _restore(db_session, {"smtp_port": " 587"})
+
+    assert written == {"smtp_port"}
+    assert "settingsDestinationKept" not in [note["code"] for note in tally.notes]
