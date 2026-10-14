@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 # Cloud-provider metadata endpoints — the classic SSRF credential-exfil
 # targets. Both guards reject these unconditionally.
@@ -53,17 +53,41 @@ CLOUD_METADATA_HOSTNAMES = frozenset(
 )
 
 
-# libc and browsers parse numeric-encoded IP forms (decimal ``2130706433``
-# for 127.0.0.1, hex ``0x7f000001``) but Python's ``ipaddress.ip_address``
-# raises ValueError on these, so they slip past the IP-class checks if
-# not caught first. Used by both guards to reject up-front.
-NUMERIC_IP_RE = re.compile(r"^(0x[0-9a-f]+|[0-9]+)$", re.I)
+# libc and browsers parse numeric-encoded IP forms (decimal ``2130706433`` for
+# 127.0.0.1, hex ``0x7f000001``, dotted hex or octal, short forms such as
+# ``127.1``) but Python's ``ipaddress`` raises ValueError on them, so they slip
+# past the IP-class checks if not caught first. Used by both guards to reject
+# them up front, see ``is_numeric_encoded_ip``. One label of such an address
+# is decimal, octal or hex.
+_NUMERIC_LABEL_RE = re.compile(r"^(0x[0-9a-f]*|[0-9]+)$", re.I)
+
+
+def url_hostname(parsed: ParseResult) -> str:
+    """The URL's hostname as resolvers see it: lower case, no trailing dot."""
+    return (parsed.hostname or "").lower().rstrip(".")
+
+
+def is_numeric_encoded_ip(hostname: str) -> bool:
+    """Whether *hostname* is an IPv4 address in a notation other than plain
+    dotted decimal: one number, dotted hex or octal, a leading zero, or fewer
+    than four parts. Resolvers read all of them as an address; the checks on
+    addresses only see standard notation.
+    """
+    labels = hostname.split(".")
+    if not all(_NUMERIC_LABEL_RE.match(label) for label in labels):
+        return False
+    try:
+        ipaddress.IPv4Address(hostname)
+    except ValueError:
+        return True
+    return False
 
 
 def unwrap_ipv4_mapped(
     addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    """Return the underlying IPv4 for an IPv4-mapped IPv6 address, else return *addr*.
+    """Return the underlying IPv4 for an IPv4-mapped IPv6 address, *addr* without
+    its zone id, else *addr*.
 
     ``::ffff:127.0.0.1`` and similar mapped forms must be unwrapped before
     the per-class checks (``is_private``, ``is_loopback``, …) — otherwise
@@ -72,6 +96,10 @@ def unwrap_ipv4_mapped(
     """
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         return addr.ipv4_mapped
+    # A zone id is ignored on connect to an address that is not link-local,
+    # but it makes the address compare unequal to the same one without it.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.scope_id is not None:
+        return ipaddress.IPv6Address(str(addr).split("%", 1)[0])
     return addr
 
 
@@ -112,7 +140,7 @@ def assert_safe_lan_service_url(url: str, *, label: str) -> None:
     if parsed.scheme.lower() not in ("http", "https"):
         raise ValueError(f"{label} must use http or https")
 
-    hostname = (parsed.hostname or "").lower()
+    hostname = url_hostname(parsed)
 
     # "http:///path" parses to an empty hostname. Never a valid destination,
     # and without this it falls through the ip_address() ValueError branch
@@ -120,10 +148,16 @@ def assert_safe_lan_service_url(url: str, *, label: str) -> None:
     if not hostname:
         raise ValueError(f"{label} must include a hostname")
 
+    # HTTP clients map other dot characters, fullwidth digits and similar
+    # forms to plain ASCII before they connect, so a host the checks below
+    # cannot read is refused rather than let through as a name.
+    if not hostname.isascii():
+        raise ValueError(f"{label} must use an ASCII host name (punycode, xn--..., for international names)")
+
     if hostname in CLOUD_METADATA_HOSTNAMES:
         raise ValueError(f"{label} must not point to a cloud metadata endpoint")
 
-    if NUMERIC_IP_RE.match(hostname):
+    if is_numeric_encoded_ip(hostname):
         raise ValueError(f"{label} must not use numeric-encoded IP addresses; use standard dotted-decimal notation")
 
     try:

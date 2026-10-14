@@ -54,7 +54,16 @@ def _blocked_host_reason(hostname: str) -> str | None:
     accept them, so refusing to understand them here would only mean not seeing
     where the request is actually going.
     """
-    host = hostname.lower()
+    from backend.app.api.routes._url_safety import CLOUD_METADATA_HOSTNAMES, CLOUD_METADATA_IPS, unwrap_ipv4_mapped
+
+    # A trailing dot names the same host to every resolver.
+    host = hostname.lower().rstrip(".")
+
+    # The HTTP clients map other dot characters, fullwidth digits and similar
+    # forms to plain ASCII before they connect: a host not written in ASCII
+    # cannot be judged here, so it is refused.
+    if not host.isascii():
+        return "a host name not written in ASCII (use punycode, xn--...)"
 
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = None
     try:
@@ -73,15 +82,16 @@ def _blocked_host_reason(hostname: str) -> str | None:
         # intermittent local DNS.
         if host == "localhost" or host.endswith(".localhost"):
             return "localhost"
-        if host in ("metadata.google.internal", "metadata.google"):
+        if host in CLOUD_METADATA_HOSTNAMES or host == "metadata.google":
             return "a cloud metadata service"
         return None
 
-    # ::ffff:127.0.0.1 is loopback wearing an IPv6 spelling.
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        ip = mapped
+    # ::ffff:127.0.0.1 is loopback wearing an IPv6 spelling, and a zone id
+    # only hides the address it is attached to.
+    ip = unwrap_ipv4_mapped(ip)
 
+    if ip in CLOUD_METADATA_IPS:
+        return "a cloud metadata service"
     if ip.is_loopback:
         return "loopback"
     if ip.is_unspecified:
