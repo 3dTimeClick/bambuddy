@@ -28,7 +28,10 @@ import re
 from urllib.parse import ParseResult, urlparse
 
 # Cloud-provider metadata endpoints — the classic SSRF credential-exfil
-# targets. Both guards reject these unconditionally.
+# targets. Both guards reject these unconditionally. The documented endpoints
+# of the major providers, so best effort by nature. Those inside
+# 169.254.0.0/16 are also covered by the LAN guard's link-local refusal;
+# 100.100.100.200 and the IPv6 ones are refused only through this list.
 CLOUD_METADATA_IPS = frozenset(
     {
         # AWS / GCP / Azure / Oracle / DigitalOcean IMDS
@@ -37,6 +40,21 @@ CLOUD_METADATA_IPS = frozenset(
         ipaddress.ip_address("100.100.100.200"),
         # AWS IMDS IPv6
         ipaddress.ip_address("fd00:ec2::254"),
+        # Tencent Cloud
+        ipaddress.ip_address("169.254.0.23"),
+        # Scaleway
+        ipaddress.ip_address("169.254.42.42"),
+        ipaddress.ip_address("fd00:42::42"),
+        # Oracle Cloud IMDS IPv6
+        ipaddress.ip_address("fd00:c1::a9fe:a9fe"),
+        # GCP metadata server on IPv6 VMs
+        ipaddress.ip_address("fd20:ce::254"),
+        # Akamai / Linode metadata service IPv6
+        ipaddress.ip_address("fd00:a9fe:a9fe::1"),
+        # AWS EKS Pod Identity Agent IPv6 (its IPv4 address is link-local)
+        ipaddress.ip_address("fd00:ec2::23"),
+        # OpenStack metadata service on IPv6 networks
+        ipaddress.ip_address("fe80::a9fe:a9fe"),
     }
 )
 
@@ -49,6 +67,14 @@ CLOUD_METADATA_HOSTNAMES = frozenset(
     {
         "metadata.google.internal",  # GCP
         "metadata.goog",  # GCP short form
+        "metadata.google",  # GCP
+        # A bare "metadata" is completed to metadata.google.internal by the
+        # resolver's search domain on a GCP VM.
+        "metadata",
+        "instance-data",  # AWS, through the search domain
+        "instance-data.ec2.internal",  # AWS
+        "metadata.tencentyun.com",  # Tencent Cloud
+        "api.metadata.cloud.ibm.com",  # IBM Cloud VPC
     }
 )
 
@@ -121,14 +147,17 @@ def assert_safe_lan_service_url(url: str, *, label: str) -> None:
       ``UnsupportedProtocol`` for ``file://``/``gopher://`` etc., so this is
       about returning a clear validation error at configuration time rather
       than an opaque failure at delivery time.
-    - Numeric-encoded IPv4 (decimal ``2130706433``, hex ``0x7f000001``) —
-      libc and browsers resolve these, but Python's ``ipaddress`` raises
-      ValueError on them, so they would slip past the checks below.
+    - Numeric-encoded IPv4 (decimal ``2130706433``, hex ``0x7f000001``,
+      dotted hex or octal, short forms) — libc and browsers resolve these,
+      but Python's ``ipaddress`` raises ValueError on them, so they would
+      slip past the checks below. Host names not written in ASCII, which
+      HTTP clients map to plain ones before connecting, likewise.
     - Cloud-provider metadata endpoints — the high-value SSRF target, and
-      never a legitimate destination for any of these services.
+      never a legitimate destination for any of these services — and the
+      whole IPv4 link-local range they live in.
     - Multicast and unspecified addresses — pointless as a destination and
       indicative of misuse.
-    - IPv4-mapped IPv6 encodings of any of the above.
+    - IPv4-mapped IPv6 encodings and zone ids of any of the above.
 
     Symbolic hostnames are otherwise accepted without DNS resolution, matching
     the public-internet guard: resolution here would be both a TOCTOU (DNS can
@@ -172,3 +201,10 @@ def assert_safe_lan_service_url(url: str, *, label: str) -> None:
 
     if effective.is_multicast or effective.is_unspecified:
         raise ValueError(f"{label} must not point to a multicast or unspecified address")
+
+    # IPv4 link-local is where cloud providers put their metadata endpoints,
+    # listed above or not; a LAN service has no reason to live there. IPv6
+    # link-local and ULA stay reachable, as real LAN devices use them: the
+    # metadata addresses there are refused one by one through the list.
+    if isinstance(effective, ipaddress.IPv4Address) and effective.is_link_local:
+        raise ValueError(f"{label} must not point to a link-local address (169.254.x.x)")

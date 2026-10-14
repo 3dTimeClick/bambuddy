@@ -285,6 +285,16 @@ class TestTheSameHostsSpelledOtherwise:
             "\u24dcetadata.google.internal",
             "[fd00:ec2::254%251]",
             "[fd00:ec2::254%1]",
+            "metadata",
+            "instance-data",
+            "instance-data.ec2.internal",
+            "metadata.tencentyun.com",
+            "[fd00:42::42]",
+            "[fd00:c1::a9fe:a9fe]",
+            "[fd20:ce::254]",
+            "[fd00:a9fe:a9fe::1]",
+            "[fd00:ec2::23]",
+            "api.metadata.cloud.ibm.com",
         ],
     )
     def test_is_refused(self, host):

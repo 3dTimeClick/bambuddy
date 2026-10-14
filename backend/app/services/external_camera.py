@@ -82,7 +82,7 @@ def _blocked_host_reason(hostname: str) -> str | None:
         # intermittent local DNS.
         if host == "localhost" or host.endswith(".localhost"):
             return "localhost"
-        if host in CLOUD_METADATA_HOSTNAMES or host == "metadata.google":
+        if host in CLOUD_METADATA_HOSTNAMES:
             return "a cloud metadata service"
         return None
 

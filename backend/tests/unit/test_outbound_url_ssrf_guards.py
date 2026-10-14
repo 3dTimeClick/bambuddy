@@ -84,6 +84,25 @@ UNIVERSALLY_BLOCKED = [
     "http://\u24dcetadata.google.internal/",
     "http://metadata\u3002google\u3002internal/",
     "http://0xa9\u30020xfe\u30020xa9\u30020xfe/",
+    # Names that reach the metadata endpoint without a lookup of ours: a short
+    # name the cloud's resolver completes, and the providers' own aliases.
+    "http://metadata/computeMetadata/v1/",
+    "http://metadata.google/",
+    "http://instance-data/latest/meta-data/",
+    "http://instance-data.ec2.internal/latest/meta-data/",
+    "http://INSTANCE-DATA./",
+    "http://metadata.tencentyun.com/latest/meta-data/",
+    # Other providers' metadata addresses.
+    "http://169.254.0.23/",
+    "http://169.254.42.42/conf",
+    "http://[fd00:42::42]/",
+    "http://[fd00:c1::a9fe:a9fe]/",
+    "http://[fd20:ce::254]/computeMetadata/v1/",
+    "http://[fd00:a9fe:a9fe::1]/",
+    "http://[fd00:ec2::23]/v1/credentials",
+    "http://[fe80::a9fe:a9fe]/openstack/",
+    "http://[fe80::a9fe:a9fe%25eth0]/",
+    "http://api.metadata.cloud.ibm.com/metadata/v1/instance",
     # A zone id on an address that is not link-local is ignored on connect.
     "http://[fd00:ec2::254%251]/",
     "http://[fd00:ec2::254%25eth0]/",
@@ -720,10 +739,24 @@ def test_classification_lists_do_not_drift_from_the_routes():
         "169.254.169.254.",
         "metadata.google.internal.",
         "127\u30020\u30020\u30021",
+        "metadata",
+        "instance-data.ec2.internal",
         "169\uff0e254\uff0e169\uff0e254",
+        "api.metadata.cloud.ibm.com",
     ],
 )
 def test_public_tier_rejects_other_ipv4_notations_over_https(host: str):
     """Over https, so the scheme check cannot be what refuses them."""
     with pytest.raises(ValueError):
         assert_safe_public_https_url(f"https://{host}/icon.png")
+
+
+@pytest.mark.parametrize("host", ["169.254.1.1", "169.254.99.7", "169.254.255.254", "[::ffff:169.254.10.10]"])
+def test_lan_tier_refuses_the_whole_ipv4_link_local_range(host: str):
+    """Where cloud providers put their metadata endpoints, listed or not."""
+    with pytest.raises(ValueError):
+        assert_safe_lan_service_url(f"http://{host}/", label="URL")
+
+
+def test_lan_tier_still_permits_ipv6_link_local():
+    assert_safe_lan_service_url("http://[fe80::1]:8123/", label="URL")

@@ -10,6 +10,7 @@ import ipaddress
 import pytest
 
 from backend.app.api.routes._url_safety import (
+    CLOUD_METADATA_HOSTNAMES,
     CLOUD_METADATA_IPS,
     is_numeric_encoded_ip,
     unwrap_ipv4_mapped,
@@ -86,3 +87,7 @@ def test_unwrap_drops_a_zone_id():
     result = unwrap_ipv4_mapped(ipaddress.ip_address("fd00:ec2::254%251"))
     assert result == ipaddress.ip_address("fd00:ec2::254")
     assert result in CLOUD_METADATA_IPS
+
+
+def test_cloud_metadata_names_include_the_short_and_alias_forms():
+    assert {"metadata", "metadata.google", "instance-data", "instance-data.ec2.internal"} <= CLOUD_METADATA_HOSTNAMES

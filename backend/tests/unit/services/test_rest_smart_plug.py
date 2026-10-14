@@ -59,11 +59,10 @@ class TestURLValidation:
         """
         assert service._validate_url("http://127.0.0.1/api") is True
 
-    def test_link_local_allowed(self, service):
-        """Also deliberate: a generic APIPA address is a LAN host like any
-        other. The cloud-metadata address inside that range is blocked by
-        name, not by rejecting the whole /16 — see test_metadata_blocked."""
-        assert service._validate_url("http://169.254.1.1/api") is True
+    def test_link_local_refused(self, service):
+        """The IPv4 link-local range is where cloud providers put their
+        metadata endpoints, listed or not, so the whole /16 is refused."""
+        assert service._validate_url("http://169.254.1.1/api") is False
 
     @pytest.mark.parametrize(
         "url",
