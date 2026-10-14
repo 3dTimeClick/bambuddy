@@ -17,7 +17,7 @@ import shutil
 import socket
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import aiohttp
 
@@ -535,6 +535,51 @@ async def _capture_usb_frame(device: str, timeout: int) -> bytes | None:
         return None
 
 
+# Redirects a camera URL may take before the fetch gives up.
+_MAX_CAMERA_REDIRECTS = 5
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
+
+def _with_same_camera_login(current: str, target: str) -> str:
+    """*target* with the login of *current* when it is the same camera (scheme,
+    host and port) and names no login of its own, as the HTTP client kept it."""
+    here, there = urlparse(current), urlparse(target)
+    if there.username or not here.username:
+        return target
+    if (here.scheme, here.hostname, here.port) != (there.scheme, there.hostname, there.port):
+        return target
+    return there._replace(netloc=f"{here.netloc.rsplit('@', 1)[0]}@{there.netloc}").geturl()
+
+
+@contextlib.asynccontextmanager
+async def _get_camera_url(session: aiohttp.ClientSession, url: str, schemes: tuple[str, ...]):
+    """GET a sanitized camera URL, following redirects only where the camera
+    guard allows: each destination is checked as the URL itself was. Yields
+    the response, or None when a redirect goes somewhere refused or never ends.
+    """
+    current = url
+    for _ in range(_MAX_CAMERA_REDIRECTS + 1):
+        async with session.get(current, allow_redirects=False) as response:
+            location = response.headers.get("Location") if response.status in _REDIRECT_STATUSES else None
+            if location is None:
+                yield response
+                return
+        try:
+            target = _sanitize_camera_url(_with_same_camera_login(current, urljoin(current, location)), schemes)
+        except ValueError:
+            # A malformed Location (bad IPv6 literal, port out of range).
+            target = None
+        if target is None:
+            logger.error(
+                "Camera URL redirected to a refused destination: %s", (redact_url_credentials(location) or "")[:50]
+            )
+            yield None
+            return
+        current = target
+    logger.error("Camera URL redirected more than %d times", _MAX_CAMERA_REDIRECTS)
+    yield None
+
+
 async def _capture_mjpeg_frame(url: str, timeout: int) -> bytes | None:
     """Extract a single representative frame from an MJPEG stream.
 
@@ -564,9 +609,12 @@ async def _capture_mjpeg_frame(url: str, timeout: int) -> bytes | None:
 
     try:
         async with (
+            asyncio.timeout(timeout),
             aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session,
-            session.get(safe_url) as response,
+            _get_camera_url(session, safe_url, ("http", "https")) as response,
         ):
+            if response is None:
+                return None
             if response.status != 200:
                 logger.error("MJPEG stream returned status %s", response.status)
                 return None
@@ -735,8 +783,8 @@ def _transcode_to_jpeg(data: bytes) -> bytes | None:
     (plate detection, Obico, finish photo) working.
 
     Returns None if the bytes are not a decodable image (e.g. an HTML error page)
-    or if the imaging libraries are unavailable — callers fall back to the raw
-    bytes so behaviour is never worse than before.
+    or if the imaging libraries are unavailable; the caller then has no image.
+    The raw bytes are not passed on: a URL's response is not a camera frame.
     """
     try:
         import cv2
@@ -770,10 +818,15 @@ async def _capture_snapshot(url: str, timeout: int) -> bytes | None:
         return None
 
     try:
+        # One deadline for every redirect and the read, as the client's own
+        # timeout covered them when it followed redirects itself.
         async with (
+            asyncio.timeout(timeout),
             aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session,
-            session.get(safe_url) as response,
+            _get_camera_url(session, safe_url, ("http", "https")) as response,
         ):
+            if response is None:
+                return None
             if response.status != 200:
                 logger.error("Snapshot URL returned status %s", response.status)
                 return None
@@ -804,15 +857,15 @@ async def _capture_snapshot(url: str, timeout: int) -> bytes | None:
         return transcoded
 
     # Couldn't decode it as an image at all — most likely not an image response
-    # (HTML error page, auth redirect, wrong URL). Return the raw bytes as a last
-    # resort (unchanged behaviour) but log enough to debug.
+    # (HTML error page, auth redirect, wrong URL). Not passed on: whatever a URL
+    # returns would reach the viewer of the camera stream.
     logger.warning(
         "External camera snapshot is not a decodable image "
         "(%d bytes, header %s) — verify the camera URL returns an image",
         len(data),
         data[:4].hex(),
     )
-    return data
+    return None
 
 
 async def test_connection(url: str, camera_type: str) -> dict:
@@ -1014,7 +1067,12 @@ async def _stream_mjpeg(url: str) -> AsyncGenerator[bytes, None]:
 
     try:
         timeout = aiohttp.ClientTimeout(total=None, sock_read=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session, session.get(safe_url) as response:
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            _get_camera_url(session, safe_url, ("http", "https")) as response,
+        ):
+            if response is None:
+                return
             if response.status != 200:
                 logger.error("MJPEG stream returned status %s", response.status)
                 return

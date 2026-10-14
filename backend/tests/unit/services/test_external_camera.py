@@ -30,6 +30,7 @@ class _FakeMjpegResponse:
         self._chunks = list(chunks)
         self._raise_after = raise_after
         self._raise_exc = raise_exc
+        self.headers = {}
         self.content = self  # the function calls `response.content.iter_chunked(...)`
 
     def iter_chunked(self, _size):  # noqa: ARG002 — chunk size is informational
@@ -59,7 +60,7 @@ class _FakeMjpegSession:
     def __init__(self, response):
         self._response = response
 
-    def get(self, _url):
+    def get(self, _url, **_kwargs):
         return self._response
 
     async def __aenter__(self):
@@ -615,6 +616,7 @@ def _fake_snapshot_session(body: bytes, status: int = 200):
     class _Resp:
         def __init__(self):
             self.status = status
+            self.headers = {}
 
         async def __aenter__(self):
             return self
@@ -635,7 +637,7 @@ def _fake_snapshot_session(body: bytes, status: int = 200):
         async def __aexit__(self, *a):
             return False
 
-        def get(self, _url):
+        def get(self, _url, **_kwargs):
             return _Resp()
 
     return _Session
@@ -696,12 +698,12 @@ class TestSnapshotTranscode:
         assert out == jpeg  # identical object bytes — proves no transcode ran
 
     @pytest.mark.asyncio
-    async def test_capture_snapshot_non_image_falls_back_to_raw(self):
-        """Undecodable (non-image) responses return the raw bytes unchanged, so
-        behaviour is never worse than before the fix."""
+    async def test_capture_snapshot_non_image_is_not_passed_on(self):
+        """An undecodable (non-image) response is no frame: whatever a URL
+        returns would otherwise reach the viewer of the camera stream."""
         from backend.app.services import external_camera as ec
 
         html = b"<html><body>unauthorized</body></html>"
         with patch.object(ec.aiohttp, "ClientSession", _fake_snapshot_session(html)):
             out = await ec._capture_snapshot("http://192.168.50.50/snapshot", 10)
-        assert out == html
+        assert out is None
