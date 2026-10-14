@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.app.core.logging_filters import redact_url_credentials
+
 SECRET_PLACEHOLDER = "********"
 
 # The config fields that hold a credential, per provider type. For Discord and
@@ -123,7 +125,39 @@ SETTINGS_SECRETS: dict[str, tuple[str, ...]] = {
     "ldap_bind_password": ("ldap_server_url", "ldap_security"),
 }
 
+# Settings rows that hold a credential, by name: a Git backup writes them as
+# the placeholder and a restore never writes them. By hint rather than by list,
+# so a credential setting added later is covered by default.
+SECRET_SETTING_KEY_HINTS = ("token", "secret", "password", "access_code", "api_key", "passphrase", "verifier")
+
+
+def is_secret_setting_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(hint in lowered for hint in SECRET_SETTING_KEY_HINTS)
+
+
 REST_PLUG_URLS = ("rest_on_url", "rest_off_url", "rest_status_url", "rest_power_url", "rest_energy_url")
+
+# Slicer preset keys holding a printer connection's credentials (for a LAN
+# printer, its access code). Slicer cloud sync carries them.
+PRESET_SECRET_KEYS = ("printhost_apikey", "printhost_password", "printhost_user")
+
+
+def _mask_url_logins(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_url_credentials(value)
+    if isinstance(value, list):
+        return [_mask_url_logins(item) for item in value]
+    return value
+
+
+def mask_preset(content: Any) -> Any:
+    """A slicer preset with its connection credentials shown as the placeholder
+    and the login in any of its URLs masked."""
+    if not isinstance(content, dict):
+        return content
+    return {key: _mask_url_logins(value) for key, value in mask_fields(content, PRESET_SECRET_KEYS).items()}
+
 
 # Smart plug secrets and the fields that decide where each is sent.
 SMART_PLUG_SECRETS: dict[str, tuple[str, ...]] = {

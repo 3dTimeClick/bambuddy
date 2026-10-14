@@ -12,6 +12,7 @@ from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.database import async_session
+from backend.app.core.logging_filters import URL_CREDENTIALS_PATTERN
 from backend.app.models.archive import PrintArchive
 from backend.app.models.github_backup import GitHubBackupConfig, GitHubBackupLog
 from backend.app.models.printer import Printer
@@ -21,6 +22,7 @@ from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
 from backend.app.services.git_providers.factory import get_provider_backend
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.secret_fields import SECRET_PLACEHOLDER, is_secret_setting_key, mask_preset
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,8 @@ def _bambu_preset_record(setting_id, our_type: str, entry: dict, detail: dict) -
 
     ``user_id`` from the listing is deliberately dropped. It identifies the
     account and adds nothing to a rebuild, and backup repositories can be
-    public.
+    public. A printer connection's credentials in ``setting`` are shown as
+    the placeholder.
     """
     return {
         "setting_id": str(setting_id),
@@ -53,7 +56,7 @@ def _bambu_preset_record(setting_id, our_type: str, entry: dict, detail: dict) -
         "updated_time": entry.get("updated_time"),
         "base_id": detail.get("base_id"),
         "filament_id": detail.get("filament_id"),
-        "setting": detail.get("setting") or {},
+        "setting": mask_preset(detail.get("setting") or {}),
     }
 
 
@@ -62,14 +65,15 @@ def _orca_profile_record(entry: dict) -> dict:
 
     ``content`` is kept whole rather than picked apart: it is the profile, the
     sync API hands it over inline, and Orca owns its shape. Narrowing it here
-    would mean guessing which keys a future restore needs.
+    would mean guessing which keys a future restore needs. A printer
+    connection's credentials are the exception: shown as the placeholder.
     """
     return {
         "id": str(entry.get("id")) if entry.get("id") is not None else None,
         "name": entry.get("name"),
         "updated_time": entry.get("updated_time"),
         "created_time": entry.get("created_time"),
-        "content": entry.get("content"),
+        "content": mask_preset(entry.get("content")),
     }
 
 
@@ -742,9 +746,16 @@ class GitHubBackupService:
         result = await db.execute(select(Settings))
         settings = result.scalars().all()
 
-        # Filter out sensitive settings
-        sensitive_keys = {"bambu_cloud_token", "auth_secret_key", "manyfold_client_secret"}
-        settings_data = {s.key: s.value for s in settings if s.key not in sensitive_keys}
+        # A credential is written as the placeholder when set (blank counts as
+        # unset, as it does for the restore), so the restore can still tell
+        # whether a switch had one. A URL with a login in it is
+        # left out: masked, it would be restored over a working one.
+        settings_data = {}
+        for s in settings:
+            if is_secret_setting_key(s.key):
+                settings_data[s.key] = SECRET_PLACEHOLDER if (s.value or "").strip() else s.value
+            elif not URL_CREDENTIALS_PATTERN.search(s.value or ""):
+                settings_data[s.key] = s.value
 
         files["settings/app_settings.json"] = {
             "version": "1.0",

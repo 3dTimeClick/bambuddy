@@ -54,8 +54,10 @@ from backend.app.models.spool import Spool
 from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
 from backend.app.schemas.github_backup import RestoreCategory
+from backend.app.schemas.settings import AppSettings
 from backend.app.services.git_providers.factory import get_provider_backend
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.secret_fields import SETTINGS_SECRETS, SMTP_DESTINATIONS, is_secret_setting_key
 
 logger = logging.getLogger(__name__)
 
@@ -68,19 +70,13 @@ ARCHIVES_PATH = "archives/print_history.json"
 # kprofiles/{printer_serial}/{nozzle_diameter}.json
 _KPROFILE_PATH_RE = re.compile(r"^kprofiles/([^/]+)/([^/]+)\.json$")
 
-# Settings keys the backup collector already refuses to write. Applied again on
-# the read side because a backup taken before that denylist existed can still
-# contain them, and a restore must not resurrect a stale credential.
-_SENSITIVE_SETTING_KEYS = {"bambu_cloud_token", "auth_secret_key"}
-
-# The primary refusal, not a backstop for the set above. The collector filters
-# exactly bambu_cloud_token and auth_secret_key, so every other credential —
-# mqtt_password, ldap_bind_password, ha_token, prometheus_token — is present in
-# a current backup and is skipped only because its key matches a hint here.
-# _COMPANION_CREDENTIALS sits downstream of that: it withholds a toggle when the
-# credential it needs was refused, so shortening this tuple would both write a
-# stale credential and quietly make that rule inert.
-_SECRET_KEY_HINTS = ("token", "secret", "password", "access_code", "api_key", "passphrase")
+# Settings keys holding a credential are refused by name (is_secret_setting_key,
+# shared with the backup collector). A current backup carries them only as the
+# placeholder; one taken before that can still hold the values, and a restore
+# must not resurrect a stale credential. _COMPANION_CREDENTIALS sits downstream
+# of that: it withholds a toggle when the credential it needs was refused, so
+# narrowing the predicate would both write a stale credential and quietly make
+# that rule inert.
 
 # Settings the MQTT relay reads only when it is (re)configured, so restoring the
 # rows is not enough on its own. Mirrors the set the settings PUT handler
@@ -191,8 +187,7 @@ def _created_at_matches(row, created_at: datetime | None) -> bool:
 
 
 def _is_blocked_setting_key(key: str) -> bool:
-    lowered = key.lower()
-    return key in _SENSITIVE_SETTING_KEYS or any(hint in lowered for hint in _SECRET_KEY_HINTS)
+    return is_secret_setting_key(key)
 
 
 def _is_protected_setting_key(key: str) -> bool:
@@ -267,6 +262,17 @@ _COMPANION_CREDENTIAL_ENV = {"ha_token": "HA_TOKEN"}
 # skips this condition and is judged on local state alone.
 _COMPANION_EXPOSURE_TOGGLES = frozenset({"prometheus_enabled"})
 
+# Setting -> the credentials it decides the destination of. smtp_use_tls
+# decides the SMTP security mode when smtp_security is not set.
+_DESTINATION_SECRETS: dict[str, tuple[str, ...]] = {}
+for _secret, _fields in {
+    **SETTINGS_SECRETS,
+    "smtp_password": (*SMTP_DESTINATIONS, "smtp_use_tls"),
+    "manyfold_client_secret": ("manyfold_url",),
+}.items():
+    for _field in _fields:
+        _DESTINATION_SECRETS[_field] = (*_DESTINATION_SECRETS.get(_field, ()), _secret)
+
 
 def _setting_value_is_true(value: object) -> bool:
     """True if a settings *payload* value would be stored as "on".
@@ -281,6 +287,15 @@ def _setting_value_is_true(value: object) -> bool:
     if value is None:
         return False
     return str(value).strip().lower() == "true"
+
+
+def _as_setting_text(value: object) -> str:
+    """A setting as its row stores it, so a backup value compares with a local one."""
+    if value is None:
+        return ""
+    if isinstance(value, bool) or str(value).lower() in ("true", "false"):
+        return str(value).lower()
+    return str(value)
 
 
 def _is_usable_credential(value: object) -> bool:
@@ -302,20 +317,27 @@ class _SettingsPlan:
     change. The companion bucket is why this needs a session at all: unlike the
     two name-based buckets it depends on local database state.
 
-    The three buckets are disjoint — a key is classified once, in order.
+    The buckets are disjoint — a key is classified once, in order. The
+    destination bucket depends on local state as well.
     """
 
     blocked: tuple[str, ...] = ()
     protected: tuple[str, ...] = ()
     companion: tuple[str, ...] = ()
+    destination: tuple[str, ...] = ()
 
     @property
     def refused(self) -> frozenset[str]:
-        return frozenset(self.blocked) | frozenset(self.protected) | frozenset(self.companion)
+        return (
+            frozenset(self.blocked)
+            | frozenset(self.protected)
+            | frozenset(self.companion)
+            | frozenset(self.destination)
+        )
 
     @property
     def refused_count(self) -> int:
-        return len(self.blocked) + len(self.protected) + len(self.companion)
+        return len(self.blocked) + len(self.protected) + len(self.companion) + len(self.destination)
 
 
 @dataclass(frozen=True)
@@ -506,7 +528,7 @@ class GitHubRestoreService:
             if not _setting_value_is_true(value):
                 continue
             # Expressed as the predicate rather than assumed, so the map cannot
-            # go quietly inert if _SECRET_KEY_HINTS is ever edited: a credential
+            # go quietly inert if the secret hints are ever edited: a credential
             # the restore is willing to write travels with its toggle.
             if not _is_blocked_setting_key(credential):
                 continue
@@ -521,11 +543,20 @@ class GitHubRestoreService:
                 continue
             candidates[key] = credential
 
-        if not candidates:
+        # Settings that decide where a credential is sent, which the payload
+        # sets. Judged against local state below.
+        destinations = {
+            key: secrets
+            for key, value in values.items()
+            if value is not None and (secrets := _DESTINATION_SECRETS.get(key)) and key not in protected
+        }
+
+        if not candidates and not destinations:
             return _SettingsPlan(blocked=tuple(blocked), protected=tuple(protected))
 
         # One SELECT covering both halves of every candidate pair.
-        wanted = set(candidates) | set(candidates.values())
+        wanted = set(candidates) | set(candidates.values()) | set(destinations)
+        wanted |= {secret for secrets in destinations.values() for secret in secrets}
         rows = await db.execute(select(Settings).where(Settings.key.in_(wanted)))
         local = {row.key: row.value for row in rows.scalars().all()}
 
@@ -543,10 +574,40 @@ class GitHubRestoreService:
                 continue
             companion.append(toggle)
 
+        # A credential kept here does not follow a destination the backup
+        # changes, as the settings editor refuses the same change without the
+        # credential entered again. A token from the environment is the
+        # deployment's own and may follow, as it may there.
+        destination: list[str] = []
+        for key, secrets in destinations.items():
+            kept = [
+                secret
+                for secret in secrets
+                if _is_usable_credential(local.get(secret))
+                and not (
+                    (env_name := _COMPANION_CREDENTIAL_ENV.get(secret))
+                    and _is_usable_credential(os.environ.get(env_name))
+                )
+            ]
+            if not kept:
+                continue
+            if key in local:
+                current = local[key]
+            elif key in AppSettings.model_fields:
+                current = AppSettings.model_fields[key].get_default(call_default_factory=True)
+            else:
+                # No row and no schema default: nothing to compare with, so
+                # counted as a change.
+                destination.append(key)
+                continue
+            if _as_setting_text(values[key]) != _as_setting_text(current):
+                destination.append(key)
+
         return _SettingsPlan(
             blocked=tuple(blocked),
             protected=tuple(protected),
             companion=tuple(companion),
+            destination=tuple(destination),
         )
 
     async def preview(self, db: AsyncSession, config: GitHubBackupConfig, ref: str = "HEAD") -> dict:
@@ -658,7 +719,14 @@ class GitHubRestoreService:
             # policy keys stay unmentioned on purpose.
             plan = await self._plan_settings(db, values)
             detail = None
-            if plan.companion and not plan.blocked:
+            if plan.destination:
+                detail = _Detail(
+                    "settingsDestinationWillKeep",
+                    f"{len(plan.destination)} setting(s) will be left as they are - they would send a credential "
+                    "stored here somewhere else; credentials are never restored",
+                    {"destination": len(plan.destination)},
+                )
+            elif plan.companion and not plan.blocked:
                 # An exposure toggle becomes a candidate whether or not the
                 # backup carried its credential, so this commit can refuse a
                 # switch without having a single credential-like key to skip —
@@ -1636,6 +1704,15 @@ class GitHubRestoreService:
                 "integration unauthenticated",
                 keys=keys,
                 count=len(plan.companion),
+            )
+        if plan.destination:
+            keys = ", ".join(sorted(plan.destination))
+            tally.note(
+                "settingsDestinationKept",
+                f"{keys} left as they are - this instance has a stored credential that would otherwise be sent "
+                "to the address in the backup. Change them in Settings and enter the credential again.",
+                keys=keys,
+                count=len(plan.destination),
             )
 
     async def _reconfigure_mqtt_relay(self, db: AsyncSession, keys_written: set[str], tally: _CategoryTally) -> None:

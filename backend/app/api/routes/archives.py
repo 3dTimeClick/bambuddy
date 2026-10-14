@@ -1495,7 +1495,7 @@ async def _sum_live_plug_totals(db: AsyncSession) -> float:
     available so this can't be date-filtered — use `_sum_snapshot_deltas` for
     that case.
     """
-    from backend.app.api.routes.settings import get_setting
+    from backend.app.api.routes.settings import get_homeassistant_settings
     from backend.app.models.smart_plug import SmartPlug
     from backend.app.services.homeassistant import homeassistant_service
     from backend.app.services.mqtt_relay import mqtt_relay
@@ -1505,9 +1505,8 @@ async def _sum_live_plug_totals(db: AsyncSession) -> float:
     plugs_result = await db.execute(select(SmartPlug))
     plugs = list(plugs_result.scalars().all())
 
-    ha_url = await get_setting(db, "ha_url") or ""
-    ha_token = await get_setting(db, "ha_token") or ""
-    homeassistant_service.configure(ha_url, ha_token)
+    ha_settings = await get_homeassistant_settings(db)
+    homeassistant_service.configure(ha_settings["ha_url"], ha_settings["ha_token"])
 
     total = 0.0
     for plug in plugs:
