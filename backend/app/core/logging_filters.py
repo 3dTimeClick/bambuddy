@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from urllib.parse import urlsplit
 
 # ``scheme://user:secret@host`` — the only URL shape that carries a secret.
 # Both userinfo parts exclude ``/`` so the match can never run past the
@@ -92,6 +93,65 @@ def redact_query_tokens(text: str | None) -> str | None:
     if not text or "=" not in text:
         return text
     return QUERY_TOKEN_PATTERN.sub(r"\g<key>[REDACTED]", text)
+
+
+# Loggers whose lines name a device by its whole URL, where the path or query
+# can be the device's credential in a shape no pattern recognises (a webhook id,
+# an ``auth_key``). Read back, their URLs are reduced to scheme and host.
+HOST_ONLY_LOGGERS = ("backend.app.services.rest_smart_plug", "httpx")
+
+# Runs to whitespace only: a quote or angle bracket may sit inside a stored
+# URL, and ending there would leave the rest of it in the line.
+_URL_IN_TEXT = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]{0,63}://\S+")
+
+
+def url_host_only(url: str | None) -> str:
+    """A URL reduced to scheme and host (with port) for a log line.
+
+    The login, path, query and fragment go. An ``@`` after the part the parser
+    took for the host means a login it could not find (an unencoded ``?``,
+    ``/`` or ``#`` in the password): that part may then hold the login, so it
+    goes as well.
+    """
+    try:
+        parts = urlsplit(url or "")
+    except ValueError:
+        return "<invalid URL>"
+    if not parts.scheme or not parts.netloc:
+        return "<invalid URL>"
+    if "@" in (url or "")[len(parts.scheme) + 3 + len(parts.netloc) :]:
+        return f"{parts.scheme}://<hidden>"
+    return f"{parts.scheme}://{parts.netloc.rsplit('@', 1)[-1]}"
+
+
+# Masked to the end of the line, in lines from those loggers: the REST plug
+# service's messages carry raw input (a refused URL, unparsed headers) or an
+# error's own text, which may quote a URL or a header's value. Covers every
+# message it has logged.
+_MASKED_TAILS = re.compile(r"(invalid URL: |headers JSON: |returned error: |REST smart plug at \S+?: ).*")
+
+
+# An HTTP client refusing a header quotes the header's value, commonly a token,
+# whichever service sent it: masked to the end of the line.
+_REFUSED_HEADER = re.compile(r"(Illegal header (?:value|name) ).*")
+
+
+def redact_refused_headers(text: str | None) -> str | None:
+    """Mask the header an HTTP client quotes when it refuses one."""
+    if not text or "Illegal header" not in text:
+        return text
+    return _REFUSED_HEADER.sub(r"\1[REDACTED]", text)
+
+
+def redact_device_urls(text: str | None) -> str | None:
+    """Every URL in *text* reduced to :func:`url_host_only`, and the tails in
+    ``_MASKED_TAILS`` masked."""
+    if not text:
+        return text
+    text = _MASKED_TAILS.sub(r"\1[REDACTED]", text)
+    if "://" not in text:
+        return text
+    return _URL_IN_TEXT.sub(lambda match: url_host_only(match.group(0)), text)
 
 
 class QueryTokenRedactFilter(logging.Filter):

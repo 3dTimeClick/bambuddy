@@ -32,6 +32,7 @@ from backend.app.schemas.smart_plug import (
     SmartPlugCreate,
     SmartPlugEnergy,
     SmartPlugResponse,
+    SmartPlugResponseWithSecret,
     SmartPlugStatus,
     SmartPlugTestConnection,
     SmartPlugUpdate,
@@ -60,22 +61,37 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/smart-plugs", tags=["smart-plugs"])
 
+# Whether the caller may edit plugs, and so gets the REST URLs and bodies.
+CallerEditsPlugs = Depends(probe_permissions_if_auth_enabled(Permission.SMART_PLUGS_UPDATE))
 
-@router.get("/", response_model=list[SmartPlugResponse])
+
+def _serialize_plug(plug: SmartPlug, *, can_edit: bool) -> SmartPlugResponse:
+    """The response shape that matches the caller's authority.
+
+    Routes returning it declare no response_model: validating the reader shape
+    again would run the REST URL checks on the fields it leaves out.
+    """
+    if can_edit:
+        return SmartPlugResponseWithSecret.model_validate(plug)
+    return SmartPlugResponse.model_validate(plug)
+
+
+@router.get("/", response_model=None)
 async def list_smart_plugs(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
+    can_edit: bool = CallerEditsPlugs,
 ):
     """List all smart plugs, minus those powering printers the caller can't see (#1727)."""
     query = select(SmartPlug).order_by(SmartPlug.name)
     if (clause := printer_scope.where(SmartPlug.printer_id)) is not None:
         query = query.where(clause)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    return [_serialize_plug(plug, can_edit=can_edit) for plug in result.scalars().all()]
 
 
-@router.post("/", response_model=SmartPlugResponse)
+@router.post("/", response_model=SmartPlugResponseWithSecret)
 async def create_smart_plug(
     data: SmartPlugCreate,
     db: AsyncSession = Depends(get_db),
@@ -260,11 +276,12 @@ async def _plugs_for_printer(db: AsyncSession, printer_id: int) -> list[SmartPlu
     return list(result.scalars().all())
 
 
-@router.get("/by-printer/{printer_id}", response_model=SmartPlugResponse | None)
+@router.get("/by-printer/{printer_id}", response_model=None)
 async def get_smart_plug_by_printer(
     printer_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.SMART_PLUGS_READ),
+    can_edit: bool = CallerEditsPlugs,
 ):
     """Get the main smart plug assigned to a printer.
 
@@ -272,7 +289,8 @@ async def get_smart_plug_by_printer(
     script -- returns the one that best fits the card's power controls. See
     ``_main_plug_rank`` for the order and why.
     """
-    return _pick_main_plug(await _plugs_for_printer(db, printer_id))
+    plug = _pick_main_plug(await _plugs_for_printer(db, printer_id))
+    return _serialize_plug(plug, can_edit=can_edit) if plug else None
 
 
 @router.get("/by-printer/{printer_id}/scripts", response_model=list[SmartPlugResponse])
@@ -546,22 +564,23 @@ async def list_ha_sensor_entities(
     return [HASensorEntity(**s) for s in sensors]
 
 
-@router.get("/{plug_id}", response_model=SmartPlugResponse)
+@router.get("/{plug_id}", response_model=None)
 async def get_smart_plug(
     plug_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
+    can_edit: bool = CallerEditsPlugs,
 ):
     """Get a specific smart plug."""
     result = await db.execute(select(SmartPlug).where(SmartPlug.id == plug_id))
     plug = result.scalar_one_or_none()
     if not plug or not printer_scope.allows(plug.printer_id):
         raise HTTPException(404, "Smart plug not found")
-    return plug
+    return _serialize_plug(plug, can_edit=can_edit)
 
 
-@router.patch("/{plug_id}", response_model=SmartPlugResponse)
+@router.patch("/{plug_id}", response_model=SmartPlugResponseWithSecret)
 async def update_smart_plug(
     plug_id: int,
     data: SmartPlugUpdate,
