@@ -33,6 +33,7 @@ from backend.app.core.printer_scope import PrinterScope
 from backend.app.models.archive import PrintArchive
 from backend.app.models.filament import Filament
 from backend.app.models.printer import Printer
+from backend.app.models.project import Project
 from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
 from backend.app.schemas.archive import ArchiveResponse, ArchiveSlim, ArchiveStats, ArchiveUpdate
@@ -1901,6 +1902,18 @@ async def update_archive(
     previous_filament_grams = archive.filament_used_grams
 
     update_payload = update_data.model_dump(exclude_unset=True)
+    # A new printer must be one the caller may use (as on upload), and both
+    # targets must exist. None clears either: a printer-less archive is in
+    # every scope, like one uploaded without a printer.
+    new_printer_id = update_payload.get("printer_id")
+    if new_printer_id is not None and new_printer_id != archive.printer_id:
+        printer_scope.ensure(new_printer_id)
+        if await db.get(Printer, new_printer_id) is None:
+            raise HTTPException(400, "Printer not found")
+    new_project_id = update_payload.get("project_id")
+    if new_project_id is not None and new_project_id != archive.project_id:
+        if await db.get(Project, new_project_id) is None:
+            raise HTTPException(400, "Project not found")
     # #1898: how the verdict arrived is recorded with it, never on its own.
     verdict_source = update_payload.pop("user_verdict_source", None)
     for field, value in update_payload.items():
