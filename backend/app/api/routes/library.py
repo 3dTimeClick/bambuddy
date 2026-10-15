@@ -160,6 +160,27 @@ def _ensure_library_file_visible(
     return library_file
 
 
+async def _linkable_archives(db: AsyncSession, archive_ids, printer_scope: PrinterScope) -> dict[int, str | None]:
+    """Print names of the archives among ``archive_ids`` on the caller's printers.
+
+    A folder's link to any other archive reads as no link, and linking one
+    answers as for a missing archive.
+    """
+    ids = {i for i in archive_ids if i}
+    if not ids:
+        return {}
+    query = select(PrintArchive.id, PrintArchive.print_name).where(PrintArchive.id.in_(ids))
+    if (clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        query = query.where(clause)
+    return dict((await db.execute(query)).all())
+
+
+def _archive_link(archive_id: int | None, archives: dict[int, str | None]) -> dict:
+    if archive_id not in archives:
+        return {"archive_id": None, "archive_name": None}
+    return {"archive_id": archive_id, "archive_name": archives[archive_id]}
+
+
 def _own_files_filter(user: User | None) -> list:
     """Extra WHERE terms that count only ``user``'s files, for a read_own user.
 
@@ -993,6 +1014,7 @@ async def list_folders(
             Permission.LIBRARY_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get all folders as a tree structure.
 
@@ -1008,12 +1030,12 @@ async def list_folders(
 
     # Get all folders with project and archive joins
     result = await db.execute(
-        select(LibraryFolder, Project.name, PrintArchive.print_name)
+        select(LibraryFolder, Project.name)
         .outerjoin(Project, LibraryFolder.project_id == Project.id)
-        .outerjoin(PrintArchive, LibraryFolder.archive_id == PrintArchive.id)
         .order_by(LibraryFolder.name)
     )
     rows = [row for row in result.all() if visible is None or row[0].id in visible]
+    archives = await _linkable_archives(db, [row[0].archive_id for row in rows], printer_scope)
     own_files = _own_files_filter(user)
 
     # Get file counts per folder
@@ -1047,7 +1069,7 @@ async def list_folders(
     folder_map = {}
     root_folders = []
 
-    for folder, project_name, archive_name in rows:
+    for folder, project_name in rows:
         own_activity = folder.fs_modified_at or folder.updated_at
         latest_file = latest_file_activity.get(folder.id)
         if latest_file is not None and latest_file > own_activity:
@@ -1057,9 +1079,8 @@ async def list_folders(
             name=folder.name,
             parent_id=folder.parent_id,
             project_id=folder.project_id,
-            archive_id=folder.archive_id,
             project_name=project_name,
-            archive_name=archive_name,
+            **_archive_link(folder.archive_id, archives),
             is_external=folder.is_external,
             external_path=folder.external_path,
             external_readonly=folder.external_readonly,
@@ -1071,7 +1092,7 @@ async def list_folders(
         folder_map[folder.id] = folder_item
 
     # Link children to parents
-    for folder, _, _ in rows:
+    for folder, _ in rows:
         folder_item = folder_map[folder.id]
         if folder.parent_id is None:
             root_folders.append(folder_item)
@@ -1113,6 +1134,7 @@ async def get_folders_by_project(
             Permission.LIBRARY_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get all folders linked to a specific project, those the user may see (#3201)."""
     user, _ = auth_result
@@ -1126,6 +1148,7 @@ async def get_folders_by_project(
         .order_by(LibraryFolder.name)
     )
     rows = [row for row in result.all() if visible is None or row[0].id in visible]
+    archives = await _linkable_archives(db, [row[0].archive_id for row in rows], printer_scope)
 
     folders = []
     for folder, project_name in rows:
@@ -1152,9 +1175,8 @@ async def get_folders_by_project(
                 name=folder.name,
                 parent_id=folder.parent_id,
                 project_id=folder.project_id,
-                archive_id=folder.archive_id,
                 project_name=project_name,
-                archive_name=None,
+                **_archive_link(folder.archive_id, archives),
                 is_external=folder.is_external,
                 external_path=folder.external_path,
                 external_readonly=folder.external_readonly,
@@ -1180,22 +1202,23 @@ async def get_folders_by_archive(
             Permission.LIBRARY_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get all folders linked to a specific archive, those the user may see (#3201)."""
     user, _ = auth_result
+    archives = await _linkable_archives(db, [archive_id], printer_scope)
+    if archive_id not in archives:
+        return []
     index = await _load_index(db, user)
     visible = visible_folder_ids(index, user)
     own_files = _own_files_filter(user)
     result = await db.execute(
-        select(LibraryFolder, PrintArchive.print_name)
-        .outerjoin(PrintArchive, LibraryFolder.archive_id == PrintArchive.id)
-        .where(LibraryFolder.archive_id == archive_id)
-        .order_by(LibraryFolder.name)
+        select(LibraryFolder).where(LibraryFolder.archive_id == archive_id).order_by(LibraryFolder.name)
     )
-    rows = [row for row in result.all() if visible is None or row[0].id in visible]
+    rows = [folder for folder in result.scalars().all() if visible is None or folder.id in visible]
 
     folders = []
-    for folder, archive_name in rows:
+    for folder in rows:
         # Get file count + latest file activity (#1770/#2680) in one trip. Prefer
         # the real on-disk mtime (external scans), fall back to the DB updated_at.
         agg_result = await db.execute(
@@ -1219,9 +1242,8 @@ async def get_folders_by_archive(
                 name=folder.name,
                 parent_id=folder.parent_id,
                 project_id=folder.project_id,
-                archive_id=folder.archive_id,
                 project_name=None,
-                archive_name=archive_name,
+                **_archive_link(folder.archive_id, archives),
                 is_external=folder.is_external,
                 external_path=folder.external_path,
                 external_readonly=folder.external_readonly,
@@ -1244,6 +1266,7 @@ async def create_folder(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_permission_if_auth_enabled(Permission.LIBRARY_UPLOAD)),
     actor: User | ApiKeyActor | None = RequestActor,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Create a new folder, owned by the user who makes it (#3201)."""
     # A read_own user may only create inside their own or a shared folder.
@@ -1260,13 +1283,9 @@ async def create_folder(
         project_name = project.name
 
     # Verify archive exists if specified
-    archive_name = None
-    if data.archive_id is not None:
-        archive_result = await db.execute(select(PrintArchive).where(PrintArchive.id == data.archive_id))
-        archive = archive_result.scalar_one_or_none()
-        if not archive:
-            raise HTTPException(status_code=404, detail="Archive not found")
-        archive_name = archive.print_name
+    archives = await _linkable_archives(db, [data.archive_id], printer_scope)
+    if data.archive_id is not None and data.archive_id not in archives:
+        raise HTTPException(status_code=404, detail="Archive not found")
 
     folder = LibraryFolder(
         name=data.name,
@@ -1287,9 +1306,8 @@ async def create_folder(
         name=folder.name,
         parent_id=folder.parent_id,
         project_id=folder.project_id,
-        archive_id=folder.archive_id,
         project_name=project_name,
-        archive_name=archive_name,
+        **_archive_link(folder.archive_id, archives),
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
@@ -1314,6 +1332,7 @@ async def get_folder(
             Permission.LIBRARY_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get a folder by ID; 404 for a folder the user may not see (#3201)."""
     user, _ = auth_result
@@ -1322,9 +1341,8 @@ async def get_folder(
     if visible is not None and folder_id not in visible:
         raise HTTPException(status_code=404, detail="Folder not found")
     result = await db.execute(
-        select(LibraryFolder, Project.name, PrintArchive.print_name)
+        select(LibraryFolder, Project.name)
         .outerjoin(Project, LibraryFolder.project_id == Project.id)
-        .outerjoin(PrintArchive, LibraryFolder.archive_id == PrintArchive.id)
         .where(LibraryFolder.id == folder_id)
     )
     row = result.one_or_none()
@@ -1332,7 +1350,8 @@ async def get_folder(
     if not row:
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    folder, project_name, archive_name = row
+    folder, project_name = row
+    archives = await _linkable_archives(db, [folder.archive_id], printer_scope)
 
     # Get file count + latest file activity (#1770) in one trip
     agg_result = await db.execute(
@@ -1354,9 +1373,8 @@ async def get_folder(
         name=folder.name,
         parent_id=folder.parent_id,
         project_id=folder.project_id,
-        archive_id=folder.archive_id,
         project_name=project_name,
-        archive_name=archive_name,
+        **_archive_link(folder.archive_id, archives),
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
@@ -1444,6 +1462,7 @@ async def update_folder(
             Permission.LIBRARY_UPDATE_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Update a folder.
 
@@ -1503,11 +1522,12 @@ async def update_folder(
     # Update archive_id (0 to unlink)
     if data.archive_id is not None:
         if data.archive_id == 0:
-            folder.archive_id = None
+            # A link the caller can't see is not theirs to remove.
+            if folder.archive_id in await _linkable_archives(db, [folder.archive_id], printer_scope):
+                folder.archive_id = None
         else:
             # Verify archive exists
-            archive_result = await db.execute(select(PrintArchive).where(PrintArchive.id == data.archive_id))
-            if not archive_result.scalar_one_or_none():
+            if data.archive_id not in await _linkable_archives(db, [data.archive_id], printer_scope):
                 raise HTTPException(status_code=404, detail="Archive not found")
             folder.archive_id = data.archive_id
 
@@ -1531,22 +1551,18 @@ async def update_folder(
 
     # Get project and archive names
     project_name = None
-    archive_name = None
     if folder.project_id:
         project_result = await db.execute(select(Project.name).where(Project.id == folder.project_id))
         project_name = project_result.scalar()
-    if folder.archive_id:
-        archive_result = await db.execute(select(PrintArchive.print_name).where(PrintArchive.id == folder.archive_id))
-        archive_name = archive_result.scalar()
+    archives = await _linkable_archives(db, [folder.archive_id], printer_scope)
 
     return FolderResponse(
         id=folder.id,
         name=folder.name,
         parent_id=folder.parent_id,
         project_id=folder.project_id,
-        archive_id=folder.archive_id,
         project_name=project_name,
-        archive_name=archive_name,
+        **_archive_link(folder.archive_id, archives),
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
