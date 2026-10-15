@@ -16,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.routes.library import get_library_dir
-from backend.app.core.auth import RequestPrinterScope, RequirePermissionIfAuthEnabled, require_media_token_permission
+from backend.app.core.auth import (
+    ApiKeyActor,
+    RequestActor,
+    RequestPrinterScope,
+    RequirePermissionIfAuthEnabled,
+    require_media_token_permission,
+)
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
@@ -1075,12 +1081,46 @@ async def get_project_file_progress(
     return [ProjectFileProgress(file_id=fid, completed_count=n) for fid, n in sorted(counts.items())]
 
 
+def _editable_rows(
+    model: type[PrintArchive] | type[PrintQueueItem],
+    ids: list[int],
+    printer_scope: PrinterScope,
+    actor: User | ApiKeyActor | None,
+    all_permission: Permission,
+    own_permission: Permission,
+):
+    """Select the rows of ``ids`` the caller may relink, or None for none of them.
+
+    The same rows the caller could change through the archive or queue edit:
+    on their printers, and their own unless they may change everyone's. Rows
+    outside are skipped like missing ones, so the count names no hidden id. An
+    API key changes what its owner could. Auth off (no actor) changes all.
+    """
+    query = select(model).where(model.id.in_(ids))
+    if (clause := printer_scope.where(model.printer_id)) is not None:
+        query = query.where(clause)
+    if actor is None:
+        return query
+    # A key acts with its owner's rights to these rows, not with its own scope
+    # flags (a project key needs no archive or queue flag, #1893), so it never
+    # reaches a row its owner could not change. A legacy key without an owner
+    # keeps every row of its printers.
+    user = actor.owner if isinstance(actor, ApiKeyActor) else actor
+    if user is None or user.has_permission(all_permission.value):
+        return query
+    if user.has_permission(own_permission.value):
+        return query.where(model.created_by_id == user.id)
+    return None
+
+
 @router.post("/{project_id}/add-archives")
 async def add_archives_to_project(
     project_id: int,
     data: BatchAddArchives,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Batch add archives to a project."""
     # Verify project exists
@@ -1088,16 +1128,19 @@ async def add_archives_to_project(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Update archives
-    updated = 0
-    for archive_id in data.archive_ids:
-        result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
-        archive = result.scalar_one_or_none()
-        if archive:
-            archive.project_id = project_id
-            updated += 1
+    query = _editable_rows(
+        PrintArchive,
+        data.archive_ids,
+        printer_scope,
+        actor,
+        Permission.ARCHIVES_UPDATE_ALL,
+        Permission.ARCHIVES_UPDATE_OWN,
+    )
+    archives = (await db.execute(query)).scalars().all() if query is not None else []
+    for archive in archives:
+        archive.project_id = project_id
 
-    return {"message": f"Added {updated} archives to project"}
+    return {"message": f"Added {len(archives)} archives to project", "count": len(archives)}
 
 
 @router.post("/{project_id}/add-queue")
@@ -1106,6 +1149,8 @@ async def add_queue_items_to_project(
     data: BatchAddQueueItems,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Batch add queue items to a project."""
     # Verify project exists
@@ -1113,16 +1158,19 @@ async def add_queue_items_to_project(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Update queue items
-    updated = 0
-    for item_id in data.queue_item_ids:
-        result = await db.execute(select(PrintQueueItem).where(PrintQueueItem.id == item_id))
-        item = result.scalar_one_or_none()
-        if item:
-            item.project_id = project_id
-            updated += 1
+    query = _editable_rows(
+        PrintQueueItem,
+        data.queue_item_ids,
+        printer_scope,
+        actor,
+        Permission.QUEUE_UPDATE_ALL,
+        Permission.QUEUE_UPDATE_OWN,
+    )
+    items = (await db.execute(query)).scalars().all() if query is not None else []
+    for item in items:
+        item.project_id = project_id
 
-    return {"message": f"Added {updated} queue items to project"}
+    return {"message": f"Added {len(items)} queue items to project", "count": len(items)}
 
 
 @router.post("/{project_id}/remove-archives")
@@ -1131,22 +1179,27 @@ async def remove_archives_from_project(
     data: BatchAddArchives,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Remove archives from a project (sets project_id to NULL)."""
-    updated = 0
-    for archive_id in data.archive_ids:
-        result = await db.execute(
-            select(PrintArchive).where(
-                PrintArchive.id == archive_id,
-                PrintArchive.project_id == project_id,
-            )
-        )
-        archive = result.scalar_one_or_none()
-        if archive:
-            archive.project_id = None
-            updated += 1
+    query = _editable_rows(
+        PrintArchive,
+        data.archive_ids,
+        printer_scope,
+        actor,
+        Permission.ARCHIVES_UPDATE_ALL,
+        Permission.ARCHIVES_UPDATE_OWN,
+    )
+    archives = (
+        (await db.execute(query.where(PrintArchive.project_id == project_id))).scalars().all()
+        if query is not None
+        else []
+    )
+    for archive in archives:
+        archive.project_id = None
 
-    return {"message": f"Removed {updated} archives from project"}
+    return {"message": f"Removed {len(archives)} archives from project", "count": len(archives)}
 
 
 def get_project_attachments_dir(project_id: int) -> Path:
