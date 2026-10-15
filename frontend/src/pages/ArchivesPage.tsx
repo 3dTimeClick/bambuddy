@@ -605,10 +605,13 @@ function ArchiveCard({
             label: t('library.runWithPipeline.actionLabel'),
             icon: <Play className="w-4 h-4" />,
             onClick: () => setShowRunPipeline(true),
-            disabled: !hasPermission('pipelines:run'),
+            // A run prints the archive again, so it needs the right to reprint it.
+            disabled: !hasPermission('pipelines:run') || !canModify('archives', 'reprint', archive.created_by_id),
             title: !hasPermission('pipelines:run')
               ? t('library.runWithPipeline.noPermission')
-              : undefined,
+              : !canModify('archives', 'reprint', archive.created_by_id)
+                ? t('archives.permission.noReprint')
+                : undefined,
           }]
         : []),
     ]),
@@ -2107,10 +2110,13 @@ function ArchiveListRow({
             label: t('library.runWithPipeline.actionLabel'),
             icon: <Play className="w-4 h-4" />,
             onClick: () => setShowRunPipeline(true),
-            disabled: !hasPermission('pipelines:run'),
+            // A run prints the archive again, so it needs the right to reprint it.
+            disabled: !hasPermission('pipelines:run') || !canModify('archives', 'reprint', archive.created_by_id),
             title: !hasPermission('pipelines:run')
               ? t('library.runWithPipeline.noPermission')
-              : undefined,
+              : !canModify('archives', 'reprint', archive.created_by_id)
+                ? t('archives.permission.noReprint')
+                : undefined,
           }]
         : []),
     ]),

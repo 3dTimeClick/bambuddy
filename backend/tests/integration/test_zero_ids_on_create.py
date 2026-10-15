@@ -65,7 +65,7 @@ async def test_a_batch_with_archive_0_has_no_archive(async_client: AsyncClient, 
 async def test_a_batch_for_an_unknown_file_is_refused(async_client: AsyncClient, db_session, field, detail):
     response = await async_client.post("/api/v1/queue/batches", json={"name": "B", field: 9999})
 
-    assert response.status_code == 400, response.text
+    assert response.status_code == 404, response.text
     assert response.json()["detail"] == detail
     assert (await db_session.execute(select(PrintBatch.id))).first() is None
 

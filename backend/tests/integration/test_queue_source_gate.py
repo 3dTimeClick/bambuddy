@@ -216,3 +216,83 @@ async def test_a_key_without_an_owner_needs_read_access_for_an_ownerless_library
 
     assert (refused.status_code, refused.json()["detail"]) == (404, "Library file not found")
     assert allowed.status_code == 200, allowed.text
+
+
+async def test_a_deleted_archive_reads_as_missing(
+    async_client: AsyncClient, db_session, printer_factory, archive_factory
+):
+    from datetime import datetime, timezone
+
+    printer = await printer_factory()
+    archive = await archive_factory(printer.id)
+    archive.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    response = await async_client.post("/api/v1/queue/", json={"archive_id": archive.id, "printer_id": printer.id})
+
+    assert (response.status_code, response.json()["detail"]) == (404, "Archive not found")
+
+
+async def test_a_batch_cannot_name_an_archive_from_another_printer(
+    async_client: AsyncClient, printer_factory, archive_factory
+):
+    a, b = await printer_factory(name="A"), await printer_factory(name="B")
+    admin = await _admin_token(async_client)
+    perms = await _group(async_client, admin, "perms", permissions=[*TEAM_PERMISSIONS, "archives:reprint_all"])
+    team = await _group(async_client, admin, "team", printer_ids=[a.id])
+    member = _auth((await _user(async_client, admin, "member", [perms, team]))[0])
+    on_a, on_b = await archive_factory(a.id), await archive_factory(b.id)
+
+    refused = await async_client.post(
+        "/api/v1/queue/batches", headers=member, json={"name": "x", "archive_id": on_b.id}
+    )
+    allowed = await async_client.post(
+        "/api/v1/queue/batches", headers=member, json={"name": "x", "archive_id": on_a.id}
+    )
+
+    assert (refused.status_code, refused.json()["detail"]) == (404, "Archive not found")
+    assert allowed.status_code == 200, allowed.text
+
+
+async def test_running_a_pipeline_on_an_archive_needs_the_right_to_reprint_it(
+    async_client: AsyncClient, printer_factory, archive_factory
+):
+    printer = await printer_factory()
+    admin = await _admin_token(async_client)
+    pipeline = await async_client.post(
+        "/api/v1/slicer-pipelines/",
+        headers=_auth(admin),
+        json={
+            "name": "P",
+            "description": None,
+            "printer_preset": {"source": "local", "id": "1"},
+            "process_preset": {"source": "local", "id": "2"},
+            "filament_presets": [{"source": "local", "id": "3"}],
+            "bed_type": None,
+        },
+    )
+    assert pipeline.status_code == 201, pipeline.text
+    archive = await archive_factory(printer.id)
+    # Sees every archive and may run pipelines, but not reprint.
+    base = ["printers:read", "queue:create", "archives:read_all", "pipelines:read", "pipelines:run"]
+    without = _auth(
+        (await _user(async_client, admin, "without", [await _group(async_client, admin, "g1", permissions=base)]))[0]
+    )
+    with_reprint = _auth(
+        (
+            await _user(
+                async_client,
+                admin,
+                "with",
+                [await _group(async_client, admin, "g2", permissions=[*base, "archives:reprint_all"])],
+            )
+        )[0]
+    )
+    url = f"/api/v1/slicer-pipelines/{pipeline.json()['id']}/run"
+
+    refused = await async_client.post(url, headers=without, json={"source_archive_id": archive.id})
+    passed_gate = await async_client.post(url, headers=with_reprint, json={"source_archive_id": archive.id})
+
+    assert refused.status_code == 403, refused.text
+    # Past the gate, the run stops at the archive file this test does not create.
+    assert (passed_gate.status_code, passed_gate.json()["detail"]) == (404, "Archive source file missing on disk")

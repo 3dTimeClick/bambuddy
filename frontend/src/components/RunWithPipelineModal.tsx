@@ -103,8 +103,12 @@ export function RunWithPipelineModal({ source, onClose }: RunWithPipelineModalPr
       if (result.ok) {
         runMutation.mutate({ pipelineId: pipeline.id, force: false });
       }
-    } catch {
-      // Network error — keep the user on step 1 so they can retry.
+    } catch (err) {
+      // Refused or unreachable: say why and keep the user on step 1.
+      showToast(
+        (err instanceof Error && err.message) || t('library.runWithPipeline.toast.failed', 'Could not start run'),
+        'error',
+      );
       setPicked(null);
     }
   };

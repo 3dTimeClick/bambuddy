@@ -180,8 +180,8 @@ def _assert_can_queue_archive(
 
     Three checks:
 
-    * The archive's printer must be one the caller may use; otherwise the
-      archive reads as missing, as the archive routes answer for it.
+    * The archive must not be deleted, and its printer must be one the caller
+      may use; otherwise it reads as missing, as the archive routes answer.
     * IDOR fix (maziggy/bambuddy-security #2): without this, a caller with
       QUEUE_CREATE could queue any user's archive even without ARCHIVES_READ on
       it — Landon's PoC enumerated this on admin's archives as operator1. Gate
@@ -195,9 +195,9 @@ def _assert_can_queue_archive(
       allows any archive, REPRINT_OWN allows own only, ownerless archives
       require REPRINT_ALL (fail-closed).
     """
-    # An archive from a printer the caller can't use reads as missing, like the
-    # archive routes answer for it.
-    if not printer_scope.allows(archive.printer_id):
+    # A deleted archive, or one from a printer the caller can't use, reads as
+    # missing, like the archive routes answer for it.
+    if archive.deleted_at is not None or not printer_scope.allows(archive.printer_id):
         raise HTTPException(404, "Archive not found")
     # None is auth off (for an API key too).
     if current_user is None:
@@ -1505,17 +1505,22 @@ async def create_batch(
 
     plate_targets = _validate_plate_targets(data.plates)
     await _validate_batch_project(db, data.project_id, actor)
-    # The file the batch prints, for reference: 0 is none, any other id must exist.
+    # The file the batch prints: 0 is none, any other id passes the same source
+    # checks as POST /queue/, and a missing one answers like a hidden one.
     data.archive_id = data.archive_id or None
     data.library_file_id = data.library_file_id or None
-    if data.archive_id is not None and await db.get(PrintArchive, data.archive_id) is None:
-        raise HTTPException(400, "Archive not found")
-    if (
-        data.library_file_id is not None
-        and (await db.execute(LibraryFile.active().where(LibraryFile.id == data.library_file_id))).scalar_one_or_none()
-        is None
-    ):
-        raise HTTPException(400, "Library file not found")
+    if data.archive_id is not None:
+        batch_archive = await db.get(PrintArchive, data.archive_id)
+        if batch_archive is None:
+            raise HTTPException(404, "Archive not found")
+        _assert_can_queue_archive(batch_archive, actor, printer_scope)
+    if data.library_file_id is not None:
+        batch_file = (
+            await db.execute(LibraryFile.active().where(LibraryFile.id == data.library_file_id))
+        ).scalar_one_or_none()
+        if batch_file is None:
+            raise HTTPException(404, "Library file not found")
+        _assert_can_queue_library_file(batch_file, actor)
     if data.external_source is not None:
         existing = await db.execute(
             select(PrintBatch.id).where(
