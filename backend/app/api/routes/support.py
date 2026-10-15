@@ -177,7 +177,7 @@ async def get_logs(
     limit: int = Query(200, ge=1, le=1000, description="Maximum number of entries to return"),
     level: str | None = Query(None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"),
     search: str | None = Query(None, description="Search in message or logger name"),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Get recent application log entries with optional filtering."""
     entries, total_lines = read_log_entries(limit=limit, level_filter=level, search=search)
@@ -1492,7 +1492,7 @@ async def _get_recent_sanitized_logs(max_lines: int = 200) -> str:
 
 @router.get("/bundle")
 async def generate_support_bundle(
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Generate a support bundle ZIP file for issue reporting."""
     # Check if debug logging is enabled and collect sensitive values for redaction

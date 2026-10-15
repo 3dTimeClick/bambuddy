@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import (
+    RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     ScopedCaller,
     caller_is_api_key,
@@ -23,6 +24,7 @@ from backend.app.core.auth import (
 from backend.app.core.config import APP_VERSION, settings as app_settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.printer_scope import PrinterScope
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
 from backend.app.schemas.settings import AppSettings, AppSettingsUpdate
@@ -1736,10 +1738,18 @@ async def get_virtual_printer_models(
     }
 
 
+def _legacy_vp_status(status: dict, printer_scope: PrinterScope) -> dict:
+    """The first virtual printer's status, without what names its target for a limited caller."""
+    if printer_scope.is_unrestricted:
+        return status
+    return {key: value for key, value in status.items() if key not in ("name", "serial", "target_printer_ip", "proxy")}
+
+
 @router.get("/virtual-printer")
 async def get_virtual_printer_settings(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get virtual printer settings and status."""
     from backend.app.services.virtual_printer import (
@@ -1765,11 +1775,14 @@ async def get_virtual_printer_settings(
         # `print_queue`) come out as `archive` / `queue` for the frontend.
         "mode": normalize_vp_mode(mode) or VP_MODE_ARCHIVE,
         "model": model or DEFAULT_VIRTUAL_PRINTER_MODEL,
-        "target_printer_id": int(target_printer_id) if target_printer_id else None,
+        # A target the caller can't see is not named.
+        "target_printer_id": int(target_printer_id)
+        if target_printer_id and printer_scope.allows(int(target_printer_id))
+        else None,
         "remote_interface_ip": remote_interface_ip or "",
         "tailscale_disabled": tailscale_disabled_raw == "true" if tailscale_disabled_raw else True,
         "archive_name_source": archive_name_source if archive_name_source in ("metadata", "filename") else "metadata",
-        "status": virtual_printer_manager.get_status(),
+        "status": _legacy_vp_status(virtual_printer_manager.get_status(), printer_scope),
     }
 
 
@@ -1785,6 +1798,7 @@ async def update_virtual_printer_settings(
     archive_name_source: str = None,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Update virtual printer settings and restart services if needed.
 
@@ -1821,6 +1835,18 @@ async def update_virtual_printer_settings(
     new_mode = mode if mode is not None else current_mode
     new_model = model if model is not None else current_model
     new_target_id = target_printer_id if target_printer_id is not None else current_target_id
+    # One bridging to a printer the caller can't use is not theirs to change,
+    # and they can't aim it at such a printer.
+    from backend.app.models.virtual_printer import VirtualPrinter as FirstVP
+
+    # The first virtual printer is the one these settings reach.
+    first_vp = (await db.execute(select(FirstVP).order_by(FirstVP.position, FirstVP.id).limit(1))).scalar_one_or_none()
+    if not printer_scope.allows(current_target_id) or (
+        first_vp is not None and not printer_scope.allows(first_vp.target_printer_id)
+    ):
+        return JSONResponse(status_code=404, content={"detail": "Virtual printer not found"})
+    if target_printer_id is not None and not printer_scope.allows(target_printer_id):
+        return JSONResponse(status_code=400, content={"detail": f"Printer with ID {target_printer_id} not found"})
     new_remote_iface = remote_interface_ip if remote_interface_ip is not None else current_remote_iface
     new_ts_disabled = tailscale_disabled if tailscale_disabled is not None else current_ts_disabled
 
@@ -1918,10 +1944,6 @@ async def update_virtual_printer_settings(
 
     # Propagate tailscale_disabled to the first VirtualPrinter row so sync_from_db() picks it up
     if tailscale_disabled is not None:
-        from backend.app.models.virtual_printer import VirtualPrinter as VPModel
-
-        vp_result = await db.execute(select(VPModel).order_by(VPModel.position).limit(1))
-        first_vp = vp_result.scalar_one_or_none()
         if first_vp is not None:
             first_vp.tailscale_disabled = new_ts_disabled
 
@@ -1952,7 +1974,7 @@ async def update_virtual_printer_settings(
             content={"detail": "Failed to configure virtual printer. Check server logs for details."},
         )
 
-    return await get_virtual_printer_settings(db)
+    return await get_virtual_printer_settings(db, printer_scope=printer_scope)
 
 
 # =============================================================================

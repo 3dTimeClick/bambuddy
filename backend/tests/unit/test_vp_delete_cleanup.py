@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.api.routes.virtual_printers import delete_virtual_printer
+from backend.app.core.printer_scope import ALL_PRINTERS
 
 
 @pytest.mark.asyncio
@@ -56,7 +57,7 @@ async def test_delete_vp_marks_orphan_pending_uploads_discarded(tmp_path, db_ses
         "backend.app.services.virtual_printer.virtual_printer_manager",
         fake_manager,
     ):
-        await delete_virtual_printer(vp_id=vp_id, db=db_session, _=None)
+        await delete_virtual_printer(vp_id=vp_id, db=db_session, _=None, printer_scope=ALL_PRINTERS)
 
     statuses = dict(
         (
@@ -113,7 +114,7 @@ async def test_delete_vp_with_no_orphan_uploads_still_succeeds(tmp_path):
         "backend.app.services.virtual_printer.virtual_printer_manager",
         fake_manager,
     ):
-        await delete_virtual_printer(vp_id=vp_id, db=db, _=None)
+        await delete_virtual_printer(vp_id=vp_id, db=db, _=None, printer_scope=ALL_PRINTERS)
 
     fake_manager.remove_instance.assert_awaited_once_with(vp_id)
     # No directory to remove — and we didn't crash trying to.
