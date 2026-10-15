@@ -1003,6 +1003,7 @@ async def add_to_queue(
         existing_batch = result.scalar_one_or_none()
         if not existing_batch:
             raise HTTPException(404, "Batch not found")
+        await _ensure_batch_in_scope(db, existing_batch.id, printer_scope)
         if existing_batch.status != "active":
             raise HTTPException(400, "Cannot add items to a non-active batch")
         if (
@@ -1603,6 +1604,7 @@ async def update_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.QUEUE_UPDATE_OWN),
     actor: User | ApiKeyActor | None = RequestActor,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Edit an order's header or its per-plate targets while it runs (#342).
 
@@ -1612,6 +1614,7 @@ async def update_batch(
     explicit action, because silently deleting queued work on a number change
     would be a nasty surprise.
     """
+    await _ensure_batch_in_scope(db, batch_id, printer_scope)
     batch = await _load_batch_for_write(db, batch_id, actor, Permission.QUEUE_UPDATE_ALL)
 
     plate_targets = _validate_plate_targets(data.plates)
@@ -1684,6 +1687,7 @@ async def dispatch_batch(
     overrides and print options the user already chose — and the validation
     those went through at creation time.
     """
+    await _ensure_batch_in_scope(db, batch_id, printer_scope)
     batch = await _load_batch_for_write(db, batch_id, actor, Permission.QUEUE_UPDATE_ALL)
     if batch.status == "cancelled":
         raise HTTPException(400, "Cannot dispatch a cancelled batch")
@@ -1785,6 +1789,7 @@ async def list_batches(
             Permission.QUEUE_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List print batches with progress stats.
 
@@ -1811,6 +1816,18 @@ async def list_batches(
         query = query.where(PrintBatch.external_ref == external_ref)
     if current_user is not None and not can_read_all:
         query = query.where(PrintBatch.created_by_id == current_user.id)
+    if printer_scope.printer_ids is not None:
+        # A batch with a job on a printer the caller can't see is missing for
+        # them, as when cancelling or ungrouping it.
+        query = query.where(
+            ~select(PrintQueueItem.id)
+            .where(
+                PrintQueueItem.batch_id == PrintBatch.id,
+                PrintQueueItem.printer_id.is_not(None),
+                PrintQueueItem.printer_id.not_in(printer_scope.printer_ids),
+            )
+            .exists()
+        )
     result = await db.execute(query)
     batches = result.scalars().all()
 
@@ -1834,6 +1851,7 @@ async def get_batch(
             Permission.QUEUE_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get a print batch with progress stats."""
     current_user, can_read_all = auth_result
@@ -1847,6 +1865,7 @@ async def get_batch(
         and (batch.created_by_id is None or batch.created_by_id != current_user.id)
     ):
         raise HTTPException(404, "Batch not found")
+    await _ensure_batch_in_scope(db, batch_id, printer_scope)
     return await _build_batch_response(db, batch)
 
 

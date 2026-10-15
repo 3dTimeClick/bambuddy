@@ -424,8 +424,13 @@ async def list_projects(
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List all projects with basic stats."""
+    # Archive previews show only archives of the caller's printers, as the
+    # project's archive list does.
+    scope_clause = printer_scope.where(PrintArchive.printer_id)
+    preview_scope = [scope_clause] if scope_clause is not None else []
     query = select(Project)
     if status:
         query = query.where(Project.status == status)
@@ -496,7 +501,7 @@ async def list_projects(
         # Get archive previews (up to 6 most recent)
         archives_result = await db.execute(
             select(PrintArchive)
-            .where(PrintArchive.project_id == project.id, _LIVE_ARCHIVE)
+            .where(PrintArchive.project_id == project.id, _LIVE_ARCHIVE, *preview_scope)
             .order_by(PrintArchive.created_at.desc())
             .limit(6)
         )
