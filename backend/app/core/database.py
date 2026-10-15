@@ -5806,6 +5806,7 @@ async def _run_migrations(conn):
     await _migrate_spool_usage_outlives_its_archive(conn)
     await _migrate_spool_usage_outlives_its_spool(conn)
     await _backfill_pipeline_job_final_status(conn)
+    await _release_stuck_budget_reservations(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -6140,6 +6141,36 @@ async def _backfill_pipeline_job_final_status(conn) -> None:
         )
     if result.rowcount:
         logger.info("Stored the final status of %d pipeline job(s) from their queue entry", result.rowcount)
+
+
+async def _release_stuck_budget_reservations(conn) -> None:
+    """Release print reservations whose queue entry has finished or is gone.
+
+    Billing uses up or releases a print's reservation when the print ends.
+    Before a print without a user (authentication off, or its user deleted
+    while it printed) was billed to its cost centre, billing stopped before
+    either, and the reservation held that much of the budget for good. Such a
+    reservation can no longer be charged: the print was billed or never will
+    be. Only the reservation changes; the ledger does not. Not gated: it only
+    matches reservations nothing can use, so a second run changes nothing.
+    A skipped entry can return to pending, so it keeps its reservation.
+    """
+    from sqlalchemy import text
+
+    from backend.app.utils.local_time import utcnow_naive
+
+    async with conn.begin_nested():
+        result = await conn.execute(
+            text(
+                "UPDATE budget_reservations SET status = 'released', released_at = :now "
+                "WHERE status = 'active' AND source_type = 'print_queue' "
+                "AND NOT EXISTS (SELECT 1 FROM print_queue q WHERE q.id = budget_reservations.source_id "
+                "AND q.status NOT IN ('completed', 'failed', 'cancelled', 'aborted'))"
+            ),
+            {"now": utcnow_naive()},
+        )
+    if result.rowcount:
+        logger.info("Released %d budget reservation(s) of prints that finished or were removed", result.rowcount)
 
 
 _PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}
