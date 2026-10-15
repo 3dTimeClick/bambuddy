@@ -5014,6 +5014,11 @@ async def slice_archive(
     # (RequestActor); only auth off keeps can_read_all=True.
     can_read_all = actor is None or actor.has_permission(Permission.ARCHIVES_READ_ALL.value)
     archive = _ensure_archive_visible(archive, actor, can_read_all, printer_scope)
+    # The re-sliced copy belongs to the caller and can be queued as their own,
+    # so slicing an archive needs the same right as printing it again.
+    from backend.app.api.routes.print_queue import _assert_can_queue_archive
+
+    _assert_can_queue_archive(archive, actor, printer_scope)
 
     src_relative = archive.source_3mf_path or archive.file_path
     if not src_relative:

@@ -296,3 +296,34 @@ async def test_running_a_pipeline_on_an_archive_needs_the_right_to_reprint_it(
     assert refused.status_code == 403, refused.text
     # Past the gate, the run stops at the archive file this test does not create.
     assert (passed_gate.status_code, passed_gate.json()["detail"]) == (404, "Archive source file missing on disk")
+
+
+async def test_slicing_an_archive_needs_the_right_to_reprint_it(
+    async_client: AsyncClient, printer_factory, archive_factory
+):
+    # The sliced copy belongs to whoever slices it and can be queued as their own.
+    printer = await printer_factory()
+    admin = await _admin_token(async_client)
+    archive = await archive_factory(printer.id)
+    base = ["printers:read", "queue:create", "archives:read_all", "library:upload"]
+    without = _auth(
+        (await _user(async_client, admin, "without", [await _group(async_client, admin, "g1", permissions=base)]))[0]
+    )
+    with_reprint = _auth(
+        (
+            await _user(
+                async_client,
+                admin,
+                "with",
+                [await _group(async_client, admin, "g2", permissions=[*base, "archives:reprint_all"])],
+            )
+        )[0]
+    )
+    body = {"printer_preset_id": 1, "process_preset_id": 2, "filament_preset_id": 3}
+
+    refused = await async_client.post(f"/api/v1/archives/{archive.id}/slice", headers=without, json=body)
+    passed_gate = await async_client.post(f"/api/v1/archives/{archive.id}/slice", headers=with_reprint, json=body)
+
+    assert refused.status_code == 403, refused.text
+    # Past the gate, the request stops at the archive file this test does not create.
+    assert (passed_gate.status_code, passed_gate.json()["detail"]) == (404, "Archive source file missing on disk")

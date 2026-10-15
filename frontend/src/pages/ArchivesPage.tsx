@@ -597,6 +597,12 @@ function ArchiveCard({
             openInSlicerWithToken(archive.id, filename, 'file', preferredSlicer);
           }
         },
+        // The sliced copy is printable as the user's own, so it needs the right to reprint.
+        disabled: useSlicerApi && !canModify('archives', 'reprint', archive.created_by_id),
+        title:
+          useSlicerApi && !canModify('archives', 'reprint', archive.created_by_id)
+            ? t('archives.permission.noReprint')
+            : undefined,
       },
       // Run-with-pipeline (#1425 PR B follow-up). Sources from archive's
       // source 3MF (or file_path fallback). Only when slicer-api is on.
@@ -1446,7 +1452,14 @@ function ArchiveCard({
                   openInSlicerWithToken(archive.id, filename, 'file', preferredSlicer);
                 }
               }}
-              title={useSlicerApi ? t('slice.title') : t('archives.card.openInBambuStudioToSlice')}
+              disabled={useSlicerApi && !canModify('archives', 'reprint', archive.created_by_id)}
+              title={
+                useSlicerApi
+                  ? canModify('archives', 'reprint', archive.created_by_id)
+                    ? t('slice.title')
+                    : t('archives.permission.noReprint')
+                  : t('archives.card.openInBambuStudioToSlice')
+              }
             >
               {useSlicerApi ? (
                 <Cog className="w-3 h-3 flex-shrink-0" />
@@ -2102,6 +2115,12 @@ function ArchiveListRow({
             openInSlicerWithToken(archive.id, filename, 'file', preferredSlicer);
           }
         },
+        // The sliced copy is printable as the user's own, so it needs the right to reprint.
+        disabled: useSlicerApi && !canModify('archives', 'reprint', archive.created_by_id),
+        title:
+          useSlicerApi && !canModify('archives', 'reprint', archive.created_by_id)
+            ? t('archives.permission.noReprint')
+            : undefined,
       },
       // Run-with-pipeline (#1425 PR B follow-up). Sources from archive's
       // source 3MF (or file_path fallback). Only when slicer-api is on.
