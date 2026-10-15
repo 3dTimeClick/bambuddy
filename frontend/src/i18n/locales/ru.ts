@@ -1872,6 +1872,7 @@ export default {
     printerAssigned: "Принтер назначен",
     printerRemoved: "Принтер удалён из назначения",
     deleteTypeConfirm: "Удалить «{{name}}»?",
+    deleteTypeAllPrinters: 'Он будет удалён со всех принтеров, а не только с ваших, вместе с историей обслуживания.',
     deleteSystemTypeTitle: "Удалить стандартную задачу обслуживания?",
     deleteSystemTypeMessage: "Удалить стандартную задачу обслуживания «{{name}}»?",
     noPermissionUpdate: "У вас нет разрешения обновлять задачи обслуживания",

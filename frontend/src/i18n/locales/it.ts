@@ -1957,6 +1957,7 @@ export default {
     printerRemoved: 'Stampante rimossa',
     // Confirmation
     deleteTypeConfirm: 'Eliminare "{{name}}"?',
+    deleteTypeAllPrinters: 'Questo lo rimuove da tutte le stampanti, non solo dalle tue, compresa la sua cronologia di manutenzione.',
     deleteSystemTypeTitle: 'Eliminare attività di manutenzione predefinita?',
     deleteSystemTypeMessage: 'Sei sicuro di voler eliminare l\'attività di manutenzione predefinita "{{name}}"?',
     // Permissions

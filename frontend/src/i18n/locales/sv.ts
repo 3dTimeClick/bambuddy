@@ -1975,6 +1975,7 @@ export default {
     printerRemoved: 'Skrivare borttagen',
     // Confirmation
     deleteTypeConfirm: 'Ta bort "{{name}}"?',
+    deleteTypeAllPrinters: 'Detta tar bort den från alla skrivare, inte bara dina, inklusive underhållshistoriken.',
     deleteSystemTypeTitle: 'Ta bort standardunderhållsuppgift?',
     deleteSystemTypeMessage: 'Är du säker på att du vill ta bort standardunderhållsuppgift "{{name}}"?',
     // Permissions

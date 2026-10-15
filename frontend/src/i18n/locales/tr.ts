@@ -1959,6 +1959,7 @@ export default {
     printerRemoved: 'Yazıcı kaldırıldı',
     // Onay
     deleteTypeConfirm: '"{{name}}" silinsin mi?',
+    deleteTypeAllPrinters: 'Bu, bakım geçmişi dahil olmak üzere onu yalnızca sizin yazıcılarınızdan değil, tüm yazıcılardan kaldırır.',
     deleteSystemTypeTitle: 'Varsayılan bakım görevi silinsin mi?',
     deleteSystemTypeMessage: '"{{name}}" varsayılan bakım görevini silmek istediğinizden emin misiniz?',
     // İzinler

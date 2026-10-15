@@ -1957,6 +1957,7 @@ export default {
     printerRemoved: 'プリンターを削除しました',
     // Confirmation
     deleteTypeConfirm: '「{{name}}」を削除しますか？',
+    deleteTypeAllPrinters: 'あなたのプリンターだけでなく、すべてのプリンターから削除され、メンテナンス履歴も削除されます。',
     deleteSystemTypeTitle: 'デフォルトのメンテナンスタスクを削除しますか？',
     deleteSystemTypeMessage: 'デフォルトのメンテナンスタスク「{{name}}」を削除してもよろしいですか？',
     // Permissions

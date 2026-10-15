@@ -1958,6 +1958,7 @@ export default {
     printerRemoved: 'Drucker entfernt',
     // Confirmation
     deleteTypeConfirm: '"{{name}}" löschen?',
+    deleteTypeAllPrinters: 'Das entfernt ihn von allen Druckern, nicht nur von deinen, samt seinem Wartungsverlauf.',
     deleteSystemTypeTitle: 'Standard-Wartungsaufgabe löschen?',
     deleteSystemTypeMessage: 'Möchten Sie die Standard-Wartungsaufgabe "{{name}}" wirklich löschen?',
     // Permissions

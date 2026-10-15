@@ -1976,6 +1976,7 @@ export default {
     printerRemoved: 'Printer verwijderd',
     // Confirmation
     deleteTypeConfirm: '"{{name}}" verwijderen?',
+    deleteTypeAllPrinters: 'Dit verwijdert het van alle printers, niet alleen van die van jou, inclusief de onderhoudsgeschiedenis.',
     deleteSystemTypeTitle: 'Standaard onderhoudstaak verwijderen?',
     deleteSystemTypeMessage: 'Weet je zeker dat je de standaard onderhoudstaak "{{name}}" wilt verwijderen?',
     // Permissions

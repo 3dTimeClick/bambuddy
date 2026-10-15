@@ -1978,6 +1978,7 @@ export default {
     printerRemoved: 'Printer removed',
     // Confirmation
     deleteTypeConfirm: 'Delete "{{name}}"?',
+    deleteTypeAllPrinters: 'This removes it from every printer, not only yours, including its maintenance history.',
     deleteSystemTypeTitle: 'Delete default maintenance task?',
     deleteSystemTypeMessage: 'Are you sure you want to delete the default maintenance task "{{name}}"?',
     // Permissions

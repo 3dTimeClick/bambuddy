@@ -1875,6 +1875,7 @@ export default {
     printerAssigned: '프린터가 할당되었습니다',
     printerRemoved: '프린터가 제거되었습니다',
     deleteTypeConfirm: '"{{name}}"을(를) 삭제하시겠습니까?',
+    deleteTypeAllPrinters: '내 프린터뿐 아니라 모든 프린터에서 유지보수 기록과 함께 삭제됩니다.',
     deleteSystemTypeTitle: '기본 유지보수 작업을 삭제하시겠습니까?',
     deleteSystemTypeMessage: '기본 유지보수 작업 "{{name}}"을(를) 삭제하시겠습니까?',
     noPermissionUpdate: '유지보수 항목을 업데이트할 권한이 없습니다',

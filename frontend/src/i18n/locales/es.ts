@@ -1959,6 +1959,7 @@ export default {
     printerRemoved: 'Impresora eliminada',
     // Confirmation
     deleteTypeConfirm: '¿Eliminar "{{name}}"?',
+    deleteTypeAllPrinters: 'Esto lo elimina de todas las impresoras, no solo de las tuyas, incluido su historial de mantenimiento.',
     deleteSystemTypeTitle: '¿Eliminar la tarea de mantenimiento predeterminada?',
     deleteSystemTypeMessage: '¿Está seguro de que desea eliminar la tarea de mantenimiento predeterminada "{{name}}"?',
     // Permissions

@@ -1974,6 +1974,7 @@ export default {
     printerRemoved: "Принтер видалено",
     // Confirmation
     deleteTypeConfirm: "Видалити \"{{name}}\"?",
+    deleteTypeAllPrinters: 'Його буде видалено з усіх принтерів, а не лише з ваших, разом з історією обслуговування.',
     deleteSystemTypeTitle: "Видалити завдання обслуговування за умовчанням?",
     deleteSystemTypeMessage: "Ви впевнені, що бажаєте видалити стандартне завдання обслуговування \"{{name}}\"?",
     // Permissions

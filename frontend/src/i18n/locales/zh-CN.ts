@@ -1957,6 +1957,7 @@ export default {
     printerRemoved: '打印机已移除',
     // Confirmation
     deleteTypeConfirm: '删除"{{name}}"？',
+    deleteTypeAllPrinters: '这会将其从所有打印机（而不仅是你的打印机）中删除，包括其维护记录。',
     deleteSystemTypeTitle: '删除默认维护任务？',
     deleteSystemTypeMessage: '确定要删除默认维护任务"{{name}}"吗？',
     // Permissions

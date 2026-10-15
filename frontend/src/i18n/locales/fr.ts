@@ -1957,6 +1957,7 @@ export default {
     printerRemoved: 'Imprimante retirée',
     // Confirmation
     deleteTypeConfirm: 'Supprimer "{{name}}" ?',
+    deleteTypeAllPrinters: 'Cela le supprime de toutes les imprimantes, pas seulement des vôtres, y compris son historique de maintenance.',
     deleteSystemTypeTitle: 'Supprimer la tâche de maintenance par défaut ?',
     deleteSystemTypeMessage: 'Êtes-vous sûr de vouloir supprimer la tâche de maintenance par défaut "{{name}}" ?',
     // Permissions

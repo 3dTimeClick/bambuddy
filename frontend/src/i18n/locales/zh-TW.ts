@@ -1957,6 +1957,7 @@ export default {
     printerRemoved: '印表機已移除',
     // Confirmation
     deleteTypeConfirm: '刪除"{{name}}"？',
+    deleteTypeAllPrinters: '這會將其從所有印表機（而不只是你的印表機）中刪除，包括其維護紀錄。',
     deleteSystemTypeTitle: '刪除預設維護任務？',
     deleteSystemTypeMessage: '確定要刪除預設維護任務"{{name}}"嗎？',
     // Permissions
