@@ -10,16 +10,6 @@
                 }
             }
         ],
-        "./backend/app/api/routes/ams_history.py": [
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 35,
-                    "endColumn": 41,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./backend/app/api/routes/archives.py": [
             {
                 "code": "reportArgumentType",
@@ -1220,16 +1210,6 @@
                 "range": {
                     "startColumn": 52,
                     "endColumn": 60,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./backend/app/api/routes/printer_sensor_history.py": [
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 45,
                     "lineCount": 1
                 }
             }

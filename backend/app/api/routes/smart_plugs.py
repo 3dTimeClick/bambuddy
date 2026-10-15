@@ -396,7 +396,7 @@ class DiscoveredTasmotaDevice(BaseModel):
 @router.post("/discover/scan", response_model=TasmotaScanStatus)
 async def start_tasmota_scan(
     request: TasmotaScanRequest | None = Body(default=None),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_READ),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_CREATE),
 ):
     """Start an IP range scan for Tasmota devices.
 
@@ -437,7 +437,7 @@ async def get_tasmota_scan_status(
 
 @router.post("/discover/stop", response_model=TasmotaScanStatus)
 async def stop_tasmota_scan(
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_READ),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SMART_PLUGS_CREATE),
 ):
     """Stop the current Tasmota scan."""
     tasmota_scanner.stop()

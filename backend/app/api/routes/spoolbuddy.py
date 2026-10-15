@@ -1341,7 +1341,7 @@ async def queue_diagnostic(
     device_id: str,
     diagnostic: str,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Queue a hardware diagnostic to run on the SpoolBuddy device.
 
