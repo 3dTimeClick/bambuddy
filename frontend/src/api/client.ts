@@ -2142,7 +2142,8 @@ export interface PipelineJob {
     | 'printing'
     | 'completed'
     | 'failed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'unknown';
   error_message: string | null;
   dispatched_at: string | null;
   completed_at: string | null;

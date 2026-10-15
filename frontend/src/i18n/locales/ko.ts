@@ -1337,6 +1337,7 @@ export default {
       completed: '완료됨',
       failed: '실패',
       cancelled: '취소됨',
+      unknown: '알 수 없음',
     },
     cancelledByUser: '사용자에 의해 취소됨',
   },

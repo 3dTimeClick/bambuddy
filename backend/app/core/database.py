@@ -5805,6 +5805,7 @@ async def _run_migrations(conn):
     await _migrate_notification_providers_go_with_their_printer(conn)
     await _migrate_spool_usage_outlives_its_archive(conn)
     await _migrate_spool_usage_outlives_its_spool(conn)
+    await _backfill_pipeline_job_final_status(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -6113,6 +6114,32 @@ async def _migrate_spool_usage_outlives_its_spool(conn) -> None:
 
     await _safe_execute(conn, "ALTER TABLE spool_usage_history ALTER COLUMN spool_id DROP NOT NULL")
     await _pg_set_fk_ondelete(conn, "spool_usage_history", "spool_id", "spool", "SET NULL")
+
+
+async def _backfill_pipeline_job_final_status(conn) -> None:
+    """Give dispatched pipeline jobs the final status of their queue entry.
+
+    Jobs store it when the entry ends (services/pipeline_job_status); entries
+    that ended before that keep it only on the entry, which can be deleted
+    later. Not gated: it only matches jobs not yet ended whose entry has, so
+    a second run changes nothing. Jobs whose entry is already gone stay
+    unknown.
+    """
+    from sqlalchemy import text
+
+    async with conn.begin_nested():
+        result = await conn.execute(
+            text(
+                "UPDATE pipeline_jobs SET status = CASE "
+                "(SELECT q.status FROM print_queue q WHERE q.id = pipeline_jobs.queue_entry_id) "
+                "WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' ELSE 'failed' END "
+                "WHERE status NOT IN ('completed', 'failed', 'cancelled') "
+                "AND queue_entry_id IN (SELECT id FROM print_queue "
+                "WHERE status IN ('completed', 'failed', 'aborted', 'cancelled'))"
+            )
+        )
+    if result.rowcount:
+        logger.info("Stored the final status of %d pipeline job(s) from their queue entry", result.rowcount)
 
 
 _PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}
@@ -7711,3 +7738,6 @@ async def repair_wallet_ledger_internal(session: AsyncSession):
 
 # The ON DELETE rules SQLite doesn't apply itself: hooks on every ORM delete.
 from backend.app.core import sqlite_fk  # noqa: E402, F401
+
+# A pipeline job stores its queue entry's final status: hooks on every flush.
+from backend.app.services import pipeline_job_status  # noqa: E402, F401

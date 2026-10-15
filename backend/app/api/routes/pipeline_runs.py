@@ -188,7 +188,10 @@ def _compute_job_status(
     if persisted in ("failed", "cancelled", "completed"):
         return persisted
     if queue_entry is None:
-        return persisted
+        # Dispatched, but its queue entry is gone without a final status stored
+        # (deleted before jobs stored it, or removed by the database itself):
+        # printed or not cannot be told, so neither failed nor cancelled.
+        return "unknown" if persisted in ("queued", "printing") else persisted
     qs = queue_entry.status
     if qs == "completed":
         return "completed"
@@ -221,19 +224,21 @@ def _roll_up_run_status(
         return persisted
 
     completed = sum(1 for s in job_statuses if s == "completed")
+    # A copy whose outcome is unknown ended without failing anything to retry.
+    unknown = sum(1 for s in job_statuses if s == "unknown")
     failed = sum(1 for s in job_statuses if s == "failed")
     cancelled = sum(1 for s in job_statuses if s == "cancelled")
     in_flight = sum(1 for s in job_statuses if s in ("printing", "queued", "awaiting_printer", "pending"))
     total = len(job_statuses)
 
-    if completed == total:
+    if completed + unknown == total:
         return "completed"
     if in_flight > 0:
         return "in_progress" if persisted not in ("queued", "slicing", "dispatching") else persisted
     # All copies are in terminal states.
     if failed == 0 and cancelled == total:
         return "cancelled"
-    if completed > 0 and (failed > 0 or cancelled > 0):
+    if completed + unknown > 0 and (failed > 0 or cancelled > 0):
         return "partial_failure"
     if failed > 0:
         return "failed"
@@ -294,16 +299,6 @@ async def _materialise_run(db: AsyncSession, run: PipelineRun) -> PipelineRunRes
             printer_name = p.name if p else None
 
         live_job_status = _compute_job_status(job.status, queue_entry)
-        # If the job WAS dispatched (had a queue_entry_id) but the entry has
-        # since been deleted from the queue page, the user's intent was
-        # cancellation. Otherwise the run would stay forever showing as
-        # ``queued`` because the persisted job.status hasn't been updated.
-        if (
-            job.queue_entry_id is not None
-            and queue_entry is None
-            and live_job_status not in ("completed", "failed", "cancelled")
-        ):
-            live_job_status = "cancelled"
         job_live_statuses.append(live_job_status)
         job_responses.append(
             PipelineJobResponse(
@@ -998,12 +993,17 @@ async def cancel_run(
 
     job_rows = (await db.execute(select(PipelineJob).where(PipelineJob.pipeline_run_id == run.id))).scalars().all()
     for job in job_rows:
+        queue_entry = None
         if job.queue_entry_id:
             queue_entry = (
                 await db.execute(select(PrintQueueItem).where(PrintQueueItem.id == job.queue_entry_id))
             ).scalar_one_or_none()
             if queue_entry is not None and queue_entry.status in ("pending", "queued"):
                 queue_entry.status = "cancelled"
+        if job.status in ("queued", "printing") and queue_entry is None:
+            # Dispatched, its entry gone: whether it printed is unknown, and
+            # calling it cancelled would make retry print it again.
+            continue
         if job.status not in ("completed", "failed", "cancelled"):
             job.status = "cancelled"
             job.completed_at = datetime.now(timezone.utc)

@@ -1384,6 +1384,7 @@ export default {
       completed: '已完成',
       failed: '失敗',
       cancelled: '已取消',
+      unknown: '未知',
     },
     cancelledByUser: '使用者已取消',
   },

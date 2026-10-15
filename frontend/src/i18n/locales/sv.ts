@@ -1395,6 +1395,7 @@ export default {
       completed: 'slutförd',
       failed: 'misslyckad',
       cancelled: 'avbruten',
+      unknown: 'okänt',
     },
   },
 

@@ -1385,6 +1385,7 @@ export default {
       completed: 'tamamlandı',
       failed: 'başarısız',
       cancelled: 'iptal edildi',
+      unknown: 'bilinmiyor',
     },
     cancelledByUser: 'Kullanıcı tarafından iptal edildi',
   },

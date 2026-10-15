@@ -1383,6 +1383,7 @@ export default {
       completed: '完了',
       failed: '失敗',
       cancelled: 'キャンセル',
+      unknown: '不明',
     },
     cancelledByUser: 'ユーザーによりキャンセル',
   },

@@ -1384,6 +1384,7 @@ export default {
       completed: 'completata',
       failed: 'fallita',
       cancelled: 'annullata',
+      unknown: 'sconosciuto',
     },
     cancelledByUser: 'Annullato dall\'utente',
   },

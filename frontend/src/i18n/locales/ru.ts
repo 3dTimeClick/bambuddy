@@ -1336,6 +1336,7 @@ export default {
       completed: "завершено",
       failed: "ошибка",
       cancelled: "отменено",
+      unknown: "неизвестно",
     },
   },
   queue: {

@@ -1384,6 +1384,7 @@ export default {
       completed: 'abgeschlossen',
       failed: 'fehlgeschlagen',
       cancelled: 'abgebrochen',
+      unknown: 'unbekannt',
     },
     cancelledByUser: 'Vom Benutzer abgebrochen',
   },

@@ -1397,6 +1397,7 @@ export default {
       completed: 'completed',
       failed: 'failed',
       cancelled: 'cancelled',
+      unknown: 'unknown',
     },
   },
 

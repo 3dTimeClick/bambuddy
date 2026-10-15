@@ -1394,6 +1394,7 @@ export default {
       completed: "завершено",
       failed: "не вдалося",
       cancelled: "скасовано",
+      unknown: "невідомо",
     },
   },
 

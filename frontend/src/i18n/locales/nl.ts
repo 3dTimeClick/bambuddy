@@ -1395,6 +1395,7 @@ export default {
       completed: 'voltooid',
       failed: 'mislukt',
       cancelled: 'geannuleerd',
+      unknown: 'onbekend',
     },
   },
 

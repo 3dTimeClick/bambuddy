@@ -929,10 +929,6 @@ class TestPolishFollowUp:
         await db_session.commit()
         return run.id, item.id, src.id
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="A job keeps status 'queued' after dispatch; once its queue entry is deleted, a pending copy cannot be told from a printed one. Needs the job's final status stored when its entry ends.",
-    )
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_deleted_queue_entry_rolls_up_as_cancelled(
@@ -986,10 +982,6 @@ class TestPolishFollowUp:
 
         assert body["jobs"][0]["status"] == "pending"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="A job keeps status 'queued' after dispatch; once its queue entry is deleted, a pending copy cannot be told from a printed one. Needs the job's final status stored when its entry ends.",
-    )
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_retry_counts_a_deleted_queue_entry_as_cancelled(
@@ -1266,3 +1258,146 @@ class TestRunViaApiKey:
 
         assert resp.status_code == 202, resp.text
         assert enqueue.await_args.kwargs["owner_id"] is None
+
+
+class TestJobKeepsItsFinalStatus:
+    """A dispatched job stores its queue entry's final status, so deleting the entry
+    later cannot turn a printed copy into one that looks pending (or retryable)."""
+
+    @staticmethod
+    async def _job(db_session, run_id: int):
+        from sqlalchemy import select
+
+        from backend.app.models.pipeline_run import PipelineJob
+
+        db_session.expire_all()
+        return (await db_session.execute(select(PipelineJob).where(PipelineJob.pipeline_run_id == run_id))).scalar_one()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_a_printed_copy_stays_completed_after_its_entry_is_deleted(
+        self, async_client: AsyncClient, pipeline_factory, printer_factory, library_file_factory, db_session
+    ):
+        from backend.app.models.print_queue import PrintQueueItem
+
+        run_id, item_id, _ = await TestPolishFollowUp._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+        item = await db_session.get(PrintQueueItem, item_id)
+        item.status = "completed"
+        await db_session.commit()
+
+        assert (await async_client.delete(f"/api/v1/queue/{item_id}")).status_code == 200
+        body = (await async_client.get(f"/api/v1/pipeline-runs/{run_id}")).json()
+        retry = await async_client.post(f"/api/v1/pipeline-runs/{run_id}/retry-failed")
+
+        assert (body["jobs"][0]["status"], body["status"]) == ("completed", "completed")
+        assert retry.status_code == 400, retry.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        ("bulk", "expected"), [("cancel", "cancelled"), ("delete", "cancelled"), ("fail", "failed")]
+    )
+    async def test_bulk_statements_store_the_final_status(
+        self, pipeline_factory, printer_factory, library_file_factory, db_session, bulk, expected
+    ):
+        from sqlalchemy import delete, update
+
+        from backend.app.models.print_queue import PrintQueueItem
+
+        run_id, item_id, _ = await TestPolishFollowUp._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+        if bulk == "delete":
+            statement = delete(PrintQueueItem).where(PrintQueueItem.id == item_id)
+        elif bulk == "cancel":
+            # As the library trash cancels the jobs of a deleted file: on the table itself.
+            statement = PrintQueueItem.__table__.update().where(PrintQueueItem.id == item_id).values(status="cancelled")
+        else:
+            statement = update(PrintQueueItem).where(PrintQueueItem.id == item_id).values(status="failed")
+        await db_session.execute(statement)
+        await db_session.commit()
+
+        assert (await self._job(db_session, run_id)).status == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_a_job_whose_entry_vanished_earlier_is_unknown_not_retried(
+        self, async_client: AsyncClient, pipeline_factory, printer_factory, library_file_factory, db_session
+    ):
+        from backend.app.models.pipeline_run import PipelineJob, PipelineRun
+
+        printer = await printer_factory()
+        pipe = await pipeline_factory(target_printer_id=printer.id)
+        src = await library_file_factory()
+        run = PipelineRun(pipeline_id=pipe["id"], source_library_file_id=src.id, copies=1, status="dispatching")
+        db_session.add(run)
+        await db_session.flush()
+        # Dispatched before jobs stored a final status; the entry is gone since.
+        db_session.add(PipelineJob(pipeline_run_id=run.id, copy_index=0, queue_entry_id=None, status="queued"))
+        await db_session.commit()
+
+        body = (await async_client.get(f"/api/v1/pipeline-runs/{run.id}")).json()
+        retry = await async_client.post(f"/api/v1/pipeline-runs/{run.id}/retry-failed")
+
+        assert (body["jobs"][0]["status"], body["status"]) == ("unknown", "completed")
+        assert retry.status_code == 400, retry.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_startup_stores_the_status_of_entries_that_ended_before(
+        self, pipeline_factory, printer_factory, library_file_factory, db_session
+    ):
+        from backend.app.core.database import _backfill_pipeline_job_final_status
+
+        run_id, item_id, _ = await TestPolishFollowUp._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+        connection = await db_session.connection()
+        # Ended before jobs stored it: written past the session hooks.
+        await connection.exec_driver_sql(f"UPDATE print_queue SET status = 'aborted' WHERE id = {int(item_id)}")
+        await db_session.commit()
+
+        await _backfill_pipeline_job_final_status(await db_session.connection())
+        await _backfill_pipeline_job_final_status(await db_session.connection())  # a restart changes nothing
+        await db_session.commit()
+
+        assert (await self._job(db_session, run_id)).status == "failed"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_cancelling_a_run_leaves_an_unknown_copy_unknown(
+        self, async_client: AsyncClient, pipeline_factory, printer_factory, library_file_factory, db_session
+    ):
+        """Cancelled would make retry print a copy that may have printed already."""
+        from dataclasses import dataclass
+
+        from backend.app.models.pipeline_run import PipelineJob
+
+        @dataclass
+        class _FakeSliceJob:
+            id: int = 6668
+
+        run_id, _, _ = await TestPolishFollowUp._dispatched_run(
+            db_session, pipeline_factory, printer_factory, library_file_factory
+        )
+        # A second copy, dispatched before jobs stored a final status; its entry is gone.
+        db_session.add(PipelineJob(pipeline_run_id=run_id, copy_index=1, queue_entry_id=None, status="queued"))
+        await db_session.commit()
+
+        cancelled = await async_client.post(f"/api/v1/pipeline-runs/{run_id}/cancel")
+        live_status = {"connected": True, "raw_data": {"ams": []}}
+        with (
+            patch("backend.app.api.routes.pipeline_runs._load_printer_status", new=AsyncMock(return_value=live_status)),
+            patch(
+                "backend.app.services.slice_dispatch.slice_dispatch.enqueue",
+                new=AsyncMock(return_value=_FakeSliceJob()),
+            ),
+        ):
+            retry = await async_client.post(f"/api/v1/pipeline-runs/{run_id}/retry-failed")
+
+        assert cancelled.status_code == 200, cancelled.text
+        assert sorted(job["status"] for job in cancelled.json()["jobs"]) == ["cancelled", "unknown"]
+        assert retry.status_code == 202, retry.text
+        assert retry.json()["copies"] == 1
