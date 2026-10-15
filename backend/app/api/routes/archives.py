@@ -2181,17 +2181,11 @@ async def recalculate_all_costs(
                 total_cost += (untracked_grams / 1000.0) * default_cost_per_kg
             new_cost = round(total_cost, 2)
         else:
-            # Fallback: sum costs for old records by print_name
-            usage_result = await db.execute(
-                select(func.sum(SpoolUsageHistory.cost)).where(
-                    SpoolUsageHistory.print_name == archive.print_name,
-                    SpoolUsageHistory.archive_id.is_(None),
-                )
-            )
-            fallback_cost = usage_result.scalar()
-            if fallback_cost is not None and fallback_cost > 0:
-                new_cost = round(fallback_cost, 2)
-            elif spoolman_owns and archive.cost is not None:
+            # No usage linked to this archive. Usage without an archive link
+            # (recorded before usage was linked, with archiving off, or of a
+            # deleted archive) is not matched by print name: that charged one
+            # print's spool cost to every archive of the same name.
+            if spoolman_owns and archive.cost is not None:
                 # Priced from the linked Spoolman spools at completion; there is
                 # nothing better to recompute it from here (#2591).
                 new_cost = None

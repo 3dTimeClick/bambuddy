@@ -5803,6 +5803,7 @@ async def _run_migrations(conn):
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)
     await _migrate_notification_providers_go_with_their_printer(conn)
+    await _migrate_spool_usage_outlives_its_archive(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -6054,6 +6055,17 @@ async def _migrate_notification_providers_go_with_their_printer(conn) -> None:
         await _pg_set_fk_ondelete(conn, "notification_providers", "printer_id", "printers", "CASCADE")
         # Likewise a smart plug: without a printer it is everyone's to switch.
         await _pg_set_fk_ondelete(conn, "smart_plugs", "printer_id", "printers", "CASCADE")
+
+
+async def _migrate_spool_usage_outlives_its_archive(conn) -> None:
+    """spool_usage_history.archive_id: ON DELETE SET NULL, as the model says (PostgreSQL).
+
+    The key had no rule, so deleting an archive a spool was used for (hard
+    delete, or a printer delete with its archives) failed on the key. SQLite
+    doesn't enforce it; core/sqlite_fk applies the same rule there.
+    """
+    if not is_sqlite():
+        await _pg_set_fk_ondelete(conn, "spool_usage_history", "archive_id", "print_archives", "SET NULL")
 
 
 _PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}

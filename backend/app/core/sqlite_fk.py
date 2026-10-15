@@ -50,6 +50,7 @@ APPLIED: frozenset[tuple[str, str]] = frozenset(
         ("print_log_entries", "archive_id"),
         ("print_queue", "archive_id"),
         ("project_bom_items", "archive_id"),
+        ("spool_usage_history", "archive_id"),
         ("telegram_pending_verdicts", "archive_id"),
         ("wallet_transactions", "print_archive_id"),
         # library_files. print_queue.library_file_id is CASCADE in the model, but
