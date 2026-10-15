@@ -554,7 +554,8 @@ async def create_project(
     """Create a new project."""
     if data.priority not in PROJECT_PRIORITIES:
         raise HTTPException(status_code=400, detail="Invalid priority")
-    # Verify parent exists if specified
+    # Verify parent exists if specified; 0 is no parent, as on update
+    data.parent_id = data.parent_id or None
     parent_name = None
     if data.parent_id:
         parent_result = await db.execute(select(Project).where(Project.id == data.parent_id))

@@ -836,6 +836,9 @@ async def add_to_queue(
     actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Add an item to the print queue."""
+    # 0 is no file, as on the checks below; stored, it would point at nothing.
+    data.archive_id = data.archive_id or None
+    data.library_file_id = data.library_file_id or None
     # Normalize target_model (e.g., "Bambu Lab X1E" / "C13" -> "X1E").
     # normalize_model_name resolves internal codes first: the previous
     # `normalize_printer_model(x) or normalize_printer_model_id(x)` chain never
@@ -1492,6 +1495,17 @@ async def create_batch(
 
     plate_targets = _validate_plate_targets(data.plates)
     await _validate_batch_project(db, data.project_id, actor)
+    # The file the batch prints, for reference: 0 is none, any other id must exist.
+    data.archive_id = data.archive_id or None
+    data.library_file_id = data.library_file_id or None
+    if data.archive_id is not None and await db.get(PrintArchive, data.archive_id) is None:
+        raise HTTPException(400, "Archive not found")
+    if (
+        data.library_file_id is not None
+        and (await db.execute(LibraryFile.active().where(LibraryFile.id == data.library_file_id))).scalar_one_or_none()
+        is None
+    ):
+        raise HTTPException(400, "Library file not found")
     if data.external_source is not None:
         existing = await db.execute(
             select(PrintBatch.id).where(
