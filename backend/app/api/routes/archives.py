@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from backend.app.core import database
 from backend.app.core.auth import (
@@ -175,6 +176,17 @@ async def _claimed_timelapse_stems(db, printer_id: int | None, exclude_archive_i
         )
     )
     return {Path(p).stem for p in rows.scalars().all() if p}
+
+
+def _visible_archive_clauses(user, can_read_all: bool, printer_scope: PrinterScope) -> list:
+    """WHERE clauses for the archives a caller may see, as _ensure_archive_visible decides one by one."""
+    clauses = []
+    if (scope_clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        clauses.append(scope_clause)
+    if not can_read_all:
+        # Own archives only; an ownerless one needs read-all, and no user sees none.
+        clauses.append(PrintArchive.created_by_id == user.id if user is not None else PrintArchive.id.is_(None))
+    return clauses
 
 
 def _ensure_archive_visible(
@@ -450,8 +462,10 @@ async def list_archives(
         printer_scope=printer_scope,
     )
 
-    # Get sets of duplicate hashes and duplicate (name, hash) pairs (efficient single queries)
-    duplicate_hashes, duplicate_name_hash_pairs = await service.get_duplicate_hashes_and_names()
+    # Get sets of duplicate hashes and duplicate (name, hash) pairs (efficient single queries),
+    # counted among the archives this caller may see, as the duplicates view lists them.
+    visible = _visible_archive_clauses(user, can_read_all, printer_scope)
+    duplicate_hashes, duplicate_name_hash_pairs = await service.get_duplicate_hashes_and_names(visible)
 
     # Batch-load duplicate groups once for the current page keys.
     duplicate_hashes_in_page = {
@@ -482,7 +496,7 @@ async def list_archives(
                 PrintArchive.created_at,
                 PrintArchive.content_hash,
                 func.lower(PrintArchive.print_name).label("print_name_lower"),
-            ).where(or_(*duplicate_group_conditions), PrintArchive.deleted_at.is_(None))
+            ).where(or_(*duplicate_group_conditions), PrintArchive.deleted_at.is_(None), *visible)
         )
 
         duplicate_groups_by_hash: dict[str, list[tuple[int, datetime]]] = defaultdict(list)
@@ -617,6 +631,7 @@ async def no_3mf_warning(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Whether to nudge the user about a print that archived without its 3MF,
     and why. True iff any archive in the last 30 days was created via the
@@ -654,6 +669,8 @@ async def no_3mf_warning(
     ]
     if user is not None and not can_read_all:
         conditions.append(PrintArchive.created_by_id == user.id)
+    if (scope_clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        conditions.append(scope_clause)
     result = await db.execute(select(PrintArchive.extra_data).where(*conditions))
     reasons: set[str] = set()
     has_fallback = False
@@ -1633,6 +1650,7 @@ async def get_all_tags(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List all unique tags with usage counts.
 
@@ -1640,9 +1658,11 @@ async def get_all_tags(
     """
     user, can_read_all = auth_result
     # Query all archives with non-null tags
-    tag_conditions = [PrintArchive.tags.isnot(None), PrintArchive.deleted_at.is_(None)]
+    tag_conditions: list[ColumnElement[bool]] = [PrintArchive.tags.isnot(None), PrintArchive.deleted_at.is_(None)]
     if user is not None and not can_read_all:
         tag_conditions.append(PrintArchive.created_by_id == user.id)
+    if (scope_clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        tag_conditions.append(scope_clause)
     result = await db.execute(select(PrintArchive.tags).where(*tag_conditions))
     all_tags_rows = result.all()
 
@@ -1668,6 +1688,7 @@ async def rename_tag(
     request: Request,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Rename a tag across all archives.
 
@@ -1685,7 +1706,11 @@ async def rename_tag(
 
     # Find all archives containing the old tag
     result = await db.execute(
-        select(PrintArchive).where(PrintArchive.tags.isnot(None), PrintArchive.deleted_at.is_(None))
+        select(PrintArchive).where(
+            PrintArchive.tags.isnot(None),
+            PrintArchive.deleted_at.is_(None),
+            *_visible_archive_clauses(None, True, printer_scope),
+        )
     )
     archives = list(result.scalars().all())
 
@@ -1716,6 +1741,7 @@ async def delete_tag(
     tag_name: str,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete a tag from all archives.
 
@@ -1723,7 +1749,11 @@ async def delete_tag(
     """
     # Find all archives containing the tag
     result = await db.execute(
-        select(PrintArchive).where(PrintArchive.tags.isnot(None), PrintArchive.deleted_at.is_(None))
+        select(PrintArchive).where(
+            PrintArchive.tags.isnot(None),
+            PrintArchive.deleted_at.is_(None),
+            *_visible_archive_clauses(None, True, printer_scope),
+        )
     )
     archives = list(result.scalars().all())
 
@@ -1766,6 +1796,7 @@ async def get_archive(
         content_hash=archive.content_hash,
         print_name=archive.print_name,
         makerworld_model_id=makerworld_id,
+        visible=_visible_archive_clauses(user, can_read_all, printer_scope),
     )
     run_aggregates = await _load_run_aggregates(db, [archive.id])
     return archive_to_response(archive, duplicates, run_aggregate=run_aggregates.get(archive.id))
@@ -1860,7 +1891,9 @@ async def find_similar_archives(
 
     service = ArchiveComparisonService(db)
     try:
-        return await service.find_similar_archives(archive_id, limit=limit)
+        return await service.find_similar_archives(
+            archive_id, limit=limit, visible=_visible_archive_clauses(user, can_read_all, printer_scope)
+        )
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -2133,12 +2166,17 @@ async def rescan_archive(
 async def recalculate_all_costs(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Recalculate costs for all archives based on filament usage and prices."""
 
     from backend.app.api.routes.settings import get_setting
 
-    result = await db.execute(select(PrintArchive))
+    # Only the archives of the caller's printers, as the archive list shows them.
+    query = select(PrintArchive)
+    if (clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        query = query.where(clause)
+    result = await db.execute(query)
     archives = list(result.scalars().all())
 
     # Load all filaments for lookup
@@ -2211,11 +2249,16 @@ async def recalculate_all_costs(
 async def rescan_all_archives(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Rescan all archives and update their metadata."""
     from backend.app.services.archive import ThreeMFParser
 
-    result = await db.execute(select(PrintArchive))
+    # Only the archives of the caller's printers, as the archive list shows them.
+    query = select(PrintArchive)
+    if (clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        query = query.where(clause)
+    result = await db.execute(query)
     archives = list(result.scalars().all())
 
     updated = 0
@@ -2280,6 +2323,7 @@ async def get_archive_duplicates(
         content_hash=archive.content_hash,
         print_name=archive.print_name,
         makerworld_model_id=makerworld_id,
+        visible=_visible_archive_clauses(user, can_read_all, printer_scope),
     )
     return {"duplicates": duplicates, "count": len(duplicates)}
 
@@ -2288,9 +2332,14 @@ async def get_archive_duplicates(
 async def backfill_content_hashes(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Compute and store content hashes for all archives missing them."""
-    result = await db.execute(select(PrintArchive).where(PrintArchive.content_hash.is_(None)))
+    result = await db.execute(
+        select(PrintArchive).where(
+            PrintArchive.content_hash.is_(None), *_visible_archive_clauses(None, True, printer_scope)
+        )
+    )
     archives = list(result.scalars().all())
 
     updated = 0
@@ -5468,6 +5517,7 @@ async def upload_source_3mf_by_name(
     print_name: str = Query(None, description="Match archive by print name"),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Upload source 3MF and match to archive by print name.
 
@@ -5488,9 +5538,11 @@ async def upload_source_3mf_by_name(
             print_name = print_name[:-7]
 
     # Find matching archive - try exact match first, then fuzzy
+    # Only an archive on the caller's printers can be matched, as it is listed.
+    visible = _visible_archive_clauses(None, True, printer_scope)
     result = await db.execute(
         select(PrintArchive)
-        .where(PrintArchive.print_name == print_name)
+        .where(PrintArchive.print_name == print_name, *visible)
         .order_by(PrintArchive.created_at.desc())
         .limit(1)
     )
@@ -5500,7 +5552,7 @@ async def upload_source_3mf_by_name(
         # Try matching filename without .gcode.3mf
         result = await db.execute(
             select(PrintArchive)
-            .where(PrintArchive.filename.like(f"{print_name}%"))
+            .where(PrintArchive.filename.like(f"{print_name}%"), *visible)
             .order_by(PrintArchive.created_at.desc())
             .limit(1)
         )
@@ -5510,7 +5562,7 @@ async def upload_source_3mf_by_name(
         # Try case-insensitive partial match on print_name
         result = await db.execute(
             select(PrintArchive)
-            .where(PrintArchive.print_name.ilike(f"%{print_name}%"))
+            .where(PrintArchive.print_name.ilike(f"%{print_name}%"), *visible)
             .order_by(PrintArchive.created_at.desc())
             .limit(1)
         )

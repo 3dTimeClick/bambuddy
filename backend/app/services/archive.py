@@ -6,8 +6,10 @@ import os
 import re
 import shutil
 import zipfile
+from collections.abc import Sequence
 from datetime import date, datetime, time, timezone
 from pathlib import Path
+from typing import Any
 
 from defusedxml import ElementTree as ET
 from sqlalchemy import and_, or_, select, text
@@ -1110,8 +1112,12 @@ class ArchiveService:
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    async def get_duplicate_hashes_and_names(self) -> tuple[set[str], set[tuple[str, str]]]:
+    async def get_duplicate_hashes_and_names(
+        self, visible: Sequence[Any] = ()
+    ) -> tuple[set[str], set[tuple[str, str]]]:
         """Get all content hashes and (print name, hash) pairs that appear more than once.
+
+        ``visible`` limits the count to archives the caller may see.
 
         For hashes: returns all hashes with > 1 archive (true duplicates).
         For name/hash pairs: returns only pairs that have > 1 archive
@@ -1127,7 +1133,7 @@ class ArchiveService:
         # duplicate even though the user only sees one row.
         result = await self.db.execute(
             select(PrintArchive.content_hash)
-            .where(PrintArchive.content_hash.isnot(None), PrintArchive.deleted_at.is_(None))
+            .where(PrintArchive.content_hash.isnot(None), PrintArchive.deleted_at.is_(None), *visible)
             .group_by(PrintArchive.content_hash)
             .having(func.count(PrintArchive.id) > 1)
         )
@@ -1141,6 +1147,7 @@ class ArchiveService:
                 PrintArchive.print_name.isnot(None),
                 PrintArchive.content_hash.isnot(None),
                 PrintArchive.deleted_at.is_(None),
+                *visible,
             )
             .group_by(func.lower(PrintArchive.print_name), PrintArchive.content_hash)
             .having(func.count(PrintArchive.id) > 1)
@@ -1155,8 +1162,11 @@ class ArchiveService:
         content_hash: str | None = None,
         print_name: str | None = None,
         makerworld_model_id: str | None = None,
+        visible: Sequence[Any] = (),
     ) -> list[dict]:
         """Find duplicate archives based on hash or name matching.
+
+        ``visible`` holds WHERE clauses limiting matches to archives the caller may see.
 
         Returns list of dicts with id, print_name, created_at, match_type.
         """
@@ -1171,6 +1181,7 @@ class ArchiveService:
                         PrintArchive.content_hash == content_hash,
                         PrintArchive.id != archive_id,
                         PrintArchive.deleted_at.is_(None),
+                        *visible,
                     )
                 )
                 .order_by(PrintArchive.created_at.desc())
@@ -1190,7 +1201,7 @@ class ArchiveService:
         # Prefer strict name+hash matching when hash exists; fallback to name-only for legacy/manual
         # archives that may not have a content_hash.
         if print_name or makerworld_model_id:
-            conditions = [PrintArchive.id != archive_id, PrintArchive.deleted_at.is_(None)]
+            conditions = [PrintArchive.id != archive_id, PrintArchive.deleted_at.is_(None), *visible]
 
             name_conditions = []
             if print_name:

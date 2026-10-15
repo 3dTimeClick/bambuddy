@@ -31,6 +31,31 @@ def _may_receive(connection: WebSocket, printer_id: int | None) -> bool:
     return scope is not None and scope.allows(printer_id)
 
 
+# A printer id no limited scope holds: what an archive event carries when its
+# printer cannot be told, so only sockets that see every printer receive it.
+_UNKNOWN_PRINTER = -1
+
+
+async def _archive_printer_id(archive_id: Any) -> int | None:
+    """The printer an archive belongs to (None: printer-less, seen by everyone)."""
+    from sqlalchemy import select
+
+    from backend.app.core.database import async_session
+    from backend.app.models.archive import PrintArchive
+
+    if not isinstance(archive_id, int):
+        return _UNKNOWN_PRINTER
+    try:
+        async with async_session() as db:
+            row = (await db.execute(select(PrintArchive.printer_id).where(PrintArchive.id == archive_id))).first()
+    except Exception:
+        logger.exception("Could not look up the printer of archive %s for a live update", archive_id)
+        return _UNKNOWN_PRINTER
+    if row is None:
+        return _UNKNOWN_PRINTER
+    return row[0]
+
+
 class ConnectionManager:
     """Manages WebSocket connections and broadcasts."""
 
@@ -257,13 +282,15 @@ class ConnectionManager:
         )
 
     async def send_archive_updated(self, archive: dict):
-        """Notify clients that an archive was updated."""
-        await self.broadcast(
-            {
-                "type": "archive_updated",
-                "data": archive,
-            }
-        )
+        """Notify clients that an archive was updated.
+
+        Only sockets that may see the archive's printer receive it: callers send
+        just the changed fields, so the printer is looked up here when missing.
+        """
+        message: dict[str, Any] = {"type": "archive_updated", "data": archive}
+        if _message_printer_id(message) is None:
+            message["printer_id"] = await _archive_printer_id(archive.get("id"))
+        await self.broadcast(message)
 
     async def send_queue_item_uploading(
         self,
