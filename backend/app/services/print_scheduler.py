@@ -5492,7 +5492,9 @@ class PrintScheduler:
         ).all()
         history: dict[int, list[stock_forecast.UsageRecord]] = {}
         for spool_id, created_at, weight_used in rows:
-            if created_at is None:
+            # A deleted spool's usage forecasts no stock. Skipped here rather than
+            # filtered before the limit, so the window matches the forecast panel's.
+            if created_at is None or spool_id is None:
                 continue
             history.setdefault(spool_id, []).append(stock_forecast.UsageRecord(created_at, float(weight_used or 0)))
         return history

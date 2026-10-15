@@ -343,7 +343,7 @@ def load_all_models():
 # Tables SQLite must never give a freed id to a new row: whatever still points at
 # a deleted row (a token, a socket, in-memory state, files, a row inserted while
 # the delete committed) would point at the new one. PostgreSQL uses sequences.
-AUTOINCREMENT_TABLES = ("users", "api_keys", "printers", "print_archives", "long_lived_tokens")
+AUTOINCREMENT_TABLES = ("users", "api_keys", "printers", "print_archives", "long_lived_tokens", "spool")
 
 # Columns that keep one of their ids without a foreign key, so the seed below
 # cannot find them in the metadata: a deleted printer's print log is kept as
@@ -5804,6 +5804,7 @@ async def _run_migrations(conn):
     await _migrate_wallet_transactions_keep_deleted_users(conn)
     await _migrate_notification_providers_go_with_their_printer(conn)
     await _migrate_spool_usage_outlives_its_archive(conn)
+    await _migrate_spool_usage_outlives_its_spool(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
 
@@ -6066,6 +6067,52 @@ async def _migrate_spool_usage_outlives_its_archive(conn) -> None:
     """
     if not is_sqlite():
         await _pg_set_fk_ondelete(conn, "spool_usage_history", "archive_id", "print_archives", "SET NULL")
+
+
+async def _migrate_spool_usage_outlives_its_spool(conn) -> None:
+    """spool_usage_history.spool_id: nullable, ON DELETE SET NULL, as the model says.
+
+    Deleting a spool deleted its usage on PostgreSQL (the costs its prints were
+    recalculated from) and left it on SQLite pointing at an id the next spool
+    could get. SQLite enforces neither rule; core/sqlite_fk applies SET NULL,
+    which needs the column nullable.
+    """
+    from sqlalchemy import text
+
+    if is_sqlite():
+        select_sql = text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'spool_usage_history'")
+        sql = (await conn.execute(select_sql)).scalar()
+        if not isinstance(sql, str):
+            return
+        new_sql = re.sub(r"(\bspool_id\s+INTEGER)\s+NOT\s+NULL", r"\1", sql)
+        new_sql = re.sub(
+            r"(\bspool_id\s*\)?\s+(?:INTEGER\s+)?REFERENCES\s+spool\s*\(\s*id\s*\)\s+ON\s+DELETE)\s+CASCADE",
+            r"\1 SET NULL",
+            new_sql,
+        )
+        if new_sql == sql:
+            return
+        try:
+            schema_version = (await conn.execute(text("PRAGMA schema_version"))).scalar() or 0
+            await conn.execute(text("PRAGMA writable_schema = ON"))
+            await conn.execute(
+                text("UPDATE sqlite_master SET sql = :sql WHERE type = 'table' AND name = 'spool_usage_history'"),
+                {"sql": new_sql},
+            )
+            # Makes this connection reload the table definition.
+            await conn.execute(text(f"PRAGMA schema_version = {schema_version + 1}"))
+            await conn.execute(text("PRAGMA writable_schema = OFF"))
+        except (OperationalError, ProgrammingError) as exc:
+            logger.error(
+                "Could not make spool_usage_history.spool_id nullable; usage of deleted spools keeps "
+                "pointing at their old id on this install: %s",
+                exc,
+                exc_info=True,
+            )
+        return
+
+    await _safe_execute(conn, "ALTER TABLE spool_usage_history ALTER COLUMN spool_id DROP NOT NULL")
+    await _pg_set_fk_ondelete(conn, "spool_usage_history", "spool_id", "spool", "SET NULL")
 
 
 _PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}

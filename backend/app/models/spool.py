@@ -10,6 +10,8 @@ class Spool(Base):
     """Spool inventory item for tracking filament spools and their properties."""
 
     __tablename__ = "spool"
+    # A freed id must not pass to a new spool: its usage history would follow.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     material: Mapped[str] = mapped_column(String(50))  # PLA, PETG, ABS, etc.

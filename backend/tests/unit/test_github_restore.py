@@ -1074,6 +1074,21 @@ class TestRestoreSpools:
         assert row.archive_id == archive.id
 
     @pytest.mark.asyncio
+    async def test_usage_of_a_spool_deleted_before_the_backup_is_restored_without_a_spool(self, db_session):
+        """A deleted spool's usage is kept (spool_id null); it is still the cost of its prints."""
+        tally = _CategoryTally()
+        usage = {
+            "usage_history": [{"spool_id": None, "weight_used": 4.0, "cost": 0.2, "created_at": "2026-02-01 09:00:00"}]
+        }
+
+        await _service()._restore_spools(db_session, {"spools": []}, usage, False, tally, {})
+        await db_session.commit()
+
+        row = (await db_session.execute(select(SpoolUsageHistory))).scalar_one()
+        assert (row.spool_id, row.weight_used, row.cost) == (None, 4.0, 0.2)
+        assert tally.skipped == 0
+
+    @pytest.mark.asyncio
     async def test_usage_row_with_unresolvable_spool_is_skipped_and_explained(self, db_session):
         tally = _CategoryTally()
         usage = {"usage_history": [{"spool_id": 999, "weight_used": 1.0, "created_at": "2026-02-01 09:00:00"}]}

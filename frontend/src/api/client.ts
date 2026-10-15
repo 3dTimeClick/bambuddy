@@ -4023,7 +4023,8 @@ export interface CsvImportResult {
 
 export interface SpoolUsageRecord {
   id: number;
-  spool_id: number;
+  // null: the spool was deleted, its usage kept
+  spool_id: number | null;
   printer_id: number | null;
   print_name: string | null;
   weight_used: number;

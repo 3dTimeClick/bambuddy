@@ -215,6 +215,8 @@ export function ForecastPanel({ spools }: { spools: InventorySpool[] }) {
   const usageBySpoolId = useMemo(() => {
     const m = new Map<number, SpoolUsageRecord[]>();
     for (const r of usageHistory) {
+      // Usage of a deleted spool belongs to no spool here.
+      if (r.spool_id === null) continue;
       const arr = m.get(r.spool_id) ?? [];
       arr.push(r);
       m.set(r.spool_id, arr);

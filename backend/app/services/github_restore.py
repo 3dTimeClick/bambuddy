@@ -1749,7 +1749,9 @@ class GitHubRestoreService:
 
             old_spool_id = entry.get("spool_id")
             spool_id = spool_id_map.get(old_spool_id) if isinstance(old_spool_id, int) else None
-            if spool_id is None:
+            # Usage of a spool deleted before the backup has no spool, and is
+            # restored without one; only a spool id that resolves to nothing is skipped.
+            if spool_id is None and old_spool_id is not None:
                 # The parent spool never made it into the map: the backup's spool
                 # list didn't include it, or its entry carried no integer id. A
                 # spool that was merely *skipped* (matched locally, overwrite off)
