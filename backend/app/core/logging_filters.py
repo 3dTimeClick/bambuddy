@@ -134,6 +134,7 @@ _MASKED_TAILS = re.compile(r"(invalid URL: |headers JSON: |returned error: |REST
 # An HTTP client refusing a header quotes the header's value, commonly a token,
 # whichever service sent it: masked to the end of the line.
 _REFUSED_HEADER = re.compile(r"(Illegal header (?:value|name) ).*")
+_UNMASKED_REFUSED_HEADER = re.compile(r"Illegal header (?:value|name) (?!\[REDACTED\])")
 
 
 def redact_refused_headers(text: str | None) -> str | None:
@@ -141,6 +142,58 @@ def redact_refused_headers(text: str | None) -> str | None:
     if not text or "Illegal header" not in text:
         return text
     return _REFUSED_HEADER.sub(r"\1[REDACTED]", text)
+
+
+def _redact_refused_header_arg(value: object) -> object:
+    """*value* as masked text when its text quotes a refused header (an
+    exception, a string), else *value* itself."""
+    text = value if isinstance(value, str) else str(value)
+    return redact_refused_headers(text) if "Illegal header" in text else value
+
+
+class RefusedHeaderRedactFilter(logging.Filter):
+    """Mask a refused header's value in a record before a handler writes it.
+
+    The value reaches a record as an argument (``"...: %s", e``), in the
+    message itself, or in the traceback of ``logger.exception``, so the
+    rendered message and traceback are checked, not the format string. A
+    record with nothing to mask is left untouched.
+
+    Attach to the handlers that write lines (a handler filter sees records
+    from every logger that propagates to it) and to uvicorn's loggers, which
+    do not propagate to root.
+    """
+
+    _formatter = logging.Formatter()
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003 — stdlib API name
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 — a bad format string is the handler's error to report, not the caller's
+            message = ""
+        if "Illegal header" in message:
+            # Masked in the arguments, keeping their shape: uvicorn's access
+            # formatter unpacks them.
+            if isinstance(record.args, tuple):
+                record.args = tuple(_redact_refused_header_arg(a) for a in record.args)
+            elif isinstance(record.args, dict):
+                record.args = {k: _redact_refused_header_arg(v) for k, v in record.args.items()}
+            try:
+                masked = record.getMessage()
+            except Exception:  # noqa: BLE001 — the masked format string no longer fits its arguments
+                masked = message
+            if _UNMASKED_REFUSED_HEADER.search(masked):
+                # The quote is (also) in the format string: the rendered
+                # line, masked, replaces both.
+                record.msg = redact_refused_headers(message)
+                record.args = None
+        if record.exc_info and not record.exc_text:
+            # Formatters reuse exc_text once set, so the masked text is what
+            # every handler then writes.
+            record.exc_text = self._formatter.formatException(record.exc_info)
+        if record.exc_text and "Illegal header" in record.exc_text:
+            record.exc_text = redact_refused_headers(record.exc_text)
+        return True
 
 
 def redact_device_urls(text: str | None) -> str | None:

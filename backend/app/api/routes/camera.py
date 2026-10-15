@@ -54,7 +54,12 @@ from backend.app.services.camera_fanout import (
 )
 from backend.app.services.camera_light import camera_light
 from backend.app.services.camera_profiles import get_camera_profile
-from backend.app.utils.ffmpeg_output import summarize_ffmpeg_stderr
+from backend.app.utils.ffmpeg_output import (
+    FFMPEG_RTSP_LOGLEVEL,
+    refuse_rtsp_redirect,
+    rtsp_log_event,
+    summarize_ffmpeg_stderr,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/printers", tags=["camera"])
@@ -149,6 +154,12 @@ _FFMPEG_STDERR_TAIL_BYTES = 16384
 # Live stderr collectors by pid — see _FfmpegStderrTail. Present means "this
 # process's stderr already has a reader; do not open a second one".
 _stderr_tails: dict[int, "_FfmpegStderrTail"] = {}
+# How long a frame waits for the stderr pump to reach ffmpeg's input-open line,
+# which ffmpeg writes before any frame.
+_FFMPEG_INPUT_OPEN_WAIT = 10.0
+# How long a session that ended without a frame waits for the pump to read the
+# rest of ffmpeg's log, to tell a refused redirect from a routine failure.
+_FFMPEG_REDIRECT_SETTLE = 2.0
 
 
 def get_buffered_frame(printer_id: int) -> bytes | None:
@@ -484,6 +495,11 @@ class _FfmpegStderrTail:
         self._process = process
         self._buffer = bytearray()
         self._task: asyncio.Task | None = None
+        # Whether ffmpeg reported its input open ("open") or a redirect it
+        # followed ("redirected") first, or ended first ("ended").
+        self.input_state: str | None = None
+        self._input_decided = asyncio.Event()
+        self._line = b""
         if process.stderr is None:
             return
         self._task = asyncio.create_task(self._pump())
@@ -496,6 +512,7 @@ class _FfmpegStderrTail:
                 chunk = await reader.read(8192)
                 if not chunk:
                     return  # EOF — ffmpeg has exited
+                self._watch(chunk)
                 self._buffer.extend(chunk)
                 excess = len(self._buffer) - _FFMPEG_STDERR_TAIL_BYTES
                 if excess > 0:
@@ -504,6 +521,43 @@ class _FfmpegStderrTail:
             raise
         except Exception:  # noqa: BLE001 — a broken pipe just ends the tail
             return
+        finally:
+            self._decide("ended")
+
+    def _decide(self, state: str) -> None:
+        if self.input_state is None:
+            self.input_state = state
+            self._input_decided.set()
+
+    def _watch(self, chunk: bytes) -> None:
+        """Follow ffmpeg's log line by line for the redirect and input-open
+        lines (see utils.ffmpeg_output), in the order ffmpeg wrote them."""
+        data = self._line + chunk
+        lines = data.split(b"\n")
+        self._line = lines.pop()[-_FFMPEG_STDERR_TAIL_BYTES:]
+        for line in lines:
+            event = rtsp_log_event(line)
+            if event == "redirected":
+                self.input_state = "redirected"
+                self._input_decided.set()
+                refuse_rtsp_redirect(self._process, line)
+                return
+            if event == "open":
+                self._decide("open")
+
+    async def wait_input_open(self, timeout: float) -> bool:
+        """True once ffmpeg reported its input open without a redirect first.
+
+        ffmpeg reports it before writing any frame, so a caller holding a
+        frame waits only for this pump to catch up.
+        """
+        if self._task is None:
+            return True  # no log pipe to read: spawned without one
+        try:
+            await asyncio.wait_for(self._input_decided.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return self.input_state == "open"
 
     def text(self) -> str | None:
         """The retained tail, summarised. None when nothing was captured.
@@ -612,6 +666,7 @@ async def generate_rtsp_mjpeg_stream(
     # ffmpeg command to output MJPEG stream to stdout
     cmd = [
         ffmpeg,
+        *FFMPEG_RTSP_LOGLEVEL,
         "-rtsp_transport",
         "tcp",
         "-rtsp_flags",
@@ -760,6 +815,7 @@ async def generate_rtsp_mjpeg_stream(
             last_change = time.time()
             identical_frames = 0
             frozen = False
+            refused = False
 
             while True:
                 if disconnect_event and disconnect_event.is_set():
@@ -796,6 +852,13 @@ async def generate_rtsp_mjpeg_stream(
 
                         frame = buffer[: end_idx + 2]
                         buffer = buffer[end_idx + 2 :]
+                        # No frame before ffmpeg reported its input open: a
+                        # redirect it followed on the way ends the stream.
+                        if not session_got_frames and (
+                            stderr_tail is None or not await stderr_tail.wait_input_open(_FFMPEG_INPUT_OPEN_WAIT)
+                        ):
+                            refused = True
+                            break
                         got_any_frames = True
                         session_got_frames = True
 
@@ -844,6 +907,14 @@ async def generate_rtsp_mjpeg_stream(
                             frozen_crc = last_frame_crc
                             break
 
+                    if refused:
+                        logger.error(
+                            "RTSP input not confirmed open for %s (stream_id=%s), stopping the stream",
+                            ip_address,
+                            stream_id,
+                        )
+                        break
+
                     if frozen:
                         if still_scene:
                             logger.info(
@@ -882,6 +953,13 @@ async def generate_rtsp_mjpeg_stream(
                     client_gone = True
                     break
 
+            # A session that ended before its first frame may have ended on a
+            # redirect (ffmpeg is killed for one): that is not redialled.
+            if not session_got_frames and not client_gone and stderr_tail is not None:
+                if stderr_tail.input_state is None:
+                    await stderr_tail.wait_input_open(_FFMPEG_REDIRECT_SETTLE)
+                refused = refused or stderr_tail.input_state == "redirected"
+
             # Clean up this ffmpeg process before reconnecting or exiting
             await _terminate_ffmpeg(process, stream_id)
             # Released after teardown, not before: _terminate_ffmpeg deliberately
@@ -892,7 +970,7 @@ async def generate_rtsp_mjpeg_stream(
                 stderr_tail = None
             process = None
 
-            if client_gone:
+            if client_gone or refused:
                 break
 
             # Check if stream was explicitly stopped (e.g., by stop endpoint)

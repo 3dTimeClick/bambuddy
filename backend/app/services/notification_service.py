@@ -17,6 +17,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.logging_filters import redact_refused_headers
 from backend.app.models.archive import PrintArchive
 from backend.app.models.notification import (
     NotificationDigestQueue,
@@ -362,6 +363,18 @@ class NotificationService:
         attach_photo mirrors the provider's own toggle (see _send_to_provider)
         — when set, a bundled sample image stands in for a real snapshot.
         """
+        success, message = await self._send_test_notification(provider_type, config, db, attach_photo)
+        # The text goes back to the caller: an HTTP client refusing a header
+        # quotes its value, which may be a credential the caller never sees.
+        return success, redact_refused_headers(message) or message
+
+    async def _send_test_notification(
+        self,
+        provider_type: str,
+        config: dict[str, Any],
+        db: AsyncSession | None,
+        attach_photo: bool,
+    ) -> tuple[bool, str]:
         if db:
             title, message = await self._build_message_from_template(db, "test", {})
         else:
@@ -1547,7 +1560,8 @@ class NotificationService:
             if success:
                 provider.last_success = datetime.now(timezone.utc)
             else:
-                provider.last_error = error
+                # Read by every notification reader: no refused header's value.
+                provider.last_error = redact_refused_headers(error)
                 provider.last_error_at = datetime.now(timezone.utc)
             await db.commit()
 
@@ -1605,7 +1619,7 @@ class NotificationService:
                 title=title,
                 message=message,
                 success=success,
-                error_message=error_message,
+                error_message=redact_refused_headers(error_message),
                 printer_id=printer_id,
                 printer_name=printer_name,
             )

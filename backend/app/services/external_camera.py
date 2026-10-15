@@ -22,7 +22,13 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 
 from backend.app.core.logging_filters import redact_url_credentials
-from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
+from backend.app.utils.ffmpeg_output import (
+    FFMPEG_RTSP_LOGLEVEL,
+    NO_FFMPEG_OUTPUT,
+    read_ffmpeg_log_until_open,
+    summarize_ffmpeg_stderr,
+    watch_ffmpeg_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -712,6 +718,7 @@ async def _capture_rtsp_frame(url: str, timeout: int) -> bytes | None:
 
     cmd = [
         ffmpeg,
+        *FFMPEG_RTSP_LOGLEVEL,
         "-rtsp_transport",
         "tcp",
         # Belt and braces on the scheme check above: a demuxer that follows a
@@ -739,7 +746,10 @@ async def _capture_rtsp_frame(url: str, timeout: int) -> bytes | None:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        async with asyncio.timeout(timeout):
+            state, log = await read_ffmpeg_log_until_open(process)
+            stdout, stderr = await process.communicate()
+        stderr = log + stderr
         logger.debug(
             "ffmpeg returned: code=%s, stdout=%s bytes, stderr=%s bytes",
             process.returncode,
@@ -747,7 +757,9 @@ async def _capture_rtsp_frame(url: str, timeout: int) -> bytes | None:
             len(stderr),
         )
 
-        if process.returncode != 0:
+        if state == "redirected":
+            return None
+        if process.returncode != 0 or state != "open":
             # The summariser masks the camera password the input URL carries.
             logger.error("ffmpeg RTSP capture failed: %s", summarize_ffmpeg_stderr(stderr) or NO_FFMPEG_OUTPUT)
             return None
@@ -1167,6 +1179,7 @@ async def _stream_rtsp(
 
     cmd = [
         ffmpeg,
+        *FFMPEG_RTSP_LOGLEVEL,
         "-rtsp_transport",
         "tcp",
         "-rtsp_flags",
@@ -1210,6 +1223,7 @@ async def _stream_rtsp(
     ]
 
     process = None
+    log_watch = None
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -1222,15 +1236,22 @@ async def _stream_rtsp(
         if on_process is not None:
             on_process(process)
 
-        # Brief check for immediate startup failures
-        await asyncio.sleep(0.1)
-        if process.returncode is not None:
-            stderr = await process.stderr.read()
-            # The summariser masks the camera password the input URL carries.
-            logger.error(
-                "ffmpeg RTSP stream failed immediately: %s", summarize_ffmpeg_stderr(stderr) or NO_FFMPEG_OUTPUT
-            )
+        # No frame is read before ffmpeg reports the input open: a redirect it
+        # followed on the way would be in its log by then.
+        try:
+            state, log = await asyncio.wait_for(read_ffmpeg_log_until_open(process), timeout=30.0)
+        except TimeoutError:
+            logger.warning("RTSP stream did not open within 30s")
             return
+        if state == "ended":
+            assert process.stderr is not None
+            log += await process.stderr.read()
+            # The summariser masks the camera password the input URL carries.
+            logger.error("ffmpeg RTSP stream failed: %s", summarize_ffmpeg_stderr(log) or NO_FFMPEG_OUTPUT)
+            return
+        if state != "open":
+            return
+        log_watch = asyncio.create_task(watch_ffmpeg_log(process))
 
         buffer = b""
         jpeg_start = b"\xff\xd8"
@@ -1272,6 +1293,8 @@ async def _stream_rtsp(
     except OSError as e:
         logger.error("RTSP stream error: %s", e)
     finally:
+        if log_watch is not None:
+            log_watch.cancel()
         if process and process.returncode is None:
             process.terminate()
             try:

@@ -323,6 +323,8 @@ root_logger.setLevel(log_level)
 # dropped — which is exactly the "logs/bambuddy.log only shows logs
 # partially" bug we hit. See backend/app/core/trace.py for the
 # ContextVar the filter reads.
+from backend.app.core.logging_filters import RefusedHeaderRedactFilter
+from backend.app.core.response_redaction import RefusedHeaderResponseMask
 from backend.app.core.trace import TraceIDFilter
 
 _trace_id_filter = TraceIDFilter()
@@ -332,6 +334,9 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(log_level)
 console_handler.setFormatter(logging.Formatter(log_format))
 console_handler.addFilter(_trace_id_filter)
+# A refused header's value (often a token) masked before the line is written.
+_refused_header_filter = RefusedHeaderRedactFilter()
+console_handler.addFilter(_refused_header_filter)
 root_logger.addHandler(console_handler)
 
 
@@ -359,6 +364,7 @@ if app_settings.log_to_file:
     file_handler.setLevel(log_level)
     file_handler.setFormatter(logging.Formatter(log_format))
     file_handler.addFilter(_trace_id_filter)
+    file_handler.addFilter(_refused_header_filter)
     root_logger.addHandler(file_handler)
     logging.info("Logging to file: %s", log_file)
 
@@ -396,6 +402,7 @@ from backend.app.core.logging_filters import QueryTokenRedactFilter  # noqa: E40
 
 for _uvicorn_logger in ("uvicorn.access", "uvicorn.error"):
     logging.getLogger(_uvicorn_logger).addFilter(QueryTokenRedactFilter())
+    logging.getLogger(_uvicorn_logger).addFilter(_refused_header_filter)
 
 # These stay at WARNING even in debug mode: at INFO/DEBUG httpx/httpcore log
 # full request URLs, and some carry credentials (bot tokens, webhook URLs, API
@@ -10796,6 +10803,10 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+# Added first so it sits innermost, next to the routes: a refused header's value
+# (often a stored token) masked in every JSON body. See core.response_redaction.
+app.add_middleware(RefusedHeaderResponseMask)
 
 
 # =============================================================================

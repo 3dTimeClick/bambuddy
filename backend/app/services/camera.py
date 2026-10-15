@@ -18,7 +18,12 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
-from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
+from backend.app.utils.ffmpeg_output import (
+    FFMPEG_RTSP_LOGLEVEL,
+    NO_FFMPEG_OUTPUT,
+    read_ffmpeg_log_until_open,
+    summarize_ffmpeg_stderr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -772,6 +777,7 @@ async def _capture_camera_frame_bytes_uncoalesced(
     cmd = [
         ffmpeg,
         "-y",
+        *FFMPEG_RTSP_LOGLEVEL,
         "-rtsp_transport",
         "tcp",
         "-rtsp_flags",
@@ -801,14 +807,21 @@ async def _capture_camera_frame_bytes_uncoalesced(
 
         _active_capture_pids.add(process.pid)
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            # The printer's answers reach ffmpeg through the proxy unchanged,
+            # so a redirect is refused here as for an external camera.
+            async with asyncio.timeout(timeout):
+                state, log = await read_ffmpeg_log_until_open(process)
+                stdout, stderr = await process.communicate()
         except TimeoutError:
             process.kill()
             await process.wait()
             logger.error("Camera frame bytes capture timed out after %ss", timeout)
             return None
+        stderr = log + stderr
 
-        if process.returncode == 0 and stdout and len(stdout) >= 100:
+        if state == "redirected":
+            return None
+        if state == "open" and process.returncode == 0 and stdout and len(stdout) >= 100:
             logger.info("Successfully captured camera frame bytes: %s bytes", len(stdout))
             return stdout
         else:

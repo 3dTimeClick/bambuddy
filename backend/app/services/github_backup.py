@@ -12,7 +12,7 @@ from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.database import async_session
-from backend.app.core.logging_filters import URL_CREDENTIALS_PATTERN
+from backend.app.core.logging_filters import URL_CREDENTIALS_PATTERN, redact_refused_headers
 from backend.app.models.archive import PrintArchive
 from backend.app.models.github_backup import GitHubBackupConfig, GitHubBackupLog
 from backend.app.models.printer import Printer
@@ -93,6 +93,12 @@ _PROVIDER_DISPLAY_NAMES = {
 }
 
 
+def _without_refused_headers(result: dict) -> dict:
+    """*result* with its texts masked where an HTTP client refusing a header
+    quoted the value: the stored token, which the API never returns."""
+    return {key: redact_refused_headers(value) if isinstance(value, str) else value for key, value in result.items()}
+
+
 class GitHubBackupService:
     """Service for backing up profiles to GitHub."""
 
@@ -166,7 +172,7 @@ class GitHubBackupService:
         """Test connection and permissions for the given provider."""
         backend = get_provider_backend(provider)
         client = await self._get_client()
-        return await backend.test_connection(repo_url, token, client)
+        return _without_refused_headers(await backend.test_connection(repo_url, token, client))
 
     async def run_backup(self, config_id: int, trigger: str = "manual") -> dict:
         """Run a backup operation.
@@ -297,7 +303,7 @@ class GitHubBackupService:
 
                     provider_name = _PROVIDER_DISPLAY_NAMES.get(config.provider, config.provider)
                     self._backup_progress = f"Pushing to {provider_name}..."
-                    push_result = await self._push_to_provider(config, backup_data)
+                    push_result = _without_refused_headers(await self._push_to_provider(config, backup_data))
 
                     # Update log and config
                     log.status = push_result["status"]
@@ -326,13 +332,14 @@ class GitHubBackupService:
 
                 except Exception as e:
                     logger.exception("Backup failed")
+                    error = redact_refused_headers(str(e)) or ""
                     log.status = "failed"
                     log.completed_at = datetime.now(timezone.utc)
-                    log.error_message = str(e)
+                    log.error_message = error
 
                     config.last_backup_at = datetime.now(timezone.utc)
                     config.last_backup_status = "failed"
-                    config.last_backup_message = str(e)
+                    config.last_backup_message = error
 
                     if config.schedule_enabled:
                         config.next_scheduled_run = self.calculate_next_run(config.schedule_type)
@@ -340,7 +347,7 @@ class GitHubBackupService:
                     await db.commit()
                     return {
                         "success": False,
-                        "message": str(e),
+                        "message": error,
                         "log_id": log_id,
                         "commit_sha": None,
                         "files_changed": 0,
