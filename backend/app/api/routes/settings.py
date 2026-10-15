@@ -1092,6 +1092,20 @@ def _read_backup_manifest(temp_path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _restored_value_fixes(table_name: str) -> dict[str, tuple[tuple[str, ...], str]]:
+    """Columns of ``table_name`` whose backed-up value must be one of a set, with its fallback.
+
+    Older versions stored any project priority or status; one longer than the
+    column fails the whole import on PostgreSQL. The fallbacks are the ones
+    project import and the start-up repair use.
+    """
+    if table_name != "projects":
+        return {}
+    from backend.app.models.project import PROJECT_PRIORITIES, PROJECT_STATUSES
+
+    return {"priority": (PROJECT_PRIORITIES, "normal"), "status": (PROJECT_STATUSES, "active")}
+
+
 async def _import_sqlite_to_postgres(sqlite_path: Path):
     """Import data from a SQLite database file into the current PostgreSQL database.
 
@@ -1278,6 +1292,7 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
                                         not_null_defaults[col.name] = sd
 
                 now = dt.now()
+                value_fixes = _restored_value_fixes(table_name)
 
                 def _convert_row(
                     row,
@@ -1287,6 +1302,7 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
                     nn_defaults=not_null_defaults,
                     _now=now,
                     inject=injected,
+                    fixes=value_fixes,
                 ):
                     result = dict(inject)
                     for c in cols:
@@ -1302,6 +1318,9 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
                                 except ValueError:
                                     pass
                         result[c] = val
+                    for c, (allowed, fallback) in fixes.items():
+                        if c in result and result[c] not in allowed:
+                            result[c] = fallback
                     return result
 
                 batch = [_convert_row(row) for row in rows]
