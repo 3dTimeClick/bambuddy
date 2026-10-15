@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import smtplib
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -1712,6 +1713,7 @@ class NotificationService:
         title: str,
         message: str,
         url: str | None = None,
+        allowed: Callable[[NotificationProvider], bool] | None = None,
     ) -> int:
         """A message another application sends through Bambuddy.
 
@@ -1719,9 +1721,12 @@ class NotificationService:
         through the same path as Bambuddy's own events: quiet hours, the daily
         digest and the log (whose event type names the sender). The text is
         the app's own; a link, when given, is appended so every channel type
-        carries it. Returns how many channels it was handed to.
+        carries it. Returns how many channels it was handed to. ``allowed``
+        narrows the channels to those the sender may reach.
         """
         providers = await self._get_providers_for_event(db, "on_app_message")
+        if allowed is not None:
+            providers = [provider for provider in providers if allowed(provider)]
         if not providers:
             return 0
         body = f"{message}\n{url}" if url else message

@@ -12,6 +12,7 @@ from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import (
+    RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     ScopedCaller,
     probe_permissions_if_auth_enabled,
@@ -19,7 +20,7 @@ from backend.app.core.auth import (
 )
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
-from backend.app.core.printer_scope import ensure_printers_exist
+from backend.app.core.printer_scope import PrinterScope, ensure_printers_exist
 from backend.app.models.notification import NotificationLog, NotificationProvider
 from backend.app.models.notification_lock_screen_widget import NotificationLockScreenWidget
 from backend.app.models.user import User
@@ -193,14 +194,58 @@ def _provider_to_dict(provider: NotificationProvider) -> dict:
 # ============================================================================
 
 
+def _provider_in_scope(provider: NotificationProvider, printer_scope: PrinterScope) -> bool:
+    """Whether a caller limited to some printers may see and manage ``provider``.
+
+    Only one bound to one of their printers: a provider for all printers (or
+    another printer) delivers events of printers outside their groups.
+    """
+    if printer_scope.is_unrestricted:
+        return True
+    return provider.printer_id is not None and printer_scope.allows(provider.printer_id)
+
+
+def _log_scope_clause(printer_scope: PrinterScope):
+    """The log entries a caller limited to some printers sees (None: all).
+
+    Those of their printers, and those with no printer sent by a provider they
+    can see: an entry with no printer belongs to whoever owns its provider.
+    """
+    if printer_scope.printer_ids is None:
+        return None
+    own_providers = select(NotificationProvider.id).where(
+        NotificationProvider.printer_id.in_(printer_scope.printer_ids)
+    )
+    return NotificationLog.printer_id.in_(printer_scope.printer_ids) | (
+        NotificationLog.printer_id.is_(None) & NotificationLog.provider_id.in_(own_providers)
+    )
+
+
+async def _load_provider(db: AsyncSession, provider_id: int, printer_scope: PrinterScope) -> NotificationProvider:
+    provider = await db.get(NotificationProvider, provider_id)
+    if provider is None or not _provider_in_scope(provider, printer_scope):
+        raise HTTPException(status_code=404, detail="Notification provider not found")
+    return provider
+
+
+def _ensure_target_in_scope(printer_id: int | None, printer_scope: PrinterScope) -> None:
+    """A caller limited to some printers binds a provider to one of them, never to all."""
+    if printer_scope.is_unrestricted:
+        return
+    if printer_id is None:
+        raise HTTPException(status_code=400, detail="Choose one of your printers for this provider")
+    printer_scope.ensure(printer_id)
+
+
 @router.get("/", response_model=list[NotificationProviderResponse])
 async def list_notification_providers(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List all notification providers."""
     result = await db.execute(select(NotificationProvider).order_by(NotificationProvider.created_at.desc()))
-    providers = result.scalars().all()
+    providers = [p for p in result.scalars().all() if _provider_in_scope(p, printer_scope)]
 
     return [_provider_to_dict(provider) for provider in providers]
 
@@ -210,8 +255,10 @@ async def create_notification_provider(
     provider_data: NotificationProviderCreate,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Create a new notification provider."""
+    _ensure_target_in_scope(provider_data.printer_id, printer_scope)
     await ensure_printers_exist(db, [provider_data.printer_id])
     try:
         reject_placeholder(provider_data.config)
@@ -308,6 +355,7 @@ async def test_notification_config(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
     can_update: bool = Depends(probe_permissions_if_auth_enabled(Permission.NOTIFICATIONS_UPDATE)),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Test notification configuration before saving.
 
@@ -321,9 +369,7 @@ async def test_notification_config(
         else:
             if not can_update:
                 raise HTTPException(status_code=403, detail="Testing a saved provider requires notifications:update")
-            provider = await db.get(NotificationProvider, test_request.provider_id)
-            if provider is None:
-                raise HTTPException(status_code=404, detail="Notification provider not found")
+            provider = await _load_provider(db, test_request.provider_id, printer_scope)
             config = merge_config(
                 provider.provider_type, _stored_config(provider), test_request.provider_type.value, config
             )
@@ -340,10 +386,11 @@ async def test_notification_config(
 async def test_all_notification_providers(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Send a test notification to all enabled providers."""
     result = await db.execute(select(NotificationProvider).where(NotificationProvider.enabled.is_(True)))
-    providers = result.scalars().all()
+    providers = [p for p in result.scalars().all() if _provider_in_scope(p, printer_scope)]
 
     if not providers:
         return {"tested": 0, "success": 0, "failed": 0, "results": []}
@@ -402,9 +449,12 @@ async def get_notification_logs(
     days: int | None = Query(default=7, ge=1, le=90, description="Filter logs from the last N days"),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get notification logs with optional filters."""
     query = select(NotificationLog).order_by(desc(NotificationLog.created_at))
+    if (scope_clause := _log_scope_clause(printer_scope)) is not None:
+        query = query.where(scope_clause)
 
     # Apply filters
     if provider_id is not None:
@@ -434,6 +484,13 @@ async def get_notification_logs(
             providers_cache[log.provider_id] = provider_result.scalar_one_or_none()
 
         provider = providers_cache[log.provider_id]
+        # A provider the caller can't see is not named, as it isn't listed, and
+        # neither is its error, which names its kind and destination.
+        hidden = not printer_scope.is_unrestricted and (
+            provider is None or not _provider_in_scope(provider, printer_scope)
+        )
+        if hidden:
+            provider = None
         response.append(
             NotificationLogResponse(
                 id=log.id,
@@ -444,7 +501,7 @@ async def get_notification_logs(
                 title=log.title,
                 message=log.message,
                 success=log.success,
-                error_message=log.error_message,
+                error_message=None if hidden else log.error_message,
                 printer_id=log.printer_id,
                 printer_name=log.printer_name,
                 created_at=log.created_at,
@@ -459,37 +516,44 @@ async def get_notification_log_stats(
     days: int = Query(default=7, ge=1, le=90, description="Statistics for the last N days"),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get notification log statistics."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    # Counted over the entries the log list shows this caller.
+    window = [NotificationLog.created_at >= cutoff]
+    if (scope_clause := _log_scope_clause(printer_scope)) is not None:
+        window.append(scope_clause)
 
     # Total counts
-    total_result = await db.execute(select(func.count(NotificationLog.id)).where(NotificationLog.created_at >= cutoff))
+    total_result = await db.execute(select(func.count(NotificationLog.id)).where(*window))
     total = total_result.scalar() or 0
 
     success_result = await db.execute(
-        select(func.count(NotificationLog.id)).where(
-            NotificationLog.created_at >= cutoff, NotificationLog.success.is_(True)
-        )
+        select(func.count(NotificationLog.id)).where(*window, NotificationLog.success.is_(True))
     )
     success_count = success_result.scalar() or 0
 
     # By event type
     event_result = await db.execute(
         select(NotificationLog.event_type, func.count(NotificationLog.id))
-        .where(NotificationLog.created_at >= cutoff)
+        .where(*window)
         .group_by(NotificationLog.event_type)
     )
     by_event_type = {row[0]: row[1] for row in event_result.fetchall()}
 
     # By provider (need to join to get name)
     provider_result = await db.execute(
-        select(NotificationProvider.name, func.count(NotificationLog.id))
+        select(NotificationProvider, func.count(NotificationLog.id))
         .join(NotificationProvider, NotificationLog.provider_id == NotificationProvider.id)
-        .where(NotificationLog.created_at >= cutoff)
-        .group_by(NotificationProvider.name)
+        .where(*window)
+        .group_by(NotificationProvider.id)
     )
-    by_provider = {row[0]: row[1] for row in provider_result.fetchall()}
+    # Providers the caller can't see are counted together, not by name.
+    by_provider: dict[str, int] = {}
+    for provider, count in provider_result.all():
+        name = provider.name if _provider_in_scope(provider, printer_scope) else "Other"
+        by_provider[name] = by_provider.get(name, 0) + count
 
     return NotificationLogStats(
         total=total,
@@ -505,11 +569,16 @@ async def clear_notification_logs(
     older_than_days: int = Query(default=30, ge=1, description="Delete logs older than N days"),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_DELETE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Clear old notification logs."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
-    result = await db.execute(delete(NotificationLog).where(NotificationLog.created_at < cutoff))
+    statement = delete(NotificationLog).where(NotificationLog.created_at < cutoff)
+    # A caller limited to some printers clears only those printers' entries.
+    if (scope_clause := printer_scope.where_strict(NotificationLog.printer_id)) is not None:
+        statement = statement.where(scope_clause)
+    result = await db.execute(statement)
     await db.commit()
 
     deleted_count = result.rowcount
@@ -581,14 +650,21 @@ async def send_app_message(
     data: AppMessage,
     db: AsyncSession = Depends(get_db),
     caller: ScopedCaller = Depends(require_notification_send()),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Send a message through every enabled channel that has "Messages from
     connected apps" on. For other applications, e.g. Bambuddy Orders; an API
-    key needs the "Send notifications" permission."""
+    key needs the "Send notifications" permission. A caller limited to some
+    printers reaches only the channels of those printers."""
     key, sender = _app_sender(caller)
     _check_app_message_rate(key)
     channels = await notification_service.on_app_message(
-        db, sender=sender, title=data.title, message=data.message, url=data.url
+        db,
+        sender=sender,
+        title=data.title,
+        message=data.message,
+        url=data.url,
+        allowed=lambda provider: _provider_in_scope(provider, printer_scope),
     )
     return AppMessageResult(channels=channels)
 
@@ -597,6 +673,7 @@ async def send_app_message(
 async def app_message_channels(
     db: AsyncSession = Depends(get_db),
     _: ScopedCaller = Depends(require_notification_send()),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """The enabled channels that deliver app messages: names and types only,
     so an app can tell its user where its messages will arrive."""
@@ -605,7 +682,11 @@ async def app_message_channels(
         .where(NotificationProvider.enabled.is_(True), NotificationProvider.on_app_message.is_(True))
         .order_by(NotificationProvider.name)
     )
-    return [AppMessageChannel(name=p.name, provider_type=p.provider_type) for p in rows.scalars()]
+    return [
+        AppMessageChannel(name=p.name, provider_type=p.provider_type)
+        for p in rows.scalars()
+        if _provider_in_scope(p, printer_scope)
+    ]
 
 
 @router.get("/{provider_id}", response_model=NotificationProviderResponse)
@@ -613,13 +694,10 @@ async def get_notification_provider(
     provider_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get a specific notification provider."""
-    result = await db.execute(select(NotificationProvider).where(NotificationProvider.id == provider_id))
-    provider = result.scalar_one_or_none()
-
-    if not provider:
-        raise HTTPException(status_code=404, detail="Notification provider not found")
+    provider = await _load_provider(db, provider_id, printer_scope)
 
     return _provider_to_dict(provider)
 
@@ -630,19 +708,18 @@ async def update_notification_provider(
     update_data: NotificationProviderUpdate,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Update a notification provider."""
-    result = await db.execute(select(NotificationProvider).where(NotificationProvider.id == provider_id))
-    provider = result.scalar_one_or_none()
-
-    if not provider:
-        raise HTTPException(status_code=404, detail="Notification provider not found")
+    provider = await _load_provider(db, provider_id, printer_scope)
 
     old_config = _stored_config(provider)
     old_type = provider.provider_type
 
     # Update only provided fields
     update_dict = update_data.model_dump(exclude_unset=True)
+    if "printer_id" in update_dict:
+        _ensure_target_in_scope(update_dict["printer_id"], printer_scope)
     await ensure_printers_exist(db, [update_dict.get("printer_id")])
 
     effective_type = update_dict.get("provider_type") or provider.provider_type
@@ -720,13 +797,10 @@ async def delete_notification_provider(
     provider_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_DELETE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete a notification provider."""
-    result = await db.execute(select(NotificationProvider).where(NotificationProvider.id == provider_id))
-    provider = result.scalar_one_or_none()
-
-    if not provider:
-        raise HTTPException(status_code=404, detail="Notification provider not found")
+    provider = await _load_provider(db, provider_id, printer_scope)
 
     name = provider.name
     notify = await delete_provider(db, provider)
@@ -743,13 +817,10 @@ async def test_notification_provider(
     provider_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Send a test notification using an existing provider."""
-    result = await db.execute(select(NotificationProvider).where(NotificationProvider.id == provider_id))
-    provider = result.scalar_one_or_none()
-
-    if not provider:
-        raise HTTPException(status_code=404, detail="Notification provider not found")
+    provider = await _load_provider(db, provider_id, printer_scope)
 
     config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
     success, message = await notification_service.send_test_notification(
