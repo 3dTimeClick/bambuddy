@@ -454,7 +454,8 @@ async def login(
     except BambuCloudAuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -500,7 +501,8 @@ async def verify_code(
     except BambuCloudAuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -518,16 +520,28 @@ async def set_token(
     selected ``region`` is persisted alongside the token so every subsequent
     request hits the right Bambu API endpoint, including after a restart.
     """
+    # A pasted token often carries a stray space or line break. One that still
+    # cannot be sent as a header (control characters, spaces, non-ASCII) is not
+    # a token Bambu could accept: refused here, without reaching Bambu, and
+    # without echoing it back in an HTTP client's error.
+    token = request.access_token.strip()
+    if not token or not token.isascii() or not token.isprintable() or " " in token:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
     cloud = BambuCloudService(region=request.region)
-    cloud.set_token(request.access_token)
+    cloud.set_token(token)
 
     try:
         # Verify token works by trying to get profile
         await cloud.get_user_profile()
-        await store_token(db, request.access_token, "token-auth", request.region, current_user)
+        await store_token(db, token, "token-auth", request.region, current_user)
         return CloudAuthStatus(is_authenticated=True, email="token-auth")
-    except BambuCloudError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except BambuCloudError as e:
+        # Invalid only when Bambu Cloud refused it; a cloud that could not be
+        # reached or failed says nothing about the token.
+        if isinstance(e, BambuCloudAuthError) or e.status_code in (401, 403):
+            raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -605,10 +619,12 @@ async def get_slicer_settings(
 
         return result
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -632,10 +648,12 @@ async def get_setting_detail(
         data = await cloud.get_setting_detail(setting_id)
         return data
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -1018,10 +1036,12 @@ async def get_devices(
             for d in devices
         ]
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -1076,6 +1096,8 @@ async def get_firmware_updates(
                         release_notes=firmware_info.get("release_notes"),
                     )
                 )
+            except BambuCloudAuthError:
+                raise  # the session expired: not an unknown version per device
             except BambuCloudError as e:
                 logger.warning("Failed to get firmware info for %s: %s", device_name, e)
                 # Still include device but with unknown firmware status
@@ -1093,10 +1115,12 @@ async def get_firmware_updates(
         return FirmwareUpdatesResponse(updates=updates, updates_available=updates_available)
 
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -1129,10 +1153,12 @@ async def create_setting(
         )
         return data
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -1161,10 +1187,12 @@ async def update_setting(
         )
         return data
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
@@ -1191,10 +1219,12 @@ async def delete_setting(
             message=result.get("message", "Setting deleted"),
         )
     except BambuCloudAuthError:
-        await clear_token(db, current_user)
+        # The sign-in is kept: /cloud/status shows it as expired from the stored
+        # token and its invalid flag, and the region carries to the next sign-in.
         raise HTTPException(status_code=401, detail="Authentication expired")
     except BambuCloudError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Bambu Cloud failed or could not be reached: a bad gateway.
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await cloud.close()
 
