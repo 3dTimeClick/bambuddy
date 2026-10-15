@@ -3,7 +3,8 @@
 import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,7 @@ from backend.app.schemas.smart_plug import (
     HATestConnectionResponse,
     RESTTestConnectionRequest,
     RESTTestConnectionResponse,
+    SmartPlugBase,
     SmartPlugControl,
     SmartPlugCreate,
     SmartPlugEnergy,
@@ -91,6 +93,21 @@ async def list_smart_plugs(
     return [_serialize_plug(plug, can_edit=can_edit) for plug in result.scalars().all()]
 
 
+async def _printer_has_other_tasmota_plug(
+    db: AsyncSession, printer_id: int, exclude_plug_id: int | None = None
+) -> bool:
+    """Whether the printer already has a Tasmota plug (other than this one).
+
+    One per printer: a Tasmota plug is the printer's power device, while HA
+    entities may be several (different automations). Tolerates printers that
+    already hold more than one from before every path checked this.
+    """
+    query = select(SmartPlug.id).where(SmartPlug.printer_id == printer_id, SmartPlug.plug_type == "tasmota")
+    if exclude_plug_id is not None:
+        query = query.where(SmartPlug.id != exclude_plug_id)
+    return (await db.execute(query.limit(1))).first() is not None
+
+
 @router.post("/", response_model=SmartPlugResponseWithSecret)
 async def create_smart_plug(
     data: SmartPlugCreate,
@@ -113,15 +130,8 @@ async def create_smart_plug(
         # Check if printer already has a plug assigned
         # Tasmota plugs: only one per printer (physical power device)
         # HA entities: allow multiple per printer (for different automations)
-        if data.plug_type == "tasmota":
-            result = await db.execute(
-                select(SmartPlug).where(
-                    SmartPlug.printer_id == data.printer_id,
-                    SmartPlug.plug_type == "tasmota",
-                )
-            )
-            if result.scalar_one_or_none():
-                raise HTTPException(400, "This printer already has a Tasmota plug assigned")
+        if data.plug_type == "tasmota" and await _printer_has_other_tasmota_plug(db, data.printer_id):
+            raise HTTPException(400, "This printer already has a Tasmota plug assigned")
 
     # For MQTT plugs, ensure MQTT broker is configured and service is connected
     if data.plug_type == "mqtt":
@@ -617,20 +627,31 @@ async def update_smart_plug(
         if not result.scalar_one_or_none():
             raise HTTPException(400, "Printer not found")
 
-        # Check if that printer already has a different Tasmota plug assigned
-        # Tasmota plugs: only one per printer (physical power device)
-        # HA entities: allow multiple per printer (for different automations)
-        new_plug_type = update_data.get("plug_type", plug.plug_type)
-        if new_plug_type == "tasmota":
-            result = await db.execute(
-                select(SmartPlug).where(
-                    SmartPlug.printer_id == new_printer_id,
-                    SmartPlug.id != plug_id,
-                    SmartPlug.plug_type == "tasmota",
-                )
-            )
-            if result.scalar_one_or_none():
-                raise HTTPException(400, "This printer already has a Tasmota plug assigned")
+    # One Tasmota plug per printer (it is the printer's power device), checked
+    # when this edit makes the plug a Tasmota plug on a printer, by its type or
+    # its printer: a type change alone cannot add a second, and an edit that
+    # changes neither is not refused for plugs stored earlier.
+    merged_type = update_data.get("plug_type", plug.plug_type)
+    merged_printer_id = update_data.get("printer_id", plug.printer_id)
+    becomes_tasmota_here = merged_type != plug.plug_type or merged_printer_id != plug.printer_id
+    if merged_type == "tasmota" and merged_printer_id and becomes_tasmota_here:
+        if await _printer_has_other_tasmota_plug(db, merged_printer_id, exclude_plug_id=plug_id):
+            raise HTTPException(400, "This printer already has a Tasmota plug assigned")
+
+    # The stored plug with the change applied must pass what create checks:
+    # a plug that fails it can no longer be read back (list, detail and this
+    # response all fail). The error names the field to fix, sent or stored,
+    # and carries no values: the stored plug holds write-only credentials.
+    merged = {field: update_data.get(field, getattr(plug, field, None)) for field in SmartPlugBase.model_fields}
+    try:
+        SmartPlugBase.model_validate(merged)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {"type": error["type"], "loc": ("body", *error["loc"]), "msg": error["msg"]}
+                for error in exc.errors(include_url=False, include_input=False, include_context=False)
+            ]
+        ) from None
 
     # Track old MQTT settings for comparison
     old_plug_type = plug.plug_type
