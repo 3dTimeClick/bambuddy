@@ -1577,11 +1577,54 @@ async def delete_project_cover_image(
 # ============ Phase 7: BOM Endpoints ============
 
 
+async def _visible_archive_names(db: AsyncSession, archive_ids, printer_scope: PrinterScope) -> dict[int, str | None]:
+    """Print names of the archives among ``archive_ids`` the caller can see.
+
+    As the project's archive list: live archives on the caller's printers
+    (#1727). An archive missing from the result reads as missing.
+    """
+    ids = {i for i in archive_ids if i}
+    if not ids:
+        return {}
+    query = select(PrintArchive.id, PrintArchive.print_name).where(PrintArchive.id.in_(ids), _LIVE_ARCHIVE)
+    if (clause := printer_scope.where(PrintArchive.printer_id)) is not None:
+        query = query.where(clause)
+    return dict((await db.execute(query)).all())
+
+
+async def _ensure_linkable_archive(db: AsyncSession, archive_id: int, printer_scope: PrinterScope) -> None:
+    """Refuse a link to an archive the caller cannot see; hidden reads as missing."""
+    if archive_id not in await _visible_archive_names(db, [archive_id], printer_scope):
+        raise HTTPException(status_code=400, detail="Archive not found")
+
+
+def _bom_response(item: ProjectBOMItem, visible_names: dict[int, str | None]) -> BOMItemResponse:
+    archive_id = item.archive_id if item.archive_id in visible_names else None
+    return BOMItemResponse(
+        id=item.id,
+        project_id=item.project_id,
+        name=item.name,
+        quantity_needed=item.quantity_needed,
+        quantity_acquired=item.quantity_acquired,
+        unit_price=item.unit_price,
+        sourcing_url=item.sourcing_url,
+        archive_id=archive_id,
+        archive_name=visible_names[archive_id] if archive_id is not None else None,
+        stl_filename=item.stl_filename,
+        remarks=item.remarks,
+        sort_order=item.sort_order,
+        is_complete=item.quantity_acquired >= item.quantity_needed,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
 @router.get("/{project_id}/bom", response_model=list[BOMItemResponse])
 async def list_bom_items(
     project_id: int,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List all BOM items for a project."""
     # Verify project exists
@@ -1597,35 +1640,8 @@ async def list_bom_items(
     )
     items = result.scalars().all()
 
-    response = []
-    for item in items:
-        # Get archive name if linked
-        archive_name = None
-        if item.archive_id:
-            archive_result = await db.execute(select(PrintArchive.print_name).where(PrintArchive.id == item.archive_id))
-            archive_name = archive_result.scalar()
-
-        response.append(
-            BOMItemResponse(
-                id=item.id,
-                project_id=item.project_id,
-                name=item.name,
-                quantity_needed=item.quantity_needed,
-                quantity_acquired=item.quantity_acquired,
-                unit_price=item.unit_price,
-                sourcing_url=item.sourcing_url,
-                archive_id=item.archive_id,
-                archive_name=archive_name,
-                stl_filename=item.stl_filename,
-                remarks=item.remarks,
-                sort_order=item.sort_order,
-                is_complete=item.quantity_acquired >= item.quantity_needed,
-                created_at=item.created_at,
-                updated_at=item.updated_at,
-            )
-        )
-
-    return response
+    names = await _visible_archive_names(db, [item.archive_id for item in items], printer_scope)
+    return [_bom_response(item, names) for item in items]
 
 
 @router.post("/{project_id}/bom", response_model=BOMItemResponse)
@@ -1634,12 +1650,18 @@ async def create_bom_item(
     data: BOMItemCreate,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Add a BOM item to a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # 0 means no archive, as on update.
+    archive_id = data.archive_id or None
+    if archive_id is not None:
+        await _ensure_linkable_archive(db, archive_id, printer_scope)
 
     # Get max sort order
     max_order_result = await db.execute(
@@ -1653,7 +1675,7 @@ async def create_bom_item(
         quantity_needed=data.quantity_needed,
         unit_price=data.unit_price,
         sourcing_url=data.sourcing_url,
-        archive_id=data.archive_id,
+        archive_id=archive_id,
         stl_filename=data.stl_filename,
         remarks=data.remarks,
         sort_order=max_order + 1,
@@ -1662,29 +1684,7 @@ async def create_bom_item(
     await db.flush()
     await db.refresh(item)
 
-    # Get archive name if linked
-    archive_name = None
-    if item.archive_id:
-        archive_result = await db.execute(select(PrintArchive.print_name).where(PrintArchive.id == item.archive_id))
-        archive_name = archive_result.scalar()
-
-    return BOMItemResponse(
-        id=item.id,
-        project_id=item.project_id,
-        name=item.name,
-        quantity_needed=item.quantity_needed,
-        quantity_acquired=item.quantity_acquired,
-        unit_price=item.unit_price,
-        sourcing_url=item.sourcing_url,
-        archive_id=item.archive_id,
-        archive_name=archive_name,
-        stl_filename=item.stl_filename,
-        remarks=item.remarks,
-        sort_order=item.sort_order,
-        is_complete=item.quantity_acquired >= item.quantity_needed,
-        created_at=item.created_at,
-        updated_at=item.updated_at,
-    )
+    return _bom_response(item, await _visible_archive_names(db, [item.archive_id], printer_scope))
 
 
 @router.patch("/{project_id}/bom/{item_id}", response_model=BOMItemResponse)
@@ -1694,6 +1694,7 @@ async def update_bom_item(
     data: BOMItemUpdate,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Update a BOM item."""
     result = await db.execute(
@@ -1718,6 +1719,10 @@ async def update_bom_item(
     if data.sourcing_url is not None:
         item.sourcing_url = data.sourcing_url if data.sourcing_url else None
     if data.archive_id is not None:
+        # Also when unchanged: a hidden current link must answer as a missing one,
+        # or resending its id would confirm it.
+        if data.archive_id != 0:
+            await _ensure_linkable_archive(db, data.archive_id, printer_scope)
         item.archive_id = data.archive_id if data.archive_id != 0 else None
     if data.stl_filename is not None:
         item.stl_filename = data.stl_filename if data.stl_filename else None
@@ -1727,29 +1732,7 @@ async def update_bom_item(
     await db.flush()
     await db.refresh(item)
 
-    # Get archive name if linked
-    archive_name = None
-    if item.archive_id:
-        archive_result = await db.execute(select(PrintArchive.print_name).where(PrintArchive.id == item.archive_id))
-        archive_name = archive_result.scalar()
-
-    return BOMItemResponse(
-        id=item.id,
-        project_id=item.project_id,
-        name=item.name,
-        quantity_needed=item.quantity_needed,
-        quantity_acquired=item.quantity_acquired,
-        unit_price=item.unit_price,
-        sourcing_url=item.sourcing_url,
-        archive_id=item.archive_id,
-        archive_name=archive_name,
-        stl_filename=item.stl_filename,
-        remarks=item.remarks,
-        sort_order=item.sort_order,
-        is_complete=item.quantity_acquired >= item.quantity_needed,
-        created_at=item.created_at,
-        updated_at=item.updated_at,
-    )
+    return _bom_response(item, await _visible_archive_names(db, [item.archive_id], printer_scope))
 
 
 @router.delete("/{project_id}/bom/{item_id}")
