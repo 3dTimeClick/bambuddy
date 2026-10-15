@@ -164,6 +164,8 @@ class TestWebhookQueueAddAttribution:
                 key_prefix=key_prefix,
                 user_id=owner_id,
                 can_queue=True,
+                # Queueing an archive someone else made needs read access to it.
+                can_read_status=True,
             )
         )
         await db_session.commit()
@@ -174,11 +176,16 @@ class TestWebhookQueueAddAttribution:
     async def test_credits_the_key_owner(self, async_client: AsyncClient, db_session, test_engine, printer_and_archive):
         printer, archive = printer_and_archive
 
-        # The owner needs queue:create in their own right: a key is capped by
-        # its owner's permissions (#1894), so a bare account with no groups
-        # cannot queue through a key however its scope flags are set. This test
-        # is about who the row is credited to, not about the gate.
-        group = Group(name="queue-writers", description="t", permissions=["queue:create"], is_system=False)
+        # The owner needs the queue and archive permissions in their own right:
+        # a key is capped by its owner's permissions (#1894), so a bare account
+        # with no groups cannot queue through a key however its scope flags are
+        # set. This test is about who the row is credited to, not about the gate.
+        group = Group(
+            name="queue-writers",
+            description="t",
+            permissions=["queue:create", "archives:read_all", "archives:reprint_all"],
+            is_system=False,
+        )
         db_session.add(group)
         await db_session.flush()
         owner = User(username="keyowner", password_hash="x", is_active=True, groups=[group])

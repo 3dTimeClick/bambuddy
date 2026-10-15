@@ -169,15 +169,19 @@ def _extract_filament_types_from_3mf(file_path: Path, plate_id: int | None = Non
 _extract_print_time_from_3mf = extract_print_time_from_3mf
 
 
-def _assert_can_queue_archive(archive: PrintArchive, current_user: User | ApiKeyActor | None) -> None:
+def _assert_can_queue_archive(
+    archive: PrintArchive, current_user: User | ApiKeyActor | None, printer_scope: PrinterScope
+) -> None:
     """Gate turning *archive* into a print. Raises rather than returning a verdict.
 
     Shared by every route that creates queue items from an archive, so a new
     one can't quietly become a weaker door to the same action than
     ``POST /queue/`` is.
 
-    Two separate checks:
+    Three checks:
 
+    * The archive's printer must be one the caller may use; otherwise the
+      archive reads as missing, as the archive routes answer for it.
     * IDOR fix (maziggy/bambuddy-security #2): without this, a caller with
       QUEUE_CREATE could queue any user's archive even without ARCHIVES_READ on
       it — Landon's PoC enumerated this on admin's archives as operator1. Gate
@@ -191,12 +195,17 @@ def _assert_can_queue_archive(archive: PrintArchive, current_user: User | ApiKey
       allows any archive, REPRINT_OWN allows own only, ownerless archives
       require REPRINT_ALL (fail-closed).
     """
-    # None is auth off. An API key arrives as its RequestActor, never None.
+    # An archive from a printer the caller can't use reads as missing, like the
+    # archive routes answer for it.
+    if not printer_scope.allows(archive.printer_id):
+        raise HTTPException(404, "Archive not found")
+    # None is auth off (for an API key too).
     if current_user is None:
         return
-    if not current_user.has_permission(Permission.ARCHIVES_READ_ALL.value) and archive.created_by_id != current_user.id:
-        raise HTTPException(404, "Archive not found")
     owns_archive = archive.created_by_id is not None and archive.created_by_id == current_user.id
+    # An ownerless archive is no one's own, also not a caller without an id.
+    if not current_user.has_permission(Permission.ARCHIVES_READ_ALL.value) and not owns_archive:
+        raise HTTPException(404, "Archive not found")
     has_reprint = current_user.has_permission(Permission.ARCHIVES_REPRINT_ALL.value) or (
         owns_archive and current_user.has_permission(Permission.ARCHIVES_REPRINT_OWN.value)
     )
@@ -212,10 +221,9 @@ def _assert_can_queue_library_file(library_file: LibraryFile, current_user: User
     # None is auth off. An API key arrives as its RequestActor, never None.
     if current_user is None:
         return
-    if (
-        not current_user.has_permission(Permission.LIBRARY_READ_ALL.value)
-        and library_file.created_by_id != current_user.id
-    ):
+    # An ownerless file is no one's own, also not a caller without an id.
+    owns_file = library_file.created_by_id is not None and library_file.created_by_id == current_user.id
+    if not current_user.has_permission(Permission.LIBRARY_READ_ALL.value) and not owns_file:
         raise HTTPException(404, "Library file not found")
 
 
@@ -279,7 +287,7 @@ async def _is_orders_last_source(db: AsyncSession, item: PrintQueueItem) -> bool
 
 
 async def _assert_can_dispatch_batch_sources(
-    db: AsyncSession, batch_id: int, current_user: User | ApiKeyActor | None
+    db: AsyncSession, batch_id: int, current_user: User | ApiKeyActor | None, printer_scope: PrinterScope
 ) -> None:
     """Apply the ``POST /queue/`` source-file gates to everything a dispatch would print.
 
@@ -333,7 +341,7 @@ async def _assert_can_dispatch_batch_sources(
         archive = (await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))).scalar_one_or_none()
         # A deleted source can't be printed; dispatch will fail on it anyway.
         if archive is not None:
-            _assert_can_queue_archive(archive, current_user)
+            _assert_can_queue_archive(archive, current_user, printer_scope)
 
     for library_file_id in library_file_ids:
         library_file = (
@@ -719,7 +727,7 @@ async def _resolve_queue_variants(
         if not library_file or (
             current_user
             and not current_user.has_permission(Permission.LIBRARY_READ_ALL.value)
-            and library_file.created_by_id != current_user.id
+            and (library_file.created_by_id is None or library_file.created_by_id != current_user.id)
         ):
             raise HTTPException(404, f"Library file not found: {spec.library_file_id}")
 
@@ -905,17 +913,19 @@ async def add_to_queue(
     if data.archive_id:
         result = await db.execute(select(PrintArchive).where(PrintArchive.id == data.archive_id))
         archive = result.scalar_one_or_none()
+        # Missing answers like hidden (404 from the gate below).
         if not archive:
-            raise HTTPException(400, "Archive not found")
-        _assert_can_queue_archive(archive, actor)
+            raise HTTPException(404, "Archive not found")
+        _assert_can_queue_archive(archive, actor, printer_scope)
 
     # Validate library file exists (if provided) and get it for filament extraction
     library_file = None
     if data.library_file_id:
         result = await db.execute(LibraryFile.active().where(LibraryFile.id == data.library_file_id))
         library_file = result.scalar_one_or_none()
+        # Missing answers like hidden (404 from the gate below).
         if not library_file:
-            raise HTTPException(400, "Library file not found")
+            raise HTTPException(404, "Library file not found")
         _assert_can_queue_library_file(library_file, actor)
         # Bambu SD card is FAT32/exFAT — illegal filename chars would 553 at
         # FTP upload time (#1540). Reject at queue time so the user gets the
@@ -1674,7 +1684,7 @@ async def dispatch_batch(
         raise HTTPException(400, "Cannot dispatch a cancelled batch")
 
     # Dispatch starts prints, so it must not be a weaker door than POST /queue/.
-    await _assert_can_dispatch_batch_sources(db, batch.id, actor)
+    await _assert_can_dispatch_batch_sources(db, batch.id, actor, printer_scope)
 
     try:
         created = await dispatch_remaining(

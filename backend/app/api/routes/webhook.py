@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.api.routes.print_queue import _assert_can_queue_archive
 from backend.app.core.auth import (
+    ApiKeyActor,
     api_key_printer_scope,
     check_webhook_permission,
     ensure_api_key_printer_access,
@@ -112,11 +114,15 @@ async def webhook_add_to_queue(
     await check_webhook_permission(db, api_key, "queue")
     await ensure_api_key_printer_access(db, api_key, data.printer_id)
 
-    # Verify archive exists
+    # Verify archive exists and passes the same source gate as POST /queue/,
+    # with the key acting for its owner within its printers.
     result = await db.execute(select(PrintArchive).where(PrintArchive.id == data.archive_id))
     archive = result.scalar_one_or_none()
     if not archive:
         raise HTTPException(status_code=404, detail="Archive not found")
+    # Auth off: no owner to act for, as on POST /queue/; the key's printers still apply.
+    actor = ApiKeyActor(api_key, await resolve_apikey_owner(db, api_key)) if await is_auth_enabled(db) else None
+    _assert_can_queue_archive(archive, actor, await api_key_printer_scope(db, api_key))
 
     # Verify printer exists
     result = await db.execute(select(Printer).where(Printer.id == data.printer_id))

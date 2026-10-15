@@ -3196,7 +3196,7 @@ async def add_files_to_queue(
     # about which ids exist. Ownerless rows need LIBRARY_READ_ALL, matching
     # _ensure_library_file_visible.
     if actor is not None and not actor.has_permission(Permission.LIBRARY_READ_ALL.value):
-        files = {fid: f for fid, f in files.items() if f.created_by_id == actor.id}
+        files = {fid: f for fid, f in files.items() if f.created_by_id is not None and f.created_by_id == actor.id}
 
     # Project attribution (#1897): a file queued from a project-linked folder
     # inherits that project, so the resulting archive counts toward the
