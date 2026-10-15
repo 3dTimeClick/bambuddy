@@ -193,7 +193,7 @@ async def create_virtual_printer(
 
     # Validate proxy target printer exists
     target_printer = None
-    if body.target_printer_id:
+    if body.target_printer_id is not None:
         from backend.app.models.printer import Printer
 
         result = await db.execute(select(Printer).where(Printer.id == body.target_printer_id))

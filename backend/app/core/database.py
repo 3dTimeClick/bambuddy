@@ -2191,6 +2191,49 @@ async def _migrate_failure_reason_vocabulary(conn):
         logger.info("[#2974] converted %d failure_reason value(s) to the canonical vocabulary", total)
 
 
+async def _migrate_project_priority_status(conn) -> None:
+    """Give projects stored with an unknown priority or status a valid one.
+
+    Older builds stored what they were given: a file import without a priority
+    wrote ``0`` (SQLite), create accepted any priority and both imports any
+    status. The project editor sends both back on every save and refuses such
+    values, so the project could no longer be edited at all. An unknown
+    priority becomes ``normal``, an unknown status ``active`` -- the same
+    fallbacks the imports use now.
+
+    Not gated behind a flag, like the failure_reason vocabulary: it only matches
+    values nothing accepts, so a second run changes nothing, and a restored
+    older database is repaired on its next start.
+    """
+    from sqlalchemy import bindparam, text
+
+    from backend.app.models.project import PROJECT_PRIORITIES, PROJECT_STATUSES
+
+    repaired: dict[str, int] = {}
+    async with conn.begin_nested():
+        # nosec B608 -- `column` and `fallback` come from the literal tuple below;
+        # the accepted values are bound parameters.
+        for column, accepted, fallback in (
+            ("priority", PROJECT_PRIORITIES, "normal"),
+            ("status", PROJECT_STATUSES, "active"),
+        ):
+            result = await conn.execute(
+                text(
+                    f"UPDATE projects SET {column} = :fallback "  # noqa: S608  # nosec B608
+                    f"WHERE {column} IS NULL OR {column} NOT IN :accepted"
+                ).bindparams(bindparam("fallback"), bindparam("accepted", expanding=True)),
+                {"fallback": fallback, "accepted": list(accepted)},
+            )
+            repaired[column] = result.rowcount or 0
+
+    if any(repaired.values()):
+        logger.info(
+            "Repaired projects: %d unknown priority -> normal, %d unknown status -> active",
+            repaired["priority"],
+            repaired["status"],
+        )
+
+
 def _pg_ddl_if_not_exists(conn, cursor, statement, parameters, context, executemany):
     """before_cursor_execute hook: the _pg_if_not_exists rewrite for every statement.
 
@@ -2572,6 +2615,10 @@ async def _run_migrations(conn):
             )
     except (OperationalError, ProgrammingError):
         pass  # Already applied
+
+    # Data migration: unknown project priority/status -> the editor's fallbacks.
+    # After the priority column exists (above).
+    await _migrate_project_priority_status(conn)
 
     # Migration: Rename quantity_printed to quantity_acquired in project_bom_items
     await _safe_execute(conn, "ALTER TABLE project_bom_items RENAME COLUMN quantity_printed TO quantity_acquired")

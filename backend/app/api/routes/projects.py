@@ -25,7 +25,7 @@ from backend.app.models.archive import PrintArchive
 from backend.app.models.library import LibraryFile, LibraryFolder
 from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
-from backend.app.models.project import Project
+from backend.app.models.project import PROJECT_PRIORITIES, PROJECT_STATUSES, Project
 from backend.app.models.project_bom import ProjectBOMItem
 from backend.app.models.user import User
 from backend.app.schemas.project import (
@@ -52,13 +52,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-# The priorities the project editor accepts.
-PROJECT_PRIORITIES = ("low", "normal", "high", "urgent")
-
 
 def _imported_priority(value: object) -> str:
     """An imported project's priority: one the editor accepts, else "normal"."""
     return value if isinstance(value, str) and value in PROJECT_PRIORITIES else "normal"
+
+
+def _imported_status(value: object) -> str:
+    """An imported project's status: one the editor accepts, else "active"."""
+    return value if isinstance(value, str) and value in PROJECT_STATUSES else "active"
 
 
 _FAILURE_STATUSES = ("failed", "aborted", "cancelled", "stopped")
@@ -544,6 +546,8 @@ async def create_project(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a new project."""
+    if data.priority not in PROJECT_PRIORITIES:
+        raise HTTPException(status_code=400, detail="Invalid priority")
     # Verify parent exists if specified
     parent_name = None
     if data.parent_id:
@@ -814,7 +818,7 @@ async def update_project(
     if data.color is not None:
         project.color = data.color
     if data.status is not None:
-        if data.status not in ["active", "completed", "archived"]:
+        if data.status not in PROJECT_STATUSES:
             raise HTTPException(status_code=400, detail="Invalid status")
         project.status = data.status
     if data.target_count is not None:
@@ -2072,7 +2076,7 @@ async def import_project(
         name=data.name,
         description=data.description,
         color=data.color,
-        status=data.status,
+        status=_imported_status(data.status),
         target_count=data.target_count,
         target_parts_count=data.target_parts_count,
         target_sets=data.target_sets,
@@ -2202,7 +2206,7 @@ async def import_project_file(
         name=data.get("name", "Imported Project"),
         description=data.get("description"),
         color=data.get("color"),
-        status=data.get("status", "active"),
+        status=_imported_status(data.get("status")),
         target_count=data.get("target_count"),
         target_parts_count=data.get("target_parts_count"),
         target_sets=data.get("target_sets"),

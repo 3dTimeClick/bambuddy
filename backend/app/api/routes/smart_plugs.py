@@ -120,8 +120,8 @@ async def create_smart_plug(
         reject_placeholder({field: getattr(data, field) for field in SMART_PLUG_SECRETS})
     except SecretConfigError as exc:
         raise HTTPException(400, str(exc)) from None
-    # Validate printer_id if provided
-    if data.printer_id:
+    # Validate printer_id if provided (0 included: it names no printer either)
+    if data.printer_id is not None:
         printer_scope.ensure(data.printer_id)
         result = await db.execute(select(Printer).where(Printer.id == data.printer_id))
         if not result.scalar_one_or_none():
@@ -618,7 +618,7 @@ async def update_smart_plug(
         raise HTTPException(400, str(exc)) from None
 
     # Validate new printer_id if being changed
-    if "printer_id" in update_data and update_data["printer_id"]:
+    if "printer_id" in update_data and update_data["printer_id"] is not None:
         new_printer_id = update_data["printer_id"]
         printer_scope.ensure(new_printer_id)
 
