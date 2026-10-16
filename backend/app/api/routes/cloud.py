@@ -181,6 +181,19 @@ async def resolve_api_key_cloud_owner(
 router = APIRouter(prefix="/cloud", tags=["cloud"], dependencies=[Depends(_cloud_api_key_gate)])
 
 
+def _forget_account_presets(account: int | None) -> None:
+    """Drop what was read with an account's cloud token, once that token changes."""
+    _filament_id_name_cache.pop(account, None)
+    for key in [key for key in _filament_cache if key[0] == account]:
+        del _filament_cache[key]
+
+
+def forget_all_cloud_presets() -> None:
+    """Drop every account's cached presets (the user table was replaced)."""
+    _filament_id_name_cache.clear()
+    _filament_cache.clear()
+
+
 async def store_token(db: AsyncSession, token: str, email: str, region: str, user: User | None = None) -> None:
     """Store cloud token, email, and region.
 
@@ -192,6 +205,8 @@ async def store_token(db: AsyncSession, token: str, email: str, region: str, use
     """
     region = _normalise_region(region)
     invalidate_validation_cache(token)
+    # The account may be another one now.
+    _forget_account_presets(user.id if user is not None else None)
     if user is not None:
         # User object is from the auth dependency's session (detached),
         # so use a direct UPDATE via the route's db session.
@@ -228,6 +243,7 @@ async def clear_token(db: AsyncSession, user: User | None = None) -> None:
     token, _email, _region = await get_stored_token(db, user)
     if token:
         invalidate_validation_cache(token)
+    _forget_account_presets(user.id if user is not None else None)
 
     if user is not None:
         await db.execute(
@@ -674,8 +690,10 @@ async def get_filament_presets(
     return settings.filament
 
 
-# Cache for filament preset info (setting_id -> {name, k})
-_filament_cache: dict[str, dict] = {}
+# Cache for filament preset info ((account, setting_id) -> {name, k}). The
+# account is the user whose cloud token resolved it, None for the global one:
+# a personal preset read with one account's token is not another account's.
+_filament_cache: dict[tuple[int | None, str], dict] = {}
 _filament_cache_time: float = 0
 FILAMENT_CACHE_TTL = 300  # 5 minutes
 
@@ -686,7 +704,7 @@ FILAMENT_CACHE_TTL = 300  # 5 minutes
 # (a thundering herd against a rate-limited API). The first caller to miss a
 # given id becomes the leader and resolves it; concurrent callers await its
 # future and reuse the result instead of duplicating the call.
-_filament_inflight: dict[str, asyncio.Future] = {}
+_filament_inflight: dict[tuple[int | None, str], asyncio.Future] = {}
 
 
 async def _fetch_one_cloud_filament(setting_id: str, cloud: BambuCloudService) -> dict | None:
@@ -732,17 +750,18 @@ async def _fetch_one_cloud_filament(setting_id: str, cloud: BambuCloudService) -
         return None
 
 
-async def _resolve_cloud_filament(setting_id: str, cloud: BambuCloudService) -> dict | None:
+async def _resolve_cloud_filament(setting_id: str, cloud: BambuCloudService, account: int | None = None) -> dict | None:
     """Resolve one preset via Bambu Cloud, single-flighting concurrent misses (#2572).
 
     Concurrent callers for the same ``setting_id`` share one cloud round-trip:
     the first caller resolves it while the rest await the shared future. Returns
     the info dict (also populating ``_filament_cache``) or ``None`` on failure.
     """
-    if setting_id in _filament_cache:
-        return _filament_cache[setting_id]
+    key = (account, setting_id)
+    if key in _filament_cache:
+        return _filament_cache[key]
 
-    existing = _filament_inflight.get(setting_id)
+    existing = _filament_inflight.get(key)
     if existing is not None:
         # Another request is already fetching this id — reuse its result.
         # shield() so our own cancellation can't cancel the shared leader.
@@ -752,17 +771,17 @@ async def _resolve_cloud_filament(setting_id: str, cloud: BambuCloudService) -> 
             return None
 
     fut: asyncio.Future = asyncio.get_event_loop().create_future()
-    _filament_inflight[setting_id] = fut
+    _filament_inflight[key] = fut
     info: dict | None = None
     try:
         info = await _fetch_one_cloud_filament(setting_id, cloud)
         return info
     finally:
         if info is not None:
-            _filament_cache[setting_id] = info
+            _filament_cache[key] = info
         if not fut.done():
             fut.set_result(info)
-        _filament_inflight.pop(setting_id, None)
+        _filament_inflight.pop(key, None)
 
 
 # Built-in filament ID → name mapping (fallback when cloud API and local profiles
@@ -861,6 +880,7 @@ async def _enrich_from_local_presets(
     unresolved_ids: list[str],
     result: dict,
     db: AsyncSession,
+    account: int | None = None,
 ) -> dict:
     """Fall back to local profiles for filament IDs not resolved by cloud.
 
@@ -908,7 +928,7 @@ async def _enrich_from_local_presets(
                             info["k"] = k_val
                         except (ValueError, TypeError, IndexError):
                             pass
-                    _filament_cache[original_id] = info
+                    _filament_cache[(account, original_id)] = info
                     result[original_id] = info
             except Exception:
                 continue
@@ -923,13 +943,13 @@ async def _enrich_from_local_presets(
                 # Preserve K value from earlier phases if available
                 existing_k = result.get(fid, {}).get("k")
                 info = {"name": name, "k": existing_k}
-                _filament_cache[fid] = info
+                _filament_cache[(account, fid)] = info
                 result[fid] = info
 
     # Fill remaining unresolved with empty entries
     for fid in unresolved_ids:
         if fid not in result:
-            _filament_cache[fid] = {"name": "", "k": None}
+            _filament_cache[(account, fid)] = {"name": "", "k": None}
             result[fid] = {"name": "", "k": None}
 
     return result
@@ -964,13 +984,14 @@ async def get_filament_info(
 
     result = {}
     unresolved_ids: list[str] = []
+    account = current_user.id if current_user is not None else None
 
     # Phase 1: Check cache
     for setting_id in setting_ids:
         if not setting_id:
             continue
-        if setting_id in _filament_cache:
-            result[setting_id] = _filament_cache[setting_id]
+        if (account, setting_id) in _filament_cache:
+            result[setting_id] = _filament_cache[(account, setting_id)]
         else:
             unresolved_ids.append(setting_id)
 
@@ -989,7 +1010,7 @@ async def get_filament_info(
             try:
                 still_unresolved: list[str] = []
                 for setting_id in unresolved_ids:
-                    info = await _resolve_cloud_filament(setting_id, cloud)
+                    info = await _resolve_cloud_filament(setting_id, cloud, account)
                     if info is not None:
                         result[setting_id] = info
                     if info is None or not info.get("name"):
@@ -1002,7 +1023,7 @@ async def get_filament_info(
 
     # Phase 3: Try local profiles for any IDs still without a name
     if unresolved_ids:
-        result = await _enrich_from_local_presets(unresolved_ids, result, db)
+        result = await _enrich_from_local_presets(unresolved_ids, result, db, account)
 
     return result
 
@@ -1278,9 +1299,10 @@ async def get_builtin_filaments(
     return [{"filament_id": fid, "name": name} for fid, name in _BUILTIN_FILAMENT_NAMES.items()]
 
 
-# Cache for filament_id → name mapping (resolved from cloud preset details)
-_filament_id_name_cache: dict[str, str] = {}
-_filament_id_name_cache_time: float = 0
+# filament_id → name mappings (resolved from cloud preset details), one per
+# cloud account: the user whose token read it, or None for the global token
+# used when auth is off. Value: (time read, mapping).
+_filament_id_name_cache: dict[int | None, tuple[float, dict[str, str]]] = {}
 
 
 @router.get("/filament-id-map")
@@ -1294,20 +1316,21 @@ async def get_filament_id_map(
     K-profiles store a filament_id (e.g., "P4d64437") which is different from
     the cloud preset setting_id (e.g., "PFUS9ac902733670a9"). This endpoint
     fetches details for all custom presets and returns the mapping.
-    Cached for 5 minutes.
+    Cached for 5 minutes per cloud account; a caller is only ever given the
+    mapping of their own account's presets.
     """
     import time
 
-    global _filament_id_name_cache, _filament_id_name_cache_time
-
-    if _filament_id_name_cache and time.time() - _filament_id_name_cache_time < FILAMENT_CACHE_TTL:
-        return _filament_id_name_cache
+    account = current_user.id if current_user is not None else None
+    cached = _filament_id_name_cache.get(account)
+    if cached and time.time() - cached[0] < FILAMENT_CACHE_TTL:
+        return cached[1]
 
     cloud = await build_authenticated_cloud(db, current_user)
     if cloud is None or not cloud.is_authenticated:
         if cloud is not None:
             await cloud.close()
-        return _filament_id_name_cache or {}
+        return {}
 
     try:
         data = await cloud.get_slicer_settings()
@@ -1329,11 +1352,10 @@ async def get_filament_id_map(
             except Exception:
                 pass
 
-        _filament_id_name_cache = result
-        _filament_id_name_cache_time = time.time()
+        _filament_id_name_cache[account] = (time.time(), result)
         return result
     except Exception:
-        return _filament_id_name_cache or {}
+        return cached[1] if cached else {}
     finally:
         await cloud.close()
 

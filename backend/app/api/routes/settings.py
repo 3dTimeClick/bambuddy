@@ -1681,6 +1681,10 @@ async def restore_backup(
             # Read from the restored data: this request has just cached the
             # setting it had before.
             invalidate_auth_enabled_cache()
+            # Cloud presets were cached per user of the replaced user table.
+            from backend.app.api.routes.cloud import forget_all_cloud_presets
+
+            forget_all_cloud_presets()
             async with _db_mod.async_session() as auth_db:
                 auth_on = await is_auth_enabled(auth_db)
             if auth_on:
