@@ -646,6 +646,7 @@ def _make_orchestration_callable(
                         ).scalar_one_or_none()
                         if qe is not None and qe.status in ("pending", "queued"):
                             qe.status = "cancelled"
+                            qe.completed_at = datetime.now(timezone.utc)
                     if job.status not in ("completed", "failed", "cancelled"):
                         job.status = "cancelled"
                         job.completed_at = datetime.now(timezone.utc)
@@ -1000,6 +1001,7 @@ async def cancel_run(
             ).scalar_one_or_none()
             if queue_entry is not None and queue_entry.status in ("pending", "queued"):
                 queue_entry.status = "cancelled"
+                queue_entry.completed_at = datetime.now(timezone.utc)
         if job.status in ("queued", "printing") and queue_entry is None:
             # Dispatched, its entry gone: whether it printed is unknown, and
             # calling it cancelled would make retry print it again.

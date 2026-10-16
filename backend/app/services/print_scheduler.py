@@ -524,6 +524,11 @@ def _candidates_for(item: PrintQueueItem) -> list[_ModelCandidate]:
     ]
 
 
+# Why a job for any printer of a model waits when every free one's last print
+# failed. The queue page matches it to offer Resume for the model.
+MODEL_GATE_WAIT_REASON = "The last print failed on every free matching printer"
+
+
 def _collapse_waiting_reasons(per_model: list[tuple[str | None, str]]) -> str | None:
     """Fold one waiting reason per candidate into a single line for the item.
 
@@ -2215,6 +2220,8 @@ class PrintScheduler:
                     # printer for a file that can never legally run on it is
                     # worse than not waking at all (#2786).
                     wakeable_candidates: list[_ModelCandidate] = []
+                    # Printers passed over because their last print failed.
+                    gate_blocked: set[int] = set()
 
                     if not candidates:
                         # Every candidate file has been deleted or trashed out from
@@ -2258,21 +2265,33 @@ class PrintScheduler:
                             self._resolve_variant(item, candidate)
                             return await self._filament_short_on(db, item, pid)
 
-                        match_id, match_reason = await self._find_idle_printer_for_model(
-                            db,
-                            candidate.target_model,
-                            # Sensor-held printers are unavailable to the
-                            # matcher but stay out of busy_printers itself
-                            # (#1148) — see where `interlocked` is built.
-                            busy_printers | interlocked.keys(),
-                            effective_types,
-                            item.target_location,
-                            filament_overrides=filament_overrides,
-                            require_plate_clear=require_plate_clear,
-                            wakeable_ids=wakeable_printer_ids,
-                            printer_scope=item_scope,
-                            is_short=is_short,
-                        )
+                        while True:
+                            match_id, match_reason = await self._find_idle_printer_for_model(
+                                db,
+                                candidate.target_model,
+                                # Sensor-held printers are unavailable to the
+                                # matcher but stay out of busy_printers itself
+                                # (#1148) — see where `interlocked` is built.
+                                busy_printers | interlocked.keys() | gate_blocked,
+                                effective_types,
+                                item.target_location,
+                                filament_overrides=filament_overrides,
+                                require_plate_clear=require_plate_clear,
+                                wakeable_ids=wakeable_printer_ids,
+                                printer_scope=item_scope,
+                                is_short=is_short,
+                            )
+                            # "Only if the previous print succeeded" is about the
+                            # printer the job lands on: one whose last print failed
+                            # is passed over for another of the model.
+                            if (
+                                match_id
+                                and item.require_previous_success
+                                and not await self._check_previous_success(db, item, printer_id=match_id)
+                            ):
+                                gate_blocked.add(match_id)
+                                continue
+                            break
                         if match_id:
                             printer_id = match_id
                             chosen = candidate
@@ -2308,6 +2327,10 @@ class PrintScheduler:
                             skip_reasons["powered_on_printer"] = skip_reasons.get("powered_on_printer", 0) + 1
                             continue
 
+                    if printer_id is None and gate_blocked:
+                        # The matcher reports the printers passed over as busy;
+                        # what holds the job is their failed last print.
+                        per_model_reasons = [(item.target_model, MODEL_GATE_WAIT_REASON)]
                     waiting_reason = None if printer_id else _collapse_waiting_reasons(per_model_reasons)
 
                     # Fold the winning variant's file and settings onto the item
@@ -2319,12 +2342,19 @@ class PrintScheduler:
                     # Update waiting_reason if changed and send notification when first waiting
                     if item.waiting_reason != waiting_reason:
                         was_waiting = item.waiting_reason is not None
+                        previous_reason = item.waiting_reason
                         item.waiting_reason = waiting_reason
                         await db.commit()
 
                         # Send waiting notification only when transitioning to waiting state
                         # and the reason requires user action (not just "all printers busy")
-                        if waiting_reason and not was_waiting and not self._is_busy_only(waiting_reason):
+                        # Also when a job that only waited for a busy printer
+                        # now waits on something the user has to do.
+                        if (
+                            waiting_reason
+                            and (not was_waiting or self._is_busy_only(previous_reason or ""))
+                            and not self._is_busy_only(waiting_reason)
+                        ):
                             job_name = await self._get_job_name(db, item)
                             await notification_service.on_queue_job_waiting(
                                 job_name=job_name,
@@ -2347,27 +2377,6 @@ class PrintScheduler:
                         if _library_row_conflict(item):
                             skip_reasons["library_row_in_use"] = skip_reasons.get("library_row_in_use", 0) + 1
                             continue
-
-                        # Check condition (previous print success) before assigning
-                        if item.require_previous_success:
-                            if not await self._check_previous_success(db, item):
-                                item.status = "skipped"
-                                item.error_message = "Previous print failed or was aborted"
-                                item.completed_at = datetime.now(timezone.utc)
-                                await db.commit()
-                                logger.info("Skipped queue item %s - previous print failed", item.id)
-
-                                # Send notification
-                                job_name = await self._get_job_name(db, item)
-                                printer = await self._get_printer(db, printer_id)
-                                await notification_service.on_queue_job_skipped(
-                                    job_name=job_name,
-                                    printer_id=printer_id,
-                                    printer_name=printer.name if printer else "Unknown",
-                                    reason="Previous print failed or was aborted",
-                                    db=db,
-                                )
-                                continue
 
                         # Assign printer and start - clear waiting reason
                         item.printer_id = printer_id
@@ -7571,8 +7580,13 @@ class PrintScheduler:
         logger.warning("Printer %s did not connect within %ss after power on", printer_id, self._power_on_wait_time)
         return False
 
-    async def _check_previous_success(self, db: AsyncSession, item: PrintQueueItem) -> bool:
+    async def _check_previous_success(
+        self, db: AsyncSession, item: PrintQueueItem, printer_id: int | None = None
+    ) -> bool:
         """Check if the previous print on this printer succeeded.
+
+        ``printer_id`` names the printer to look at when the item has none yet
+        (a job for any printer of a model, checked against the one offered).
 
         A user-cancelled predecessor is treated as neutral — `cancelled` is a
         deliberate action, not a failure, so subsequent items should still
@@ -7589,11 +7603,13 @@ class PrintScheduler:
         """
         result = await db.execute(
             select(PrintQueueItem)
-            .where(PrintQueueItem.printer_id == item.printer_id)
+            .where(PrintQueueItem.printer_id == (printer_id if printer_id is not None else item.printer_id))
             .where(PrintQueueItem.id != item.id)
             .where(PrintQueueItem.status.in_(["completed", "failed", "cancelled", "aborted"]))
             .where(PrintQueueItem.gate_acknowledged == False)  # noqa: E712
-            .order_by(PrintQueueItem.completed_at.desc())
+            # A row ended without a completion time must not count as the
+            # latest: PostgreSQL sorts NULL first in a descending order.
+            .order_by(PrintQueueItem.completed_at.desc().nulls_last(), PrintQueueItem.id.desc())
             .limit(1)
         )
         prev_item = result.scalar_one_or_none()

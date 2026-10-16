@@ -1590,7 +1590,13 @@ export default {
       batchUngrouped: '{{count}}개 항목의 그룹을 해제했습니다',
       batchUngroupFailed: '배치 그룹 해제에 실패했습니다',
       resumedAfterFailure: '큐를 재개했습니다 — {{restored}}개 작업을 대기 상태로 복원했습니다',
+      resumedModelAfterFailure: '실패한 출력 {{count}}건의 차단을 해제했습니다',
       resumeAfterFailureFailed: '큐 재개에 실패했습니다',
+    },
+    resumeModelAfterFailure: {
+      banner: '모든 {{model}}용 작업이 대기 중입니다 ({{count}}): 비어 있는 모든 {{model}}에서 마지막 출력이 실패했습니다',
+      bannerHint: '프린터 문제를 해결한 다음 재개하여 차단을 해제하세요. 작업은 다음으로 비는 {{model}}에서 시작됩니다.',
+      confirmMessage: '사용할 수 있는 모든 {{model}} 프린터에서 이전 출력 차단을 해제합니다. 계속하기 전에 프린터가 준비되었는지 확인하세요.',
     },
     resumeAfterFailure: {
       banner: '{{printer}}이(가) 이전 인쇄 실패로 인해 차단되었습니다 — {{count}}개 작업이 건너뛰어졌습니다',

@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '{{count}} élément(s) dégroupé(s)',
       batchUngroupFailed: 'Échec du dégroupement du lot',
       resumedAfterFailure: 'File reprise — {{restored}} tâche(s) restaurée(s) en attente',
+      resumedModelAfterFailure: 'Blocage levé sur {{count}} impression(s) échouée(s)',
       resumeAfterFailureFailed: 'Échec de la reprise de la file',
+    },
+    resumeModelAfterFailure: {
+      banner: "Des tâches pour n'importe quelle {{model}} attendent ({{count}}) : la dernière impression a échoué sur chaque {{model}} libre",
+      bannerHint: 'Corrigez les imprimantes, puis reprenez pour lever le blocage. Les tâches démarreront sur la prochaine {{model}} libre.',
+      confirmMessage: "Lever le blocage lié à l'impression précédente sur toutes les imprimantes {{model}} que vous pouvez utiliser. Vérifiez que les imprimantes sont prêtes avant de continuer.",
     },
     resumeAfterFailure: {
       banner: '{{printer}} est bloquée par un échec d\'impression précédent — {{count}} tâche(s) ignorée(s)',

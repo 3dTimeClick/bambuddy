@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '{{count}} item(ns) desagrupado(s)',
       batchUngroupFailed: 'Falha ao desagrupar o lote',
       resumedAfterFailure: 'Fila retomada — {{restored}} trabalho(s) restaurado(s) para pendente',
+      resumedModelAfterFailure: 'Bloqueio removido em {{count}} impressão(ões) com falha',
       resumeAfterFailureFailed: 'Falha ao retomar a fila',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Trabalhos para qualquer {{model}} aguardando ({{count}}): a última impressão falhou em cada {{model}} livre',
+      bannerHint: 'Corrija as impressoras e retome para remover o bloqueio. Os trabalhos começarão na próxima {{model}} livre.',
+      confirmMessage: 'Remover o bloqueio de impressão anterior em todas as impressoras {{model}} que você pode usar. Verifique se as impressoras estão prontas antes de continuar.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} está bloqueada por uma falha de impressão anterior — {{count}} trabalho(s) ignorado(s)',

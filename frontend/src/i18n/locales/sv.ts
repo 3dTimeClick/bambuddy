@@ -1685,7 +1685,13 @@ export default {
       batchUngrouped: 'Avgrupperade {{count}} post(er)',
       batchUngroupFailed: 'Kunde inte avgruppera batch',
       resumedAfterFailure: 'Återupptog kö — {{restored}} jobb återställda till väntande',
+      resumedModelAfterFailure: 'Spärren hävd för {{count}} misslyckade utskrift(er)',
       resumeAfterFailureFailed: 'Kunde inte återuppta kö',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Jobb för valfri {{model}} väntar ({{count}}): den senaste utskriften misslyckades på varje ledig {{model}}',
+      bannerHint: 'Åtgärda skrivarna och återuppta sedan för att häva spärren. Jobben startar då på nästa lediga {{model}}.',
+      confirmMessage: 'Häv spärren efter misslyckad utskrift på alla {{model}}-skrivare du får använda. Se till att skrivarna är redo innan du fortsätter.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} är blockerad av ett tidigare utskriftsfel — {{count}} jobb hoppades över',

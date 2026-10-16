@@ -1685,7 +1685,13 @@ export default {
       batchUngrouped: 'Groepering van {{count}} item(s) opgeheven',
       batchUngroupFailed: 'Batchgroepering opheffen mislukt',
       resumedAfterFailure: 'Wachtrij hervat — {{restored}} taak/taken teruggezet naar in afwachting',
+      resumedModelAfterFailure: 'Blokkade opgeheven bij {{count}} mislukte print(s)',
       resumeAfterFailureFailed: 'Wachtrij hervatten mislukt',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Opdrachten voor elke {{model}} wachten ({{count}}): de laatste print is op elke vrije {{model}} mislukt',
+      bannerHint: 'Los het probleem met de printers op en hervat om de blokkade op te heffen. De opdrachten starten dan op de volgende vrije {{model}}.',
+      confirmMessage: 'De blokkade na een mislukte print opheffen op alle {{model}}-printers die je mag gebruiken. Zorg dat de printers klaar zijn voordat je doorgaat.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} is geblokkeerd door een eerdere afdrukfout — {{count}} taak/taken overgeslagen',

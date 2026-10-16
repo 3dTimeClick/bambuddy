@@ -1944,3 +1944,36 @@ describe('QueuePage', () => {
     });
   });
 });
+
+describe('QueuePage: jobs held by failed prints on every printer of their model', () => {
+  it('offers Resume for the model', async () => {
+    let resumed: string | null = null;
+    server.use(
+      http.get('/api/v1/queue/', () =>
+        HttpResponse.json([
+          {
+            ...mockQueueItems[0],
+            printer_id: null,
+            printer_name: null,
+            target_model: 'X1C',
+            require_previous_success: true,
+            waiting_reason: 'The last print failed on every free matching printer',
+          },
+        ]),
+      ),
+      http.post('/api/v1/queue/model/:model/resume', ({ params }) => {
+        resumed = params.model as string;
+        return HttpResponse.json({ acknowledged: 2, printers: 2 });
+      }),
+    );
+    const user = userEvent.setup();
+    render(<QueuePage />);
+
+    await user.click(await screen.findByRole('button', { name: /resume after failure/i }));
+    // The confirm dialog's own button carries the same label.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /resume after failure/i })).toHaveLength(2));
+    await user.click(screen.getAllByRole('button', { name: /resume after failure/i })[1]);
+
+    await waitFor(() => expect(resumed).toBe('X1C'));
+  });
+});

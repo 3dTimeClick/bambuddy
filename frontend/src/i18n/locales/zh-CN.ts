@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '已取消分组 {{count}} 项',
       batchUngroupFailed: '取消批次分组失败',
       resumedAfterFailure: '已恢复队列 — {{restored}} 个任务已恢复为待处理',
+      resumedModelAfterFailure: '已解除 {{count}} 次失败打印的阻止',
       resumeAfterFailureFailed: '恢复队列失败',
+    },
+    resumeModelAfterFailure: {
+      banner: '任意 {{model}} 的任务正在等待 ({{count}})：每台空闲 {{model}} 的上一次打印均失败',
+      bannerHint: '修复打印机后继续以解除阻止。任务将在下一台空闲的 {{model}} 上开始。',
+      confirmMessage: '解除你可使用的所有 {{model}} 打印机上的前次打印阻止。继续之前请确认打印机已就绪。',
     },
     resumeAfterFailure: {
       banner: '{{printer}} 因之前的打印失败而被阻塞 — 已跳过 {{count}} 个任务',

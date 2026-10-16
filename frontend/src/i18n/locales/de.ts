@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '{{count}} Eintrag/Einträge aus Stapel gelöst',
       batchUngroupFailed: 'Stapel konnte nicht aufgelöst werden',
       resumedAfterFailure: 'Warteschlange fortgesetzt — {{restored}} Auftrag/Aufträge wieder eingereiht',
+      resumedModelAfterFailure: 'Sperre bei {{count}} fehlgeschlagenen Druck(en) aufgehoben',
       resumeAfterFailureFailed: 'Warteschlange konnte nicht fortgesetzt werden',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Aufträge für beliebige {{model}} warten ({{count}}): Der letzte Druck ist auf jedem freien {{model}} fehlgeschlagen',
+      bannerHint: 'Behebe das Problem an den Druckern und setze dann fort, um die Sperre aufzuheben. Die Aufträge starten dann auf dem nächsten freien {{model}}.',
+      confirmMessage: 'Die Sperre nach fehlgeschlagenem Druck auf allen {{model}}-Druckern aufheben, die du nutzen darfst. Stelle sicher, dass die Drucker bereit sind.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} ist durch einen vorherigen Druckfehler blockiert — {{count}} Auftrag/Aufträge übersprungen',

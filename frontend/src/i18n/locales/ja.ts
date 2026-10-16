@@ -1668,7 +1668,13 @@ export default {
       batchUngrouped: '{{count}}件のグループを解除しました',
       batchUngroupFailed: 'バッチのグループ解除に失敗しました',
       resumedAfterFailure: 'キューを再開しました — {{restored}}件のジョブを保留状態に戻しました',
+      resumedModelAfterFailure: '{{count}} 件の失敗した印刷のブロックを解除しました',
       resumeAfterFailureFailed: 'キューの再開に失敗しました',
+    },
+    resumeModelAfterFailure: {
+      banner: '任意の {{model}} 向けのジョブが待機中です ({{count}}): 空いているすべての {{model}} で最後の印刷が失敗しました',
+      bannerHint: 'プリンターの問題を解決してから再開し、ブロックを解除してください。ジョブは次に空いた {{model}} で開始されます。',
+      confirmMessage: '使用できるすべての {{model}} プリンターで前回の印刷によるブロックを解除します。続行する前にプリンターの準備ができていることを確認してください。',
     },
     resumeAfterFailure: {
       banner: '{{printer}} は前回の印刷失敗によりブロックされています — {{count}}件のジョブをスキップしました',

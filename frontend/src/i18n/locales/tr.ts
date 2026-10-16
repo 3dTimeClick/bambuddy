@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '{{count}} öğe gruptan çıkarıldı',
       batchUngroupFailed: 'Yığını gruptan çıkarma başarısız',
       resumedAfterFailure: 'Kuyruk devam ettirildi — {{restored}} iş bekleyene geri alındı',
+      resumedModelAfterFailure: '{{count}} başarısız baskıda engel kaldırıldı',
       resumeAfterFailureFailed: 'Kuyruk devam ettirilemedi',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Herhangi bir {{model}} için işler bekliyor ({{count}}): son baskı her boş {{model}} üzerinde başarısız oldu',
+      bannerHint: 'Yazıcılardaki sorunu giderin, ardından engeli kaldırmak için devam edin. İşler bir sonraki boş {{model}} üzerinde başlar.',
+      confirmMessage: 'Kullanabileceğiniz tüm {{model}} yazıcılarında önceki baskı engelini kaldırın. Devam etmeden önce yazıcıların hazır olduğundan emin olun.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} önceki bir baskı hatası nedeniyle engellendi — {{count}} iş atlandı',

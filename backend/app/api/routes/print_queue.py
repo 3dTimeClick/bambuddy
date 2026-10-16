@@ -1908,6 +1908,7 @@ async def cancel_batch(
     cancelled_ids: list[int] = []
     for item in pending_items:
         item.status = "cancelled"
+        item.completed_at = datetime.now(timezone.utc)
         await release_budget_reservation(
             db,
             source_type="print_queue",
@@ -2289,6 +2290,7 @@ async def delete_queue_item(
     )
     if keep_as_cancelled:
         item.status = "cancelled"
+        item.completed_at = datetime.now(timezone.utc)
         await db.flush()
         # The order may have been sitting on "completed" if this run's target
         # was met by it; cancelling reopens it.
@@ -2390,6 +2392,46 @@ async def resume_queue_after_failure(
         len(to_restore),
     )
     return {"acknowledged": len(to_ack), "restored": len(to_restore)}
+
+
+@router.post("/model/{model}/resume")
+async def resume_model_queue_after_failure(
+    model: str,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.QUEUE_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
+):
+    """Clear the previous-success gate on every printer of a model the caller may use.
+
+    A job for any printer of a model waits, rather than being skipped, when the
+    last print failed on every free one; this is its Resume. Same effect per
+    printer as :func:`resume_queue_after_failure`, which has no skipped jobs to
+    restore here.
+    """
+    from backend.app.services.print_scheduler import scheduler
+
+    printers = await scheduler._printers_for_model(db, model, None, printer_scope)
+    printer_ids = [p.id for p in printers]
+    acknowledged = 0
+    if printer_ids:
+        result = await db.execute(
+            select(PrintQueueItem)
+            .where(PrintQueueItem.printer_id.in_(printer_ids))
+            .where(PrintQueueItem.status.in_(["failed", "aborted"]))
+            .where(PrintQueueItem.gate_acknowledged == False)  # noqa: E712
+        )
+        for failed_item in result.scalars().all():
+            failed_item.gate_acknowledged = True
+            acknowledged += 1
+        await db.commit()
+
+    logger.info(
+        "Resume after failure for model %s: acknowledged %d failure(s) on %d printer(s)",
+        model,
+        acknowledged,
+        len(printer_ids),
+    )
+    return {"acknowledged": acknowledged, "printers": len(printer_ids)}
 
 
 @router.post("/{item_id}/cancel")

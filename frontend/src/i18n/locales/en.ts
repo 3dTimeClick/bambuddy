@@ -1687,7 +1687,13 @@ export default {
       batchUngrouped: 'Ungrouped {{count}} item(s)',
       batchUngroupFailed: 'Failed to ungroup batch',
       resumedAfterFailure: 'Resumed queue — {{restored}} job(s) restored to pending',
+      resumedModelAfterFailure: 'Gate cleared on {{count}} failed print(s)',
       resumeAfterFailureFailed: 'Failed to resume queue',
+    },
+    resumeModelAfterFailure: {
+      banner: 'Jobs for any {{model}} wait ({{count}}): the last print failed on every free {{model}}',
+      bannerHint: 'Fix the printers, then resume to clear the gate. The jobs then start on the next free {{model}}.',
+      confirmMessage: 'Clear the previous-print gate on every {{model}} printer you can use. Make sure the printers are ready before continuing.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} is blocked by a previous-print failure — {{count}} job(s) skipped',

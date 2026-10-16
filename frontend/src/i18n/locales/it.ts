@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '{{count}} elemento/i separato/i',
       batchUngroupFailed: 'Separazione del lotto non riuscita',
       resumedAfterFailure: 'Coda ripresa — {{restored}} processo/i ripristinato/i come in attesa',
+      resumedModelAfterFailure: 'Blocco rimosso su {{count}} stampa/e non riuscita/e',
       resumeAfterFailureFailed: 'Ripresa della coda non riuscita',
+    },
+    resumeModelAfterFailure: {
+      banner: "Lavori per qualsiasi {{model}} in attesa ({{count}}): l'ultima stampa non è riuscita su ogni {{model}} libera",
+      bannerHint: 'Risolvi il problema delle stampanti, poi riprendi per rimuovere il blocco. I lavori partiranno sulla prossima {{model}} libera.',
+      confirmMessage: 'Rimuovi il blocco della stampa precedente su tutte le stampanti {{model}} che puoi usare. Assicurati che le stampanti siano pronte prima di continuare.',
     },
     resumeAfterFailure: {
       banner: '{{printer}} è bloccata da un errore di stampa precedente — {{count}} processo/i saltato/i',

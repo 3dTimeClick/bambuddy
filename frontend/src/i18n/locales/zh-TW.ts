@@ -1669,7 +1669,13 @@ export default {
       batchUngrouped: '已取消分組 {{count}} 項',
       batchUngroupFailed: '取消批次分組失敗',
       resumedAfterFailure: '已恢復佇列 — {{restored}} 個工作已恢復為待處理',
+      resumedModelAfterFailure: '已解除 {{count}} 次失敗列印的阻擋',
       resumeAfterFailureFailed: '恢復佇列失敗',
+    },
+    resumeModelAfterFailure: {
+      banner: '任意 {{model}} 的工作正在等待 ({{count}})：每台閒置 {{model}} 的上一次列印皆失敗',
+      bannerHint: '修復印表機後繼續以解除阻擋。工作將在下一台閒置的 {{model}} 上開始。',
+      confirmMessage: '解除你可使用的所有 {{model}} 印表機上的前次列印阻擋。繼續之前請確認印表機已就緒。',
     },
     resumeAfterFailure: {
       banner: '{{printer}} 因先前的列印失敗而被阻擋 — 已跳過 {{count}} 個工作',

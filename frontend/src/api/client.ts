@@ -6549,6 +6549,13 @@ export const api = {
    * restores skipped items whose error_message matches the gate string
    * back to pending. Returns counts so the UI can render a precise toast.
    */
+  // A job for any printer of a model waits when the last print failed on every
+  // free one; this clears the gate on the model's printers.
+  resumeModelQueueAfterFailure: (model: string) =>
+    request<{ acknowledged: number; printers: number }>(
+      `/queue/model/${encodeURIComponent(model)}/resume`,
+      { method: 'POST' },
+    ),
   resumeQueueAfterFailure: (printerId: number) =>
     request<{ acknowledged: number; restored: number }>(
       `/queue/printer/${printerId}/resume`,
