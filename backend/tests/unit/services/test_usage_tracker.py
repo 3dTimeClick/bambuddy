@@ -801,6 +801,9 @@ class TestSpoolAssignmentSnapshot:
                 MagicMock(scalar_one_or_none=MagicMock(return_value=spool)),
                 # Cost-update block re-selects the archive to mutate cost.
                 MagicMock(scalar_one_or_none=MagicMock(return_value=archive)),
+                # Priced at the default rate, so it asks whether this is the
+                # archive's first run before storing the cost.
+                MagicMock(scalar=MagicMock(return_value=0)),
             ]
         )
 

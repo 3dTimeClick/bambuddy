@@ -686,7 +686,6 @@ async def on_print_complete(
     """
     from sqlalchemy import select
 
-    from backend.app.api.routes.settings import get_setting
     from backend.app.models.spool_usage_history import SpoolUsageHistory
 
     session = _active_sessions.pop(printer_id, None)
@@ -705,8 +704,9 @@ async def on_print_complete(
     handled_trays: set[tuple[int, int]] = set()
 
     # Fetch default filament cost from settings for fallback
-    default_cost_str = await get_setting(db, "default_filament_cost")
-    default_filament_cost = float(default_cost_str) if default_cost_str else 0.0
+    from backend.app.services.print_cost_estimate import default_cost_per_kg
+
+    default_filament_cost = await default_cost_per_kg(db)
 
     # Fall back to ams_mapping captured at print start (needed when auto-archive is off
     # and the caller can't retrieve the mapping from _print_ams_mappings without archive_id)

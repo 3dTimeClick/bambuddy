@@ -129,7 +129,7 @@ class TestCostEstimateIgnoresTheInactiveModesTable:
                 return_value=spoolman_mode,
             ),
             patch(
-                "backend.app.services.print_cost_estimate._default_cost_per_kg",
+                "backend.app.services.print_cost_estimate.default_cost_per_kg",
                 new_callable=AsyncMock,
                 return_value=25.0,
             ),

@@ -6,7 +6,6 @@ import re as _re
 import zipfile
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
 from html import escape as html_escape
 from pathlib import Path
 
@@ -50,6 +49,7 @@ from backend.app.services.print_confirmation import (
     retire_confirm_token,
     stamp_verdict,
 )
+from backend.app.services.print_cost_estimate import default_cost_per_kg as _default_cost_per_kg, price_one_print
 from backend.app.services.print_storage import (
     REASON_FTP_TRANSFER_FAILED,
     REASON_FTPS_COOLOFF,
@@ -1952,6 +1952,16 @@ async def update_archive(
     for field, value in update_payload.items():
         setattr(archive, field, value)
 
+    # New grams are a new price, unless the caller set the cost as well.
+    repriced = False
+    if (
+        update_payload.get("filament_used_grams")
+        and "cost" not in update_payload
+        and update_payload["filament_used_grams"] != previous_filament_grams
+    ):
+        archive.cost = await _one_print_cost(db, archive, previous_grams=previous_filament_grams)
+        repriced = True
+
     # #1898: a landed verdict retires the one-tap capability token from the
     # push notification — the links stop changing anything once someone
     # decided, and report the recorded verdict instead. Clearing the verdict
@@ -2002,6 +2012,9 @@ async def update_archive(
                 latest_entry.filament_used_grams is None or latest_entry.filament_used_grams == previous_filament_grams
             ):
                 del to_mirror["filament_used_grams"]
+            # The run's cost was inherited with its grams, so it follows them.
+            if "filament_used_grams" in to_mirror and repriced:
+                to_mirror["cost"] = archive.cost
 
             for field, value in to_mirror.items():
                 setattr(latest_entry, field, value)
@@ -2065,6 +2078,62 @@ async def _spoolman_owns_cost(db: AsyncSession) -> bool:
     return bool(setting) and setting.lower() == "true"
 
 
+def _priced_usage_totals():
+    """Priced spool usage per archive. A row recorded without a price is left
+    out of both sums, so its grams are priced at the default rate instead of
+    counting as free filament."""
+    priced = SpoolUsageHistory.cost.is_not(None)
+    return (
+        func.sum(SpoolUsageHistory.cost),
+        func.sum(case((priced, SpoolUsageHistory.weight_used), else_=0.0)),
+    )
+
+
+async def _one_print_cost(db: AsyncSession, archive: PrintArchive, previous_grams: float | None = None) -> float | None:
+    """The archive's cost for one print of its grams (see ``price_one_print``).
+
+    A Spoolman-priced cost has no usage rows to rebuild it from (#2591); it is
+    kept, scaled to new grams when they were edited.
+    """
+    from backend.app.models.print_log import PrintLogEntry
+
+    grams = archive.filament_used_grams
+    default_cost = await _default_cost_per_kg(db)
+    usage_cost, tracked_grams = (
+        await db.execute(select(*_priced_usage_totals()).where(SpoolUsageHistory.archive_id == archive.id))
+    ).one()
+    if usage_cost is not None and usage_cost > 0:
+        printed_grams, runs = (
+            await db.execute(
+                select(func.sum(PrintLogEntry.filament_used_grams), func.count(PrintLogEntry.id)).where(
+                    PrintLogEntry.archive_id == archive.id
+                )
+            )
+        ).one()
+        return price_one_print(
+            grams,
+            float(usage_cost),
+            float(tracked_grams or 0),
+            float(printed_grams or 0),
+            int(runs or 0),
+            default_cost,
+            default_cost,
+        )
+    if not grams:
+        return archive.cost
+    if archive.cost is not None and await _spoolman_owns_cost(db):
+        if previous_grams:
+            return round(archive.cost * grams / previous_grams, 2)
+        return archive.cost
+    fallback = default_cost
+    if archive.filament_type:
+        primary_type = archive.filament_type.split(",")[0].strip()
+        catalog = await db.scalar(select(Filament.cost_per_kg).where(Filament.type == primary_type).limit(1))
+        if catalog is not None:
+            fallback = catalog
+    return price_one_print(grams, None, 0.0, 0.0, 0, fallback, default_cost)
+
+
 @router.post("/{archive_id}/rescan", response_model=ArchiveResponse)
 async def rescan_archive(
     archive_id: int,
@@ -2073,7 +2142,6 @@ async def rescan_archive(
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Rescan the 3MF file and update metadata."""
-    from backend.app.api.routes.settings import get_setting
     from backend.app.services.archive import ThreeMFParser
 
     result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
@@ -2119,43 +2187,7 @@ async def rescan_archive(
     # so the displayed cost still reflects the whole print.
 
     if archive.filament_used_grams and archive.filament_type:
-        default_cost_setting = await get_setting(db, "default_filament_cost")
-        default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
-        usage_result = await db.execute(
-            select(
-                func.sum(SpoolUsageHistory.cost),
-                func.sum(SpoolUsageHistory.weight_used),
-            ).where(SpoolUsageHistory.archive_id == archive.id)
-        )
-        usage_cost_row = usage_result.one()
-        usage_cost = usage_cost_row[0]
-        tracked_grams = float(usage_cost_row[1] or 0)
-        if usage_cost is not None and usage_cost > 0:
-            total_cost = float(usage_cost)
-            untracked_grams = max(0.0, archive.filament_used_grams - tracked_grams)
-            if untracked_grams > 0 and default_cost_per_kg > 0:
-                total_cost += (untracked_grams / 1000.0) * default_cost_per_kg
-            archive.cost = float(Decimal(str(total_cost)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-        elif await _spoolman_owns_cost(db) and archive.cost is not None:
-            # Keep what completion priced from the linked spools. A rescan
-            # re-reads the 3MF's metadata; it learns nothing about spools.
-            pass
-        else:
-            primary_type = archive.filament_type.split(",")[0].strip()
-            filament_result = await db.execute(select(Filament).where(Filament.type == primary_type).limit(1))
-            filament = filament_result.scalar_one_or_none()
-            if filament:
-                archive.cost = float(
-                    Decimal(str((archive.filament_used_grams / 1000) * filament.cost_per_kg)).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                )
-            else:
-                archive.cost = float(
-                    Decimal(str((archive.filament_used_grams / 1000) * default_cost_per_kg)).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                )
+        archive.cost = await _one_print_cost(db, archive)
 
     await db.commit()
     await db.refresh(archive)
@@ -2170,8 +2202,6 @@ async def recalculate_all_costs(
 ):
     """Recalculate costs for all archives based on filament usage and prices."""
 
-    from backend.app.api.routes.settings import get_setting
-
     # Only the archives of the caller's printers, as the archive list shows them.
     query = select(PrintArchive)
     if (clause := printer_scope.where(PrintArchive.printer_id)) is not None:
@@ -2183,25 +2213,34 @@ async def recalculate_all_costs(
     filament_result = await db.execute(select(Filament))
     filaments = {f.type: f.cost_per_kg for f in filament_result.scalars().all()}
 
-    # Get default filament cost from settings
-    default_cost_setting = await get_setting(db, "default_filament_cost")
-    default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
+    default_cost_per_kg = await _default_cost_per_kg(db)
 
     # Pre-fetch all usage costs and tracked weight by archive_id.
     # Tracked weight is used to top-up the cost at the default rate for any
     # filament grams not covered by an inventory spool (#1344).
     usage_costs_result = await db.execute(
-        select(
-            SpoolUsageHistory.archive_id,
-            func.sum(SpoolUsageHistory.cost),
-            func.sum(SpoolUsageHistory.weight_used),
-        ).group_by(SpoolUsageHistory.archive_id)
+        select(SpoolUsageHistory.archive_id, *_priced_usage_totals()).group_by(SpoolUsageHistory.archive_id)
     )
     usage_costs = usage_costs_result.fetchall()
     cost_map = {
         row[0]: (row[1], float(row[2] or 0))
         for row in usage_costs
         if row[0] is not None and row[1] is not None and row[1] > 0
+    }
+
+    from backend.app.models.print_log import PrintLogEntry
+
+    run_totals = {
+        row[0]: (float(row[1] or 0), int(row[2] or 0))
+        for row in (
+            await db.execute(
+                select(
+                    PrintLogEntry.archive_id,
+                    func.sum(PrintLogEntry.filament_used_grams),
+                    func.count(PrintLogEntry.id),
+                ).group_by(PrintLogEntry.archive_id)
+            )
+        ).all()
     }
 
     spoolman_owns = await _spoolman_owns_cost(db)
@@ -2212,12 +2251,16 @@ async def recalculate_all_costs(
         usage = cost_map.get(archive.id)
         if usage is not None:
             usage_cost, tracked_grams = usage
-            total_cost = float(usage_cost)
-            archive_grams = float(archive.filament_used_grams or 0)
-            untracked_grams = max(0.0, archive_grams - tracked_grams)
-            if untracked_grams > 0 and default_cost_per_kg > 0:
-                total_cost += (untracked_grams / 1000.0) * default_cost_per_kg
-            new_cost = round(total_cost, 2)
+            printed_grams, runs = run_totals.get(archive.id, (0.0, 0))
+            new_cost = price_one_print(
+                archive.filament_used_grams,
+                usage_cost,
+                tracked_grams,
+                printed_grams,
+                runs,
+                default_cost_per_kg,
+                default_cost_per_kg,
+            )
         else:
             # No usage linked to this archive. Usage without an archive link
             # (recorded before usage was linked, with archiving off, or of a
@@ -2231,7 +2274,9 @@ async def recalculate_all_costs(
             elif archive.filament_used_grams and archive.filament_type:
                 primary_type = archive.filament_type.split(",")[0].strip()
                 cost_per_kg = filaments.get(primary_type, default_cost_per_kg)
-                new_cost = round((archive.filament_used_grams / 1000) * cost_per_kg, 2)
+                new_cost = price_one_print(
+                    archive.filament_used_grams, None, 0.0, 0.0, 0, cost_per_kg, default_cost_per_kg
+                )
             else:
                 new_cost = None
         if new_cost is not None and archive.cost != new_cost:

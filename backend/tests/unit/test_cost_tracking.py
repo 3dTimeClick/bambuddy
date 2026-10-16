@@ -272,6 +272,64 @@ class TestCostCalculation:
         assert results[0]["cost"] == 0.45
 
     @pytest.mark.asyncio
+    async def test_cost_uses_the_settings_default_when_none_is_saved(self):
+        """Never saved, the default is the 25/kg the Settings page shows, as for
+        every other reader of it; not 0, which left unpriced spools uncosted."""
+        # Spool without cost_per_kg
+        spool = _make_spool(spool_id=1, label_weight=1000, cost_per_kg=None)
+        assignment = _make_assignment(spool_id=1)
+        archive = _make_archive(archive_id=10)
+
+        _active_sessions[1] = PrintSession(
+            printer_id=1,
+            print_name="Test",
+            started_at=datetime.now(timezone.utc),
+            tray_remain_start={(0, 0): 80},
+            tray_now_at_start=0,
+        )
+
+        printer_manager = MagicMock()
+        printer_manager.get_status.return_value = SimpleNamespace(
+            raw_data={"ams": [{"id": 0, "tray": [{"id": 0, "remain": 70}]}]},
+            progress=100,
+            layer_num=50,
+            tray_now=0,
+        )
+
+        # db returns: archive, queue_item(None), assignment, spool
+        db = _mock_db_sequential([archive, None, assignment, spool])
+
+        # 30g used from 3MF
+        filament_usage = [{"slot_id": 1, "used_g": 30.0, "type": "PLA", "color": "#FF0000"}]
+
+        with (
+            patch("backend.app.core.config.settings") as mock_settings,
+            patch("backend.app.api.routes.settings.get_setting", return_value=None),
+            patch(
+                "backend.app.utils.threemf_tools.extract_filament_usage_from_3mf",
+                return_value=filament_usage,
+            ),
+        ):
+            mock_settings.base_dir = MagicMock()
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_settings.base_dir.__truediv__ = MagicMock(return_value=mock_path)
+
+            results = await on_print_complete(
+                printer_id=1,
+                data={"status": "completed"},
+                printer_manager=printer_manager,
+                db=db,
+                archive_id=10,
+            )
+
+        assert len(results) == 1
+        assert results[0]["spool_id"] == 1
+        assert results[0]["weight_used"] == 30.0
+        # Cost = 30g / 1000 * 25.0 = 0.75
+        assert results[0]["cost"] == 0.75
+
+    @pytest.mark.asyncio
     async def test_cost_zero_when_default_cost_is_zero(self):
         """Cost is None when both spool cost and default cost are 0."""
         # Spool without cost_per_kg
