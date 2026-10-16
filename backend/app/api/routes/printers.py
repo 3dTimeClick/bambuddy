@@ -434,6 +434,8 @@ async def update_printer(
             update_data["plate_detection_roi_w"] = None
             update_data["plate_detection_roi_h"] = None
 
+    ip_changed = "ip_address" in update_data and update_data["ip_address"] != printer.ip_address
+
     for field, value in update_data.items():
         setattr(printer, field, value)
 
@@ -442,6 +444,16 @@ async def update_printer(
 
     if access_moved:
         await ws_manager.refresh_printer_scopes()
+
+    # Proxy virtual printers forward to the IP they were started with; the
+    # sync restarts the ones aimed at this printer on the new one.
+    if ip_changed:
+        from backend.app.services.virtual_printer import virtual_printer_manager
+
+        try:
+            await virtual_printer_manager.sync_from_db()
+        except Exception as e:
+            logger.error("Failed to sync virtual printers after printer IP change: %s", e)
 
     # Reconnect if connection settings changed
     if any(k in update_data for k in ["ip_address", "access_code", "is_active"]):

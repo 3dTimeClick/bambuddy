@@ -1843,6 +1843,9 @@ class VirtualPrinterManager:
             db_mode = normalize_vp_mode(vp.mode)
             changed = (
                 instance.mode != db_mode
+                # The name is advertised to the slicer (SSDP, bind) by the
+                # running services, so a rename only reaches it on restart.
+                or instance.name != vp.name
                 or instance.model != (vp.model or DEFAULT_VIRTUAL_PRINTER_MODEL)
                 or instance.access_code != (vp.access_code or "")
                 or instance.bind_ip != (vp.bind_ip or "")
@@ -1887,7 +1890,14 @@ class VirtualPrinterManager:
                     serial_suffix=vp.serial_suffix,
                     target_printer_ip=target_ip,
                     target_printer_serial=target_serial,
+                    # Carried although the proxy does not use them: the change
+                    # check above compares them with the row, and a missing
+                    # value restarted every proxy VP on every sync.
+                    target_printer_id=vp.target_printer_id,
                     auto_dispatch=vp.auto_dispatch,
+                    queue_force_color_match=vp.queue_force_color_match,
+                    save_ams_mapping=vp.save_ams_mapping,
+                    gcode_injection=vp.gcode_injection,
                     bind_ip=vp.bind_ip or "",
                     remote_interface_ip=vp.remote_interface_ip or "",
                     tailscale_disabled=vp.tailscale_disabled,

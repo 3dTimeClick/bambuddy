@@ -8,6 +8,7 @@ import json
 import shutil
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -3463,6 +3464,134 @@ class TestVirtualPrinterManager:
         manager._instances[1] = inst
 
         db_vp = self._make_db_vp(gcode_injection=False)
+        self._setup_sync_mocks(manager, [db_vp], tmp_path)
+
+        with patch.object(manager, "remove_instance", new_callable=AsyncMock) as mock_remove:
+            with patch("backend.app.services.virtual_printer.manager.VirtualPrinterInstance") as MockInst:
+                mock_new = MagicMock()
+                mock_new.start_server = AsyncMock()
+                MockInst.return_value = mock_new
+
+                await manager.sync_from_db()
+
+            mock_remove.assert_called_once_with(1)
+
+    def _setup_proxy_sync_mocks(
+        self, manager, enabled_vps, tmp_path, printer_ip="192.168.1.50", serial="0948AB012345678"
+    ):
+        """Like _setup_sync_mocks, but the target printer lookup returns a real IP and serial."""
+        vps_result = MagicMock()
+        vps_result.scalars.return_value.all.return_value = enabled_vps
+        printer_result = MagicMock()
+        printer_result.scalar_one_or_none.return_value = SimpleNamespace(ip_address=printer_ip, serial_number=serial)
+
+        async def execute(stmt):
+            entity = stmt.column_descriptions[0]["entity"]
+            return printer_result if entity.__name__ == "Printer" else vps_result
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=execute)
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+
+        manager._session_factory = MagicMock(return_value=mock_db)
+        manager._base_dir = tmp_path
+
+    @pytest.mark.asyncio
+    async def test_sync_from_db_leaves_a_running_proxy_vp_alone(self, manager, tmp_path):
+        """A proxy VP that sync started must survive the next sync unchanged.
+
+        The proxy branch built its instance without the row's target printer
+        id, so every later sync saw a change and restarted every proxy VP,
+        dropping the slicer's connection, whenever any VP or printer was saved.
+        The queue-mode toggles are set away from their defaults, as on a VP
+        switched from queue mode to proxy, which keeps them in its row.
+        """
+        from backend.app.services.virtual_printer.manager import VirtualPrinterInstance
+
+        db_vp = self._make_db_vp(
+            mode="proxy",
+            model="O1D",
+            target_printer_id=7,
+            bind_ip="10.0.0.5",
+            auto_dispatch=False,
+            queue_force_color_match=True,
+            save_ams_mapping=True,
+            gcode_injection=True,
+        )
+        self._setup_proxy_sync_mocks(manager, [db_vp], tmp_path)
+
+        with (
+            patch.object(VirtualPrinterInstance, "start_proxy", new_callable=AsyncMock) as mock_start,
+            patch.object(VirtualPrinterInstance, "stop_proxy", new_callable=AsyncMock) as mock_stop,
+        ):
+            await manager.sync_from_db()
+            assert mock_start.await_count == 1
+            assert manager._instances[1].target_printer_id == 7
+
+            await manager.sync_from_db()
+
+        assert mock_start.await_count == 1
+        mock_stop.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sync_from_db_restarts_a_proxy_vp_on_target_ip_change(self, manager, tmp_path):
+        from backend.app.services.virtual_printer.manager import VirtualPrinterInstance
+
+        db_vp = self._make_db_vp(mode="proxy", model="O1D", target_printer_id=7, bind_ip="10.0.0.5")
+        self._setup_proxy_sync_mocks(manager, [db_vp], tmp_path)
+
+        with (
+            patch.object(VirtualPrinterInstance, "start_proxy", new_callable=AsyncMock) as mock_start,
+            patch.object(VirtualPrinterInstance, "stop_proxy", new_callable=AsyncMock) as mock_stop,
+        ):
+            await manager.sync_from_db()
+            self._setup_proxy_sync_mocks(manager, [db_vp], tmp_path, printer_ip="192.168.1.77")
+            await manager.sync_from_db()
+
+        mock_stop.assert_awaited_once()
+        assert mock_start.await_count == 2
+        assert manager._instances[1].target_printer_ip == "192.168.1.77"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_db_restarts_a_proxy_vp_on_rename(self, manager, tmp_path):
+        """The name is advertised to the slicer (SSDP, bind), so a rename only
+        reaches the slicer through a restart."""
+        from backend.app.services.virtual_printer.manager import VirtualPrinterInstance
+
+        db_vp = self._make_db_vp(mode="proxy", model="O1D", target_printer_id=7, bind_ip="10.0.0.5")
+        self._setup_proxy_sync_mocks(manager, [db_vp], tmp_path)
+
+        with (
+            patch.object(VirtualPrinterInstance, "start_proxy", new_callable=AsyncMock) as mock_start,
+            patch.object(VirtualPrinterInstance, "stop_proxy", new_callable=AsyncMock) as mock_stop,
+        ):
+            await manager.sync_from_db()
+            db_vp.name = "Workshop H2D"
+            await manager.sync_from_db()
+
+        mock_stop.assert_awaited_once()
+        assert mock_start.await_count == 2
+        assert manager._instances[1].name == "Workshop H2D"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_db_restarts_on_rename(self, manager, tmp_path):
+        """Same for a server-mode VP: the running SSDP and bind servers keep
+        advertising the old name until the instance restarts."""
+        from backend.app.services.virtual_printer.manager import VirtualPrinterInstance
+
+        inst = VirtualPrinterInstance(
+            vp_id=1,
+            name="TestVP",
+            mode="archive",
+            model="C11",
+            access_code="12345678",
+            serial_suffix="391800001",
+            base_dir=tmp_path,
+        )
+        manager._instances[1] = inst
+
+        db_vp = self._make_db_vp(name="Renamed VP")
         self._setup_sync_mocks(manager, [db_vp], tmp_path)
 
         with patch.object(manager, "remove_instance", new_callable=AsyncMock) as mock_remove:
