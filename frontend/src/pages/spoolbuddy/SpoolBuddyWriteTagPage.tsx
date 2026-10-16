@@ -191,7 +191,24 @@ export function SpoolBuddyWriteTagPage() {
     }
   }, [selectedSpool, t]);
 
+  const handleLinkFailed = useCallback((e: Event) => {
+    const detail = (e as CustomEvent).detail;
+    if (detail.spool_id === selectedSpool?.id || detail.data?.spool_id === selectedSpool?.id) {
+      const reason = detail.reason ?? detail.data?.reason;
+      setWriteStatus('error');
+      setWriteMessage(
+        reason === 'spoolman_not_configured'
+          ? t('spoolbuddy.writeTag.linkFailedSpoolmanNotConfigured')
+          : reason === 'spool_not_found'
+            ? t('spoolbuddy.writeTag.linkFailedSpoolNotFound')
+            : t('spoolbuddy.writeTag.linkFailedSpoolman'),
+      );
+      refetchSpools();
+    }
+  }, [selectedSpool, t, refetchSpools]);
+
   useEffect(() => {
+    window.addEventListener('spoolbuddy-tag-link-failed', handleLinkFailed);
     window.addEventListener('spoolbuddy-unknown-tag', handleUnknownTag);
     window.addEventListener('spoolbuddy-tag-matched', handleTagMatched);
     window.addEventListener('spoolbuddy-tag-removed', handleTagRemoved);
@@ -203,8 +220,9 @@ export function SpoolBuddyWriteTagPage() {
       window.removeEventListener('spoolbuddy-tag-removed', handleTagRemoved);
       window.removeEventListener('spoolbuddy-tag-written', handleTagWritten);
       window.removeEventListener('spoolbuddy-tag-write-failed', handleWriteFailed);
+      window.removeEventListener('spoolbuddy-tag-link-failed', handleLinkFailed);
     };
-  }, [handleUnknownTag, handleTagMatched, handleTagRemoved, handleTagWritten, handleWriteFailed]);
+  }, [handleUnknownTag, handleTagMatched, handleTagRemoved, handleTagWritten, handleWriteFailed, handleLinkFailed]);
 
   // Clear selection when switching tabs
   useEffect(() => {
@@ -225,9 +243,13 @@ export function SpoolBuddyWriteTagPage() {
           showToast(w, 'warning');
         }
       }
-    } catch {
+    } catch (err) {
       setWriteStatus('error');
-      setWriteMessage(t('spoolbuddy.writeTag.queueFailed', 'Failed to queue write command'));
+      setWriteMessage(
+        (err as { status?: number } | null)?.status === 503
+          ? t('spoolbuddy.writeTag.spoolmanUnavailable')
+          : t('spoolbuddy.writeTag.queueFailed', 'Failed to queue write command'),
+      );
     }
   };
 

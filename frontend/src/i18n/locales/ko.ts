@@ -6970,6 +6970,8 @@ export default {
       deviceOffline: '장치 오프라인',
       waitingConnection: '장치 연결 대기 중...',
       systemReady: '시스템 준비됨',
+      spoolmanUnavailable: 'Spoolman을 사용할 수 없어 태그를 조회하지 못했습니다',
+      lookupFailed: '태그 조회에 실패했습니다',
       status: '상태'
     },
     dashboard: {
@@ -7137,6 +7139,10 @@ export default {
       waiting: 'SpoolBuddy 대기 중...',
       writeSuccess: '태그 성공적으로 쓰여짐!',
       writeFailed: '쓰기 실패',
+      linkFailedSpoolmanNotConfigured: '태그는 기록되었지만 Spoolman이 설정되지 않아 스풀에 연결되지 않았습니다',
+      linkFailedSpoolman: '태그는 기록되었지만 Spoolman에서 스풀에 연결하지 못했습니다',
+      linkFailedSpoolNotFound: '태그는 기록되었지만 스풀이 더 이상 존재하지 않습니다',
+      spoolmanUnavailable: 'Spoolman을 사용할 수 없습니다. Spoolman 설정에서 URL을 확인하세요.',
       queueFailed: '쓰기 명령 대기 실패',
       tryAgain: '다시 시도',
       cancel: '취소',

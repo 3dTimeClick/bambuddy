@@ -586,6 +586,24 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('spoolbuddy-tag-write-failed', { detail: message }));
         break;
 
+      // Written to the chip, but not linked to the spool.
+      case 'spoolbuddy_tag_link_failed':
+        window.dispatchEvent(new CustomEvent('spoolbuddy-tag-link-failed', { detail: message }));
+        break;
+
+      // A scanned tag could not be looked up at all, as opposed to an unknown tag.
+      case 'spoolman_unavailable':
+        window.dispatchEvent(new CustomEvent('spoolman-unavailable', { detail: message }));
+        break;
+
+      case 'spoolbuddy_lookup_error':
+        window.dispatchEvent(new CustomEvent('spoolbuddy-lookup-error', { detail: message }));
+        break;
+
+      case 'spoolbuddy_unregistered':
+        debouncedInvalidate('spoolbuddy-devices');
+        break;
+
       case 'spoolbuddy_online':
         window.dispatchEvent(new CustomEvent('spoolbuddy-online', { detail: message }));
         debouncedInvalidate('spoolbuddy-devices');

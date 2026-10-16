@@ -2530,6 +2530,7 @@ class TestNfcWriteResultSpoolmanSecurityFixes:
         # Failure broadcast fires so the UI can show the error
         msg = mock_ws.broadcast.call_args[0][0]
         assert msg["type"] == "spoolbuddy_tag_link_failed"
+        assert msg["reason"] == "spoolman_link_failed"
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -2576,6 +2577,7 @@ class TestNfcWriteResultSpoolmanSecurityFixes:
         msg = mock_ws.broadcast.call_args[0][0]
         assert msg["type"] == "spoolbuddy_tag_link_failed"
         assert msg["spool_id"] == 55
+        assert msg["reason"] == "spoolman_link_failed"
 
 
 class TestNfcWriteResultOrphanedSpool:
@@ -2618,6 +2620,7 @@ class TestNfcWriteResultOrphanedSpool:
         broadcast_calls = mock_ws.broadcast.call_args_list
         link_failed = [c[0][0] for c in broadcast_calls if c[0][0].get("type") == "spoolbuddy_tag_link_failed"]
         assert len(link_failed) >= 1
+        assert link_failed[0]["reason"] == "spool_not_found"
 
 
 class TestNfcWriteResultInputValidation:
@@ -2823,6 +2826,7 @@ class TestNfcWriteResultExceptionScrubbing:
         assert msg["type"] == "spoolbuddy_tag_link_failed"
         # Generic message — no internal exception details leaked
         assert msg["message"] == "Spoolman link failed", f"Expected generic message but got: {msg['message']!r}"
+        assert msg["reason"] == "spoolman_link_failed"
         assert "connection refused" not in str(msg), f"Exception text must not appear in WS message: {msg}"
         assert "192.168.1" not in str(msg), f"Internal IP must not appear in WS message: {msg}"
 

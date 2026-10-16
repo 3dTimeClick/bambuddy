@@ -1072,6 +1072,31 @@ describe('useWebSocket hook', () => {
       vi.useRealTimers();
     });
 
+    it.each([
+      ['spoolbuddy_tag_link_failed', 'spoolbuddy-tag-link-failed'],
+      ['spoolman_unavailable', 'spoolman-unavailable'],
+      ['spoolbuddy_lookup_error', 'spoolbuddy-lookup-error'],
+    ])('passes %s on to the page as %s', async (type, eventName) => {
+      vi.useFakeTimers();
+      const listener = vi.fn();
+      window.addEventListener(eventName, listener);
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+      await vi.advanceTimersByTimeAsync(0);
+      const ws = wsInstances[wsInstances.length - 1]!;
+      act(() => {
+        ws.open();
+        ws.simulateMessage({ type, device_id: 'sb-1', spool_id: 7, reason: 'spool_not_found' });
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ type, device_id: 'sb-1' });
+
+      window.removeEventListener(eventName, listener);
+      vi.useRealTimers();
+    });
+
     it('after a 4401 asks for an auth re-check and reconnects with a fresh token', async () => {
       // The server closes 4401 when the session ended (password change, reset,
       // deactivation), auth was turned on, or a scope refresh failed. A session

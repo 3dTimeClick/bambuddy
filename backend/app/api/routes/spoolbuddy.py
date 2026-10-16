@@ -70,6 +70,19 @@ async def _translate_spoolbuddy_errors():
         raise HTTPException(status_code=503, detail="Spoolman server is not reachable") from exc
 
 
+async def _spoolman_mode(db: AsyncSession) -> bool:
+    """Spoolman mode as every SpoolBuddy screen reads it: switched on, with a URL.
+
+    Distinct from having a usable client: a URL the SSRF guard refuses leaves the
+    mode on but no client, and the spools are still Spoolman's.
+    """
+    from backend.app.api.routes.settings import get_setting
+
+    enabled = await get_setting(db, "spoolman_enabled")
+    url = await get_setting(db, "spoolman_url")
+    return bool(enabled) and enabled.lower() == "true" and bool((url or "").strip())
+
+
 async def _get_spoolman_client_or_none(db: AsyncSession):
     """Return a SpoolmanClient if Spoolman is enabled with a safe URL, else None."""
     from backend.app.api.routes._spoolman_helpers import assert_safe_spoolman_url
@@ -458,10 +471,19 @@ async def nfc_tag_scanned(
         )
         tray_uuid = None
 
-    # _get_spoolman_client_or_none returns a usable client when spoolman_enabled
-    # is true (and the URL passes the SSRF guard), None otherwise — so its
-    # return value doubles as the mode discriminator.
+    # A usable client when Spoolman is on and its URL passes the SSRF guard.
+    # With the mode on but no usable client the spools are still Spoolman's,
+    # and the built-in table must not answer.
     client = await _get_spoolman_client_or_none(db)
+    if client is None and await _spoolman_mode(db):
+        await ws_manager.broadcast(
+            {
+                "type": "spoolman_unavailable",
+                "device_id": req.device_id,
+                "context": "nfc_tag_scanned",
+            }
+        )
+        return {"status": "ok", "matched": False, "spool_id": None}
 
     if client is not None:
         # Spoolman mode — exclusive lookup, no local-DB fallback.
@@ -658,6 +680,8 @@ async def nfc_write_tag(
         raise HTTPException(status_code=404, detail="Device not registered")
 
     sm_client = await _get_spoolman_client_or_none(db)
+    if sm_client is None and await _spoolman_mode(db):
+        raise HTTPException(status_code=503, detail="Spoolman is unavailable")
 
     nfc_warnings: list[str] = []
     if sm_client is None:
@@ -777,6 +801,7 @@ async def nfc_write_result(
                         "spool_id": req.spool_id,
                         "tag_uid": req.tag_uid,
                         "message": "Spoolman not configured",
+                        "reason": "spoolman_not_configured",
                     }
                 )
                 raise HTTPException(
@@ -896,6 +921,7 @@ async def nfc_write_result(
                         # Generic message — full exception (may contain internal URLs/hostnames)
                         # is logged server-side only to prevent information leakage via WebSocket.
                         "message": "Spoolman link failed",
+                        "reason": "spoolman_link_failed",
                     }
                 )
                 raise HTTPException(
@@ -920,6 +946,7 @@ async def nfc_write_result(
                         "device_id": req.device_id,
                         "spool_id": req.spool_id,
                         "message": "Spool not found",
+                        "reason": "spool_not_found",
                     }
                 )
                 return {"status": "ok", "linked": False, "message": "Spool not found"}
@@ -1016,6 +1043,8 @@ async def update_spool_weight(
     from backend.app.models.spool import Spool
 
     sm_client = await _get_spoolman_client_or_none(db)
+    if sm_client is None and await _spoolman_mode(db):
+        raise HTTPException(status_code=503, detail="Spoolman is unavailable")
 
     if sm_client is None:
         # Local mode — exclusive update, no Spoolman fallback.

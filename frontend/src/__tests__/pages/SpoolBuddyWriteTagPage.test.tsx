@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -215,6 +215,74 @@ describe('SpoolBuddyWriteTagPage', () => {
       expect(screen.getByText('nozzle_temp_min not set')).toBeDefined();
     });
 
+    mockOutletContext.sbState.deviceOnline = false; // reset
+  });
+
+  it('leaves "Writing tag..." with the reason when the written tag could not be linked', async () => {
+    const spool = {
+      id: 99,
+      material: 'PLA',
+      label_weight: 1000,
+      weight_used: 0,
+      tag_uid: null,
+      tray_uuid: null,
+      archived_at: null,
+      rgba: 'FF0000FF',
+    };
+    vi.mocked(mockedApi.getSpools).mockResolvedValue([spool as never]);
+    vi.mocked(mockedSpoolbuddyApi.getDevices).mockResolvedValue([
+      { device_id: 'sb-test', hostname: 'sb-test.local' } as never,
+    ]);
+    vi.mocked(mockedSpoolbuddyApi.writeTag).mockResolvedValueOnce({ status: 'queued' } as never);
+
+    mockOutletContext.sbState.deviceOnline = true;
+    renderPage();
+    await waitFor(() => expect(screen.getByText('PLA')).toBeDefined());
+    fireEvent.click(screen.getByText('PLA'));
+    await waitFor(() => expect((screen.getByText('Write Tag') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText('Write Tag'));
+    await waitFor(() => expect(screen.getByText('Writing tag...')).toBeDefined());
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spoolbuddy-tag-link-failed', {
+          detail: { type: 'spoolbuddy_tag_link_failed', spool_id: 99, reason: 'spool_not_found', message: 'Spool not found' },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText('spoolbuddy.writeTag.linkFailedSpoolNotFound')).toBeDefined());
+    expect(screen.queryByText('Writing tag...')).toBeNull();
+    mockOutletContext.sbState.deviceOnline = false; // reset
+  });
+
+  it('says Spoolman is unavailable when the server refuses the write for that reason', async () => {
+    const spool = {
+      id: 99,
+      material: 'PLA',
+      label_weight: 1000,
+      weight_used: 0,
+      tag_uid: null,
+      tray_uuid: null,
+      archived_at: null,
+      rgba: 'FF0000FF',
+    };
+    vi.mocked(mockedApi.getSpools).mockResolvedValue([spool as never]);
+    vi.mocked(mockedSpoolbuddyApi.getDevices).mockResolvedValue([
+      { device_id: 'sb-test', hostname: 'sb-test.local' } as never,
+    ]);
+    vi.mocked(mockedSpoolbuddyApi.writeTag).mockRejectedValueOnce(
+      Object.assign(new Error('Spoolman is unavailable'), { status: 503 }),
+    );
+
+    mockOutletContext.sbState.deviceOnline = true;
+    renderPage();
+    await waitFor(() => expect(screen.getByText('PLA')).toBeDefined());
+    fireEvent.click(screen.getByText('PLA'));
+    await waitFor(() => expect((screen.getByText('Write Tag') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText('Write Tag'));
+
+    await waitFor(() => expect(screen.getByText('spoolbuddy.writeTag.spoolmanUnavailable')).toBeDefined());
     mockOutletContext.sbState.deviceOnline = false; // reset
   });
 

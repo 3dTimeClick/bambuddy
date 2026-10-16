@@ -1782,8 +1782,9 @@ class TestSpoolmanInventorySSRFSpoolBuddyPath:
         db_session,
         evil_url: str,
     ):
-        """SSRF: _get_spoolman_client_or_none silently disables Spoolman for unsafe URLs
-        on the SpoolBuddy NFC path (tag-scanned broadcasts unknown_tag, not 400)."""
+        """SSRF: _get_spoolman_client_or_none never builds a client for unsafe URLs on
+        the SpoolBuddy NFC path. Spoolman is still the mode, so the scan reports it
+        as unavailable rather than looking the tag up in the built-in inventory."""
         from backend.app.models.settings import Settings
 
         db_session.add(Settings(key="spoolman_enabled", value="true"))
@@ -1799,11 +1800,12 @@ class TestSpoolmanInventorySSRFSpoolBuddyPath:
                 json={"device_id": "sb-ssrf", "tag_uid": "AABBCCDD"},
             )
 
-        # Must not crash or proxy the SSRF URL — unknown_tag is the safe degraded response
+        # Must not crash or proxy the SSRF URL
         assert resp.status_code == 200
-        if mock_ws.broadcast.called:
-            msg = mock_ws.broadcast.call_args[0][0]
-            assert msg["type"] == "spoolbuddy_unknown_tag"
+        assert resp.json()["matched"] is False
+        sent = {call.args[0]["type"] for call in mock_ws.broadcast.call_args_list}
+        assert "spoolman_unavailable" in sent
+        assert sent <= {"spoolman_unavailable", "spoolman_ssrf_blocked"}
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -1893,8 +1895,9 @@ class TestSpoolmanInventorySSRFSpoolBuddyPath:
                 json={"device_id": "sb-ssrf-scale", "spool_id": 1, "weight_grams": 500.0},
             )
 
-        # Must not crash or proxy to an SSRF host
-        assert resp.status_code in (200, 404, 422)
+        # Must not crash or proxy to an SSRF host; Spoolman is unavailable, and the
+        # built-in inventory is not written instead.
+        assert resp.status_code == 503
 
 
 class TestMergeSpoolExtraPreservesKeys:
