@@ -85,6 +85,7 @@ import { QueueTimelineView } from '../components/QueueTimelineView';
 import { compareQueueOrder } from '../utils/queueOrder';
 import { BatchOrdersView } from '../components/BatchOrdersView';
 import { buildLoadedFilaments, type LoadedFilament } from '../hooks/useFilamentMapping';
+import { hasGcodeSnippets, useUiSettings } from '../hooks/useUiSettings';
 
 type QueueFilamentDisplay = {
   slotId: number;
@@ -1844,10 +1845,7 @@ export function QueuePage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   const timeFormat: TimeFormat = settings?.time_format || 'system';
 
@@ -1877,6 +1875,7 @@ export function QueuePage() {
     mutationFn: (enabled: boolean) => api.updateSettings({ queue_shortest_first: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['ui-settings'] });
     },
   });
 
@@ -3289,7 +3288,7 @@ export function QueuePage() {
           onClose={() => setShowBulkEditModal(false)}
           isSaving={bulkUpdateMutation.isPending}
           canControlPrinter={hasPermission('printers:control')}
-          hasGcodeSnippets={!!settings?.gcode_snippets}
+          hasGcodeSnippets={hasGcodeSnippets(settings)}
           t={t}
         />
       )}

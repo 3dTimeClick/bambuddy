@@ -11,6 +11,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SpoolBuddyLayout } from '../../../components/spoolbuddy/SpoolBuddyLayout';
 import { ToastProvider } from '../../../contexts/ToastContext';
 
+// The kiosk runs signed in; these tests render it without the auth provider.
+vi.mock('../../../contexts/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../contexts/AuthContext')>();
+  return { ...actual, useAuth: () => ({ hasPermission: () => true }) };
+});
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_key: string, fallback: string) => fallback,

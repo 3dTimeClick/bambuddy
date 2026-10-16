@@ -43,6 +43,7 @@ import {
   useLocationSensorColorPrefs,
   type LocationSensorAlertColor,
 } from '../utils/locationSensorDefaults';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 type ArchiveFilter = 'active' | 'archived';
 type UsageFilter = 'all' | 'used' | 'new' | 'lowstock';
@@ -735,10 +736,7 @@ function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spo
     return 15;
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   const dateFormat: DateFormat = settings?.date_format || 'system';
   const locationSensorPollIntervalMs = (settings?.location_sensor_poll_interval || 120) * 1000;
@@ -2963,7 +2961,7 @@ function SpoolLocationFooter({
 }) {
   const { t } = useTranslation();
 
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+  const { data: settings } = useUiSettings();
   const pollIntervalMs = (settings?.location_sensor_poll_interval || 120) * 1000;
 
   // Same query key as the list fetch in InventoryPage's body, so this is a

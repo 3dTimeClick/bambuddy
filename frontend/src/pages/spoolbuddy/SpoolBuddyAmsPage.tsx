@@ -33,6 +33,7 @@ import { ConfigureAmsSlotModal } from '../../components/ConfigureAmsSlotModal';
 import { AssignSpoolModal } from '../../components/AssignSpoolModal';
 import { LinkSpoolModal } from '../../components/LinkSpoolModal';
 import { useToast } from '../../contexts/ToastContext';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 function getAmsName(amsId: number): string {
   if (amsId <= 3) return `AMS ${String.fromCharCode(65 + amsId)}`;
@@ -76,11 +77,7 @@ export function SpoolBuddyAmsPage() {
     staleTime: 2 * 60 * 1000,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-    staleTime: 5 * 60 * 1000,
-  });
+  const { data: settings } = useUiSettings({ staleTime: 5 * 60 * 1000 });
 
   // Fetch Spoolman status to enable fill-level chain
   const { data: spoolmanStatus } = useQuery({

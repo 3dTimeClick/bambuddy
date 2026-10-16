@@ -31,6 +31,7 @@ import { LogViewer } from '../components/LogViewer';
 import { ConnectionDiagnosticModal } from '../components/ConnectionDiagnostic';
 import { SystemHealthPanel } from '../components/SystemHealthPanel';
 import { formatDateTime, type TimeFormat } from '../utils/date';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -121,10 +122,7 @@ export function SystemInfoPage() {
     refetchInterval: 10 * 1000,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   const { data: libraryStats } = useQuery({
     queryKey: ['library-stats'],

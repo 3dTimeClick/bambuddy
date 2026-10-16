@@ -9,6 +9,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
 import { filterSpoolsByQuery } from '../utils/inventorySearch';
 import { getSwatchStyle, resolveSpoolColorName } from '../utils/colors';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 interface AssignSpoolModalProps {
   isOpen: boolean;
@@ -87,11 +88,7 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
     enabled: isOpen,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-    enabled: isOpen,
-  });
+  const { data: settings } = useUiSettings({ enabled: isOpen });
 
   const { data: spoolmanSpools, isLoading: spoolmanLoading } = useQuery({
     queryKey: ['spoolman-inventory-spools', 'assign-modal'],

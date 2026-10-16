@@ -25,6 +25,7 @@ import {
 import type { PrinterSelectorProps, AssignmentMode } from './types';
 import type { PrinterMappingResult, PerPrinterConfig } from '../../hooks/useMultiPrinterFilamentMapping';
 import type { FilamentRequirement, LoadedFilament } from '../../hooks/useFilamentMapping';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 interface PrinterSelectorWithMappingProps extends PrinterSelectorProps {
   /** Per-printer mapping results (only used when multiple printers selected) */
@@ -67,6 +68,7 @@ function InlineMappingEditor({
   onUpdateConfig: (config: Partial<PerPrinterConfig>) => void;
 }) {
   const queryClient = useQueryClient();
+  const { data: uiSettings } = useUiSettings();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleSlotChange = (slotId: number, value: string) => {
@@ -110,12 +112,11 @@ function InlineMappingEditor({
       isManual = true;
     } else {
       const usedTrayIds = new Set<number>(Object.values(printerResult.config.manualMappings));
-      const cachedSettings = queryClient.getQueryData<{ prefer_lowest_filament?: boolean }>(['settings']);
       loaded = autoMatchFilament(
         req,
         printerResult.loadedFilaments,
         usedTrayIds,
-        effectivePreferLowest(cachedSettings?.prefer_lowest_filament, printerResult.status?.ams_filament_backup),
+        effectivePreferLowest(uiSettings?.prefer_lowest_filament, printerResult.status?.ams_filament_backup),
         printerResult.inventoryByTrayId,
       ) as LoadedFilament | undefined;
     }

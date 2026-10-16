@@ -633,6 +633,43 @@ _UI_FLAG_FIELDS: tuple[str, ...] = (
     # update check ran even where it had been switched off.
     "currency",
     "check_updates",
+    # Read by the print dialog, queue, file manager, inventory and SpoolBuddy
+    # pages, which users without SETTINGS_READ open too: the 403 dropped them
+    # all to their defaults (with billing on, the print dialog hid the cost
+    # centre picker and the print was then refused for lacking one).
+    "queue_shortest_first",
+    "use_slicer_api",
+    "open_in_slicer",
+    "preferred_slicer",
+    "disable_filament_warnings",
+    "prefer_lowest_filament",
+    "per_printer_mapping_expanded",
+    "default_filament_cost",
+    "default_bed_levelling",
+    "default_flow_cali",
+    "default_vibration_cali",
+    "default_layer_inspect",
+    "default_timelapse",
+    "default_nozzle_offset_cali",
+    "default_confirm_outcome",
+    "stagger_group_size",
+    "stagger_interval_minutes",
+    "library_disk_warning_gb",
+    "low_stock_threshold",
+    "location_sensor_poll_interval",
+    "location_sensor_alert_defaults",
+    "pipeline_max_copies",
+    "language",
+    "dark_style",
+    "dark_background",
+    "dark_accent",
+    "light_style",
+    "light_background",
+    "light_accent",
+    # Which inventory a new spool goes to (unknown-tag prompt), and the
+    # forecast's default lead time.
+    "spoolman_enabled",
+    "forecast_global_lead_time_days",
 )
 
 
@@ -656,7 +693,10 @@ async def get_ui_flags(
     """
     full = await _build_settings_response(db, is_api_key=False)
     dumped = full.model_dump()
-    return {key: dumped[key] for key in _UI_FLAG_FIELDS if key in dumped}
+    flags = {key: dumped[key] for key in _UI_FLAG_FIELDS if key in dumped}
+    # Whether G-code snippets are set up, not the snippets themselves.
+    flags["has_gcode_snippets"] = bool(dumped.get("gcode_snippets"))
+    return flags
 
 
 @router.get("/check-ffmpeg")

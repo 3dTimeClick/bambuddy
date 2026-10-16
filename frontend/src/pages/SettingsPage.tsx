@@ -1188,6 +1188,7 @@ export function SettingsPage() {
       // cannot read /settings. Nothing invalidated it, so a currency change
       // sat behind that query's own staleTime instead of showing up (#3123).
       queryClient.invalidateQueries({ queryKey: ['ui-flags'] });
+      queryClient.invalidateQueries({ queryKey: ['ui-settings'] });
       // Switching announcements off (or to all users) changes who sees the
       // sidebar entry and the banner; don't wait for the next poll.
       queryClient.invalidateQueries({ queryKey: ['announcements'] });

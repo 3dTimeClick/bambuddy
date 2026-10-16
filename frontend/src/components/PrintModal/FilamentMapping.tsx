@@ -12,6 +12,7 @@ import { displayHex } from './displayHex';
 import { useFilamentLabels } from './useFilamentLabels';
 import { autoAssignRackPositions, rackOptionsForGroup } from '../../utils/nozzleRack';
 import type { FilamentMappingProps, RackGroupInfo } from './types';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 /**
  * Filament mapping UI for comparing required filaments with loaded AMS slots.
@@ -106,10 +107,7 @@ export function FilamentMapping({
   // Settings + inventory map drive the same prefer-lowest + AMS-backup gate
   // the dispatcher uses (#1766). Without this, the per-slot dropdown's
   // auto-suggestion could disagree with what actually gets dispatched.
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
   const { data: inventoryRemain } = useQuery({
     queryKey: ['printer-inventory-remain', printerId],
     queryFn: () => api.getInventoryRemain(printerId),

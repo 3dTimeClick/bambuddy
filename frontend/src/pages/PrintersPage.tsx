@@ -205,6 +205,7 @@ import { ConnectionDiagnosticModal, DiagnosticChecklist } from '../components/Co
 import { getColorName, parseFilamentColor, isLightColor } from '../utils/colors';
 import { NumberInput } from '../components/NumberInput';
 import { getCurrencySymbol } from '../utils/currency';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 // The status filter's options, and the only values it may hold. One list so a
 // saved filter cannot be validated against a set the dropdown has since moved
@@ -8479,7 +8480,7 @@ function EditPrinterModal({
     is_active: printer.is_active,
     wear_cost_per_hour: printer.wear_cost_per_hour ? String(printer.wear_cost_per_hour) : '',
   });
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+  const { data: settings } = useUiSettings();
   const currency = getCurrencySymbol(settings?.currency || 'USD');
 
   // Groups can be given a location (#1727), so a move changes who can use the

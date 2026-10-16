@@ -9,6 +9,7 @@ import type { AmsThresholds } from './AmsUnitCard';
 import { getFillBarColor } from '../../utils/amsHelpers';
 import { getSwatchStyle, resolveSpoolColorName } from '../../utils/colors';
 import { spoolSwatchStyle } from './spoolPaint';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 function getAmsName(id: number): string {
   if (id <= 3) return `AMS ${String.fromCharCode(65 + id)}`;
@@ -205,12 +206,7 @@ export function AssignToAmsModal({
     enabled: isOpen && targetPrinterId !== null,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-    enabled: isOpen,
-    staleTime: 5 * 60 * 1000,
-  });
+  const { data: settings } = useUiSettings({ enabled: isOpen, staleTime: 5 * 60 * 1000 });
 
   const { data: assignments } = useQuery({
     queryKey: ['spool-assignments', targetPrinterId],

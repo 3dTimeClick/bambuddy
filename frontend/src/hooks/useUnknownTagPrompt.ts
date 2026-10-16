@@ -6,6 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { getAmsLabel } from '../utils/amsHelpers';
+import { useUiSettings } from './useUiSettings';
 
 export interface UnknownTagDetail {
   printer_id: number;
@@ -46,6 +47,7 @@ export function useUnknownTagPrompt() {
   const [queue, setQueue] = useState<UnknownSpoolPrompt[]>([]);
 
   const isAuthed = !authEnabled || !!user;
+  const { data: uiSettings } = useUiSettings({ enabled: isAuthed });
 
   const buildPrompt = useCallback(
     (detail: UnknownTagDetail): UnknownSpoolPrompt | null => {
@@ -98,8 +100,7 @@ export function useUnknownTagPrompt() {
 
   const addMutation = useMutation({
     mutationFn: async (prompt: UnknownSpoolPrompt) => {
-      const settings = queryClient.getQueryData<{ spoolman_enabled?: boolean }>(['settings']);
-      if (settings?.spoolman_enabled) {
+      if (uiSettings?.spoolman_enabled) {
         await api.createSpoolmanSpoolFromSlot({
           printer_id: prompt.printer_id,
           ams_id: prompt.ams_id,

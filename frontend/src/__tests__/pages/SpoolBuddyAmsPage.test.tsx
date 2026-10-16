@@ -24,6 +24,12 @@ import { MemoryRouter, Route, Routes, Outlet } from 'react-router-dom';
 import { ToastProvider } from '../../contexts/ToastContext';
 import { SpoolBuddyAmsPage } from '../../pages/spoolbuddy/SpoolBuddyAmsPage';
 
+// The kiosk runs signed in; these tests render it without the auth provider.
+vi.mock('../../contexts/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
+  return { ...actual, useAuth: () => ({ hasPermission: () => true }) };
+});
+
 // Capture every props payload that AssignSpoolModal receives so tests can
 // inspect spoolmanEnabled threading. Render nothing — we don't need to render
 // the modal contents; we only verify the parent wires the prop correctly.

@@ -16,6 +16,7 @@ import type { InventorySpool, SpoolUsageRecord, FilamentSkuSettings, ShoppingLis
 import { getSwatchStyle } from '../utils/colors';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -199,7 +200,7 @@ export function ForecastPanel({ spools }: { spools: InventorySpool[] }) {
   const [listOpen, setListOpen] = useState(false);
   const [chartDays, setChartDays] = useState<ChartDays>(30);
 
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings, enabled: canRead });
+  const { data: settings } = useUiSettings({ enabled: canRead });
   const { data: skuSettingsList = [] } = useQuery({ queryKey: ['sku-settings'], queryFn: api.getSkuSettings, staleTime: 60_000, enabled: canRead });
   const { data: usageHistory = [] } = useQuery({ queryKey: ['all-usage-history-forecast'], queryFn: () => api.getAllUsageHistory(5000), staleTime: 60_000, enabled: canRead });
   const { data: shoppingList = [] } = useQuery({ queryKey: ['shopping-list'], queryFn: api.getShoppingList, staleTime: 30_000, enabled: canRead });

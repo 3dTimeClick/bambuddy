@@ -110,7 +110,9 @@ describe('PrintModal billing payloads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     server.use(
-      http.get('/api/v1/settings/', () => {
+      // This user may not read /settings: what the dialog needs comes from
+      // /settings/ui-flags.
+      http.get('/api/v1/settings/ui-flags', () => {
         return HttpResponse.json({
           currency: 'USD',
           default_filament_cost: 25,

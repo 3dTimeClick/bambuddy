@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import { useToast } from '../contexts/ToastContext';
 import { useSliceJobTracker } from '../contexts/SliceJobTrackerContext';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 // Same source-kind shape SliceModal uses, so the same library-file vs archive
 // distinction flows through eligibility-check, run dispatch, AND the progress
@@ -47,10 +48,7 @@ export function RunWithPipelineModal({ source, onClose }: RunWithPipelineModalPr
   });
   // Cap from settings (PR C). Falls back to 50 when the fetch is in-flight or
   // missing — same default the backend writes.
-  const { data: settings } = useQuery({
-    queryKey: ['app-settings'],
-    queryFn: () => api.getSettings(),
-  });
+  const { data: settings } = useUiSettings();
   const maxCopies = settings?.pipeline_max_copies ?? 50;
 
   const sourceRef = { kind: source.kind, id: source.id } as const;

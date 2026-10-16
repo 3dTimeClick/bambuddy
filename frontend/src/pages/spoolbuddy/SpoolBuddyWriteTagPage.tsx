@@ -54,6 +54,7 @@ import {
 } from '../../components/spool-form/utils';
 import { MATERIALS } from '../../components/spool-form/constants';
 import { NumberInput } from '../../components/NumberInput';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 type Tab = 'existing' | 'new' | 'replace';
 type WriteStatus = 'idle' | 'selected' | 'writing' | 'success' | 'error';
@@ -108,10 +109,7 @@ export function SpoolBuddyWriteTagPage() {
     refetchInterval: 5000,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   const device = devices[0];
   const deviceOnline = sbState.deviceOnline;
@@ -463,10 +461,7 @@ function NewSpoolTouchForm({ currencySymbol, onCreated, selectedSpool, spoolmanM
     queryFn: () =>
       spoolmanMode ? api.getSpoolmanInventorySpools(true) : api.getSpools(true),
   });
-  const { data: settingsForForm } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settingsForForm } = useUiSettings();
 
   const [viewMode, setViewMode] = useState<NewSpoolViewMode>('simple');
   const [activeSubTab, setActiveSubTab] = useState<NewSpoolSubTab>('filament');

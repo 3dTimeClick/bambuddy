@@ -9,6 +9,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
 import { formatDuration, parseUTCDate } from '../utils/date';
 import { getCurrencySymbol } from '../utils/currency';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 type StatusFilter = 'active' | 'completed' | 'cancelled' | 'all';
 
@@ -35,7 +36,7 @@ export function BatchOrdersView({ hasPermission, t, focusBatchId = null }: Batch
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(focusBatchId ? 'all' : 'active');
   const [cancelTarget, setCancelTarget] = useState<PrintBatch | null>(null);
 
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+  const { data: settings } = useUiSettings();
   const currency = getCurrencySymbol(settings?.currency || 'USD');
 
   const { data: batches, isLoading } = useQuery({

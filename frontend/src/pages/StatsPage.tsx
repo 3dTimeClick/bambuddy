@@ -46,6 +46,7 @@ import { getCurrencySymbol } from '../utils/currency';
 import { formatWeight } from '../utils/weight';
 import { parseUTCDate, formatDuration } from '../utils/date';
 import { MetricToggle, type Metric } from '../components/MetricToggle';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 // Timeframe types and helpers
 type TimeframePreset = 'today' | 'this-week' | 'this-month' | 'last-7' | 'last-30' | 'last-90' | 'this-year' | 'all-time' | 'custom';
@@ -1077,10 +1078,7 @@ export function StatsPage() {
     queryFn: () => api.getArchivesSlim(effectiveDateRange.dateFrom, effectiveDateRange.dateTo, createdByIdParam),
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   // The supplier widget aggregates the internal spool table, which is empty
   // in Spoolman mode — there the assignments live in the Spoolman twin table.

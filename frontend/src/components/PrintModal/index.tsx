@@ -41,6 +41,7 @@ import type {
 } from './types';
 import { DEFAULT_PRINT_OPTIONS, DEFAULT_SCHEDULE_OPTIONS } from './types';
 import { NumberInput } from '../NumberInput';
+import { hasGcodeSnippets, useUiSettings } from '../../hooks/useUiSettings';
 
 /** Same filament: type ignoring case, colour as RRGGBB ignoring `#`, case and alpha. */
 function isSameFilament(a: { type: string; color: string }, b: { type: string; color: string }): boolean {
@@ -321,10 +322,7 @@ export function PrintModal({
   const effectivePrinterId = selectedPrinters.length > 0 ? selectedPrinters[0] : null;
 
   // Queries
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   // Sync print option defaults from settings once available
   const printDefaultsApplied = useRef(false);
@@ -1630,10 +1628,10 @@ export function PrintModal({
   // queue item regardless of batch size, so there's no underlying reason for
   // the quantity-1 case to be blocked.
   useEffect(() => {
-    if (mode === 'create' && scheduleOptions.gcodeInjection && !settings?.gcode_snippets) {
+    if (mode === 'create' && scheduleOptions.gcodeInjection && !hasGcodeSnippets(settings)) {
       setScheduleOptions((opts) => ({ ...opts, gcodeInjection: false }));
     }
-  }, [mode, settings?.gcode_snippets, scheduleOptions.gcodeInjection]);
+  }, [mode, settings, scheduleOptions.gcodeInjection]);
 
   // Modal title and action button text based on mode
   const getModalConfig = () => {
@@ -2070,7 +2068,7 @@ export function PrintModal({
               canControlPrinter={hasPermission('printers:control')}
               showStagger={!isEditing && assignmentMode === 'printer' && selectedPrinters.length > 1}
               printerCount={selectedPrinters.length}
-              hasGcodeSnippets={!!settings?.gcode_snippets}
+              hasGcodeSnippets={hasGcodeSnippets(settings)}
               needsReview={needsReview}
             />
 

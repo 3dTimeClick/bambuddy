@@ -105,6 +105,7 @@ import type { PlateMetadata } from '../types/plates';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatFileSize } from '../utils/file';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 type TFunction = (key: string, options?: Record<string, unknown>) => string;
 
@@ -3192,10 +3193,7 @@ export function ArchivesPage() {
     queryFn: () => api.getProjects(),
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   // Print Log user filter -- names only, so the slim listing is enough (#1894).
   const { data: users } = useQuery({

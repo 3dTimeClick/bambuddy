@@ -12,6 +12,7 @@ import { api, spoolbuddyApi, type Printer, type PrinterStatus } from '../../api/
 import { VirtualKeyboard } from '../VirtualKeyboard';
 import { PageLoading } from '../PageLoading';
 import { useToast } from '../../contexts/ToastContext';
+import { useUiSettings } from '../../hooks/useUiSettings';
 
 export function SpoolBuddyLayout() {
   // Cascade a re-render into all SpoolBuddy pages when the color catalog
@@ -35,10 +36,7 @@ export function SpoolBuddyLayout() {
   }, [setViewportSuppressed]);
 
   // Sync language from backend settings (kiosk has its own browser with empty localStorage)
-  const { data: appSettings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: appSettings } = useUiSettings();
   useEffect(() => {
     if (appSettings?.language && appSettings.language !== i18n.language) {
       i18n.changeLanguage(appSettings.language);

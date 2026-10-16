@@ -17,6 +17,12 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { SpoolBuddyWriteTagPage } from '../../pages/spoolbuddy/SpoolBuddyWriteTagPage';
 import { api as mockedApi, spoolbuddyApi as mockedSpoolbuddyApi } from '../../api/client';
 
+// The kiosk runs signed in; these tests render it without the auth provider.
+vi.mock('../../contexts/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
+  return { ...actual, useAuth: () => ({ hasPermission: () => true }) };
+});
+
 // Mock the API modules. spoolman-* mocks default to "spoolman disabled" so
 // existing tests run in internal-inventory mode — the new spoolman parity
 // test below overrides getSpoolmanSettings before rendering.

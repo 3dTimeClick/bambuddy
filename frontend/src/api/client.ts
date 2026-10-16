@@ -1612,6 +1612,11 @@ export interface AppSettings {
 
 export type AppSettingsUpdate = Partial<AppSettings>;
 
+// Settings as a page sees them: everything from GET /settings for a user who
+// may read it, otherwise the subset /settings/ui-preferences and
+// /settings/ui-flags serve, which reports G-code snippets only as set or not.
+export type UiSettings = Partial<AppSettings> & { has_gcode_snippets?: boolean };
+
 // MQTT relay status
 export interface MQTTStatus {
   enabled: boolean;
@@ -6180,13 +6185,13 @@ export const api = {
   // non-admin reading GET /settings gets a 403 and every gate that consults it
   // silently takes its fallback (#3023). Keep in sync with _UI_FLAG_FIELDS in
   // backend/app/api/routes/settings.py.
-  getUiFlags: () =>
-    request<{
-      billing_enabled?: boolean;
-      user_notifications_enabled?: boolean;
-      currency?: string;
-      check_updates?: boolean;
-    }>('/settings/ui-flags'),
+  getUiFlags: () => request<UiSettings>('/settings/ui-flags'),
+  // The two above together: what a page needs from the settings when its user
+  // may not read GET /settings. See useUiSettings.
+  getUiSettings: async (): Promise<UiSettings> => {
+    const [preferences, flags] = await Promise.all([api.getUiPreferences(), api.getUiFlags()]);
+    return { ...(preferences as UiSettings), ...flags };
+  },
   updateSettings: (data: AppSettingsUpdate) =>
     request<AppSettings>('/settings/', {
       method: 'PUT',
