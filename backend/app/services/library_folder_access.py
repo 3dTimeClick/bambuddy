@@ -23,6 +23,7 @@ owner or the shared flag from the upgrade backfill in ``core/database.py``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -32,13 +33,16 @@ from backend.app.core.permissions import Permission
 from backend.app.models.library import LibraryFile, LibraryFolder
 from backend.app.models.user import User
 
+if TYPE_CHECKING:
+    from backend.app.core.auth import ApiKeyActor
 
-def sees_all_folders(user: User | None) -> bool:
+
+def sees_all_folders(user: User | ApiKeyActor | None) -> bool:
     """True for ``library:read_all``, and for ``None`` (auth off)."""
     return user is None or user.has_permission(Permission.LIBRARY_READ_ALL.value)
 
 
-def owns(folder: LibraryFolder, user: User | None) -> bool:
+def owns(folder: LibraryFolder, user: User | ApiKeyActor | None) -> bool:
     return user is not None and folder.created_by_id is not None and folder.created_by_id == user.id
 
 
@@ -105,7 +109,7 @@ async def load_folder_index(db: AsyncSession, *, with_files: bool = True) -> Fol
     return index
 
 
-def visible_folder_ids(index: FolderIndex, user: User | None) -> set[int] | None:
+def visible_folder_ids(index: FolderIndex, user: User | ApiKeyActor | None) -> set[int] | None:
     """The folders ``user`` may see, or ``None`` for all of them."""
     if sees_all_folders(user):
         return None

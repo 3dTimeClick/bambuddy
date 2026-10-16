@@ -15,7 +15,13 @@ from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.app.api.routes.library import get_library_dir
+from backend.app.api.routes.library import (
+    classify_file_type,
+    get_library_dir,
+    get_library_files_dir,
+    to_absolute_path,
+    to_relative_path,
+)
 from backend.app.core.auth import (
     ApiKeyActor,
     RequestActor,
@@ -51,8 +57,9 @@ from backend.app.schemas.project import (
     ProjectUpdate,
     TimelineEvent,
 )
+from backend.app.services.library_folder_access import load_folder_index, visible_folder_ids
 from backend.app.utils.http import build_content_disposition
-from backend.app.utils.safe_path import safe_join_under
+from backend.app.utils.safe_path import PathTraversalError, safe_join_under
 
 logger = logging.getLogger(__name__)
 
@@ -1983,12 +1990,33 @@ async def get_project_timeline(
 # ============ Phase 10: Import/Export Endpoints ============
 
 
+def _stored_library_path(stored: str | None) -> Path | None:
+    """Where a library file's stored path points.
+
+    Paths are relative to the data directory, except those of files imported
+    by older versions, which are relative to the library directory.
+    """
+    try:
+        path = to_absolute_path(stored)
+    except ValueError:
+        return None
+    if path is not None and not path.exists() and stored and not Path(stored).is_absolute():
+        try:
+            legacy = safe_join_under(get_library_dir(), *Path(stored).parts, http=False)
+        except PathTraversalError:
+            return path
+        if legacy.exists():
+            return legacy
+    return path
+
+
 @router.get("/{project_id}/export")
 async def export_project(
     project_id: int,
     format: str = "zip",  # "zip" (with files) or "json" (metadata only)
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Export a project. Use format=zip (default) for full export with files, or format=json for metadata only."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -2022,13 +2050,23 @@ async def export_project(
     )
     linked_folders = folders_result.scalars().all()
 
+    # The folders and files the caller could open in the library, and no more.
+    reads_all_files = actor is None or actor.has_permission(Permission.LIBRARY_READ_ALL.value)
+    if actor is not None and not reads_all_files:
+        if actor.has_permission(Permission.LIBRARY_READ_OWN.value):
+            visible = visible_folder_ids(await load_folder_index(db), actor)
+            linked_folders = [f for f in linked_folders if visible is None or f.id in visible]
+        else:
+            linked_folders = []
+
     folders_export = []
     files_to_include = []  # (archive_path, zip_path)
 
     for folder in linked_folders:
         # Get files in this folder
+        own_files = [] if actor is None or reads_all_files else [LibraryFile.created_by_id == actor.id]
         files_result = await db.execute(
-            LibraryFile.active().where(LibraryFile.folder_id == folder.id).order_by(LibraryFile.filename)
+            LibraryFile.active().where(LibraryFile.folder_id == folder.id, *own_files).order_by(LibraryFile.filename)
         )
         files = files_result.scalars().all()
 
@@ -2042,15 +2080,14 @@ async def export_project(
                 }
             )
             # Add file to include in ZIP
-            library_dir = get_library_dir()
-            file_path = library_dir / f.file_path
-            if file_path.exists():
+            file_path = _stored_library_path(f.file_path)
+            if file_path is not None and file_path.exists():
                 zip_path = f"files/{folder.name}/{f.filename}"
                 files_to_include.append((file_path, zip_path))
                 # Also include thumbnail if exists
                 if f.thumbnail_path:
-                    thumb_path = library_dir / f.thumbnail_path
-                    if thumb_path.exists():
+                    thumb_path = _stored_library_path(f.thumbnail_path)
+                    if thumb_path is not None and thumb_path.exists():
                         thumb_zip_path = f"files/{folder.name}/.thumbnails/{f.filename}.png"
                         files_to_include.append((thumb_path, thumb_zip_path))
 
@@ -2106,11 +2143,50 @@ async def export_project(
     )
 
 
+async def _import_folder(
+    db: AsyncSession, name: str, project_id: int, actor: User | ApiKeyActor | None
+) -> LibraryFolder:
+    """The top-level folder an imported project links, by name.
+
+    An existing one is taken only when the caller could link it themselves,
+    which takes library:update_all. Otherwise a new folder of that name is
+    made, shared like every project folder (#3201).
+    """
+    candidates = (
+        await db.execute(
+            select(LibraryFolder)
+            .where(
+                LibraryFolder.name == name,
+                LibraryFolder.parent_id.is_(None),
+                LibraryFolder.is_external.is_(False),
+            )
+            .order_by(LibraryFolder.id)
+        )
+    ).scalars()
+    for folder in candidates:
+        if actor is None or actor.has_permission(Permission.LIBRARY_UPDATE_ALL.value):
+            folder.project_id = project_id
+            return folder
+    folder = LibraryFolder(
+        name=name,
+        project_id=project_id,
+        is_external=False,
+        external_readonly=False,
+        external_show_hidden=False,
+        created_by_id=actor.id if actor else None,
+        shared=True,
+    )
+    db.add(folder)
+    await db.flush()
+    return folder
+
+
 @router.post("/import", response_model=ProjectResponse)
 async def import_project(
     data: ProjectImport,
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Import a project with optional BOM items and linked folders."""
     # Create the project
@@ -2146,33 +2222,9 @@ async def import_project(
         )
         db.add(bom_item)
 
-    # Create linked folders in library
+    # Link a folder in the library for each
     for folder_data in data.linked_folders:
-        # Check if folder with this name already exists at root level
-        existing_result = await db.execute(
-            select(LibraryFolder).where(
-                LibraryFolder.name == folder_data.name,
-                LibraryFolder.parent_id.is_(None),
-            )
-        )
-        existing_folder = existing_result.scalar_one_or_none()
-
-        if existing_folder:
-            # Link existing folder to project
-            existing_folder.project_id = project.id
-        else:
-            # Create new folder linked to project
-            # A project's folder is shared, like every linked folder (#3201).
-            new_folder = LibraryFolder(
-                name=folder_data.name,
-                project_id=project.id,
-                is_external=False,
-                external_readonly=False,
-                external_show_hidden=False,
-                created_by_id=current_user.id if current_user else None,
-                shared=True,
-            )
-            db.add(new_folder)
+        await _import_folder(db, folder_data.name, project.id, actor)
 
     await db.flush()
     await db.refresh(project)
@@ -2211,7 +2263,8 @@ async def import_project(
 async def import_project_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Import a project from a ZIP or JSON file."""
     if not file.filename:
@@ -2288,38 +2341,9 @@ async def import_project_file(
         # previous code did ``library_dir / folder_name`` directly, which
         # collapses to ``Path(folder_name)`` when folder_name is absolute
         # and lets ``..`` escape after mkdir.
-        folder_path = safe_join_under(library_dir, folder_name)
+        safe_join_under(library_dir, folder_name)
 
-        # Check if folder exists
-        existing_result = await db.execute(
-            select(LibraryFolder).where(
-                LibraryFolder.name == folder_name,
-                LibraryFolder.parent_id.is_(None),
-            )
-        )
-        existing_folder = existing_result.scalar_one_or_none()
-
-        if existing_folder:
-            # Link existing folder to project
-            existing_folder.project_id = project.id
-            folder = existing_folder
-        else:
-            # Create new folder
-            # A project's folder is shared, like every linked folder (#3201).
-            folder = LibraryFolder(
-                name=folder_name,
-                project_id=project.id,
-                is_external=False,
-                external_readonly=False,
-                external_show_hidden=False,
-                created_by_id=current_user.id if current_user else None,
-                shared=True,
-            )
-            db.add(folder)
-            await db.flush()
-
-            # Create folder on disk
-            folder_path.mkdir(parents=True, exist_ok=True)
+        folder = await _import_folder(db, folder_name, project.id, actor)
 
         # Import files for this folder from ZIP
         folder_prefix = f"files/{folder_name}/"
@@ -2340,33 +2364,24 @@ async def import_project_file(
             # parts because ``safe_join_under`` rejects parts that start
             # with ``/``, and a single combined string would hide an
             # embedded ``..`` segment behind a forward slash.
-            file_disk_path = safe_join_under(
-                library_dir,
-                folder_name,
-                *Path(relative_path).parts,
+            safe_join_under(library_dir, folder_name, *Path(relative_path).parts)
+            # Stored under a name of its own, as an upload is: another folder
+            # of the same name must not share (and overwrite) its files.
+            suffix = (
+                ".gcode.3mf" if relative_path.lower().endswith(".gcode.3mf") else Path(relative_path).suffix.lower()
             )
-            file_disk_path.parent.mkdir(parents=True, exist_ok=True)
+            file_disk_path = get_library_files_dir() / f"{uuid.uuid4().hex}{suffix}"
             file_disk_path.write_bytes(file_content)
-
-            # Determine file type
-            ext = Path(relative_path).suffix.lower()
-            if ext in [".stl", ".3mf", ".obj"]:
-                file_type = "model"
-            elif ext in [".gcode"]:
-                file_type = "gcode"
-            elif ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
-                file_type = "image"
-            else:
-                file_type = "other"
 
             # Create library file record
             lib_file = LibraryFile(
                 folder_id=folder.id,
                 filename=relative_path,
-                file_path=f"{folder_name}/{relative_path}",
-                file_type=file_type,
+                file_path=to_relative_path(file_disk_path),
+                file_type=classify_file_type(relative_path, file_disk_path),
                 file_size=len(file_content),
                 is_external=False,
+                created_by_id=actor.id if actor else None,
             )
             db.add(lib_file)
 
