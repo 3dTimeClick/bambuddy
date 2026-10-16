@@ -2841,7 +2841,7 @@ async def get_slot_spool_defaults(
     from backend.app.services.inventory_mode import spoolman_owns_assignments
     from backend.app.services.slot_kprofile import find_slot_kprofile_for_extruder
     from backend.app.services.slot_nozzle import resolve_slot_nozzle
-    from backend.app.services.spool_filament_preset import resolve_spool_preset, resolve_spoolman_preset
+    from backend.app.services.spool_filament_preset import resolve_spool_preset, resolve_spoolman_preset_with_own
 
     state = printer_manager.get_status(printer_id)
     model = printer_manager.get_model(printer_id)
@@ -2872,13 +2872,11 @@ async def get_slot_spool_defaults(
             )
         ).scalar_one_or_none()
         if sm_assignment is not None:
-            slicer_filament, slicer_filament_name = await resolve_spoolman_preset(
+            slicer_filament, slicer_filament_name = await resolve_spoolman_preset_with_own(
                 db,
                 spoolman_spool_id=sm_assignment.spoolman_spool_id,
                 printer_model=model,
                 nozzle_diameter=slot_nozzle.diameter,
-                fallback_filament=None,
-                fallback_name=None,
             )
     else:
         assignment = (

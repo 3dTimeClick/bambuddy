@@ -64,7 +64,7 @@ from backend.app.services.location_service import (
 from backend.app.services.printer_manager import PrinterManager, printer_manager
 from backend.app.services.slicer_filament_resolver import resolve_slicer_filament
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
-from backend.app.services.spool_filament_preset import resolve_spoolman_preset
+from backend.app.services.spool_filament_preset import forget_spoolman_spool_own_preset, resolve_spoolman_preset
 from backend.app.services.spoolman import (
     SpoolmanClient,
     SpoolmanClientError,
@@ -999,6 +999,8 @@ async def update_spool(
             new_extra[BAMBU_LAST_DRIED_HOURS_KEY] = json.dumps("")
         async with _translate_spoolman_errors():
             updated = await client.merge_spool_extra(spool_id, new_extra)
+        if sf_set or sfn_set:
+            forget_spoolman_spool_own_preset(spool_id)
 
     await ws_manager.broadcast({"type": "inventory_changed"})
     return _map_spoolman_spool(updated)
@@ -2059,6 +2061,31 @@ async def assign_spoolman_slot(
                     "No stored K-profile for Spoolman spool %d — reset slot to Default K (cali_idx=-1)",
                     body.spoolman_spool_id,
                 )
+
+            # Read-back verification, as the built-in assign registers it (#2582):
+            # the AMS pushes that follow confirm the tray took what was sent.
+            # Not for a slot the firmware calls empty, which echoes nothing
+            # back until a spool goes in (the built-in check, inventory.py).
+            from backend.app.api.routes.inventory import _find_tray_in_ams_data  # noqa: PLC0415
+            from backend.app.services.ams_slot_presence import spool_present  # noqa: PLC0415
+
+            live_tray = None
+            if state and state.raw_data:
+                ams_raw = state.raw_data.get("ams", [])
+                if isinstance(ams_raw, dict):
+                    ams_raw = ams_raw.get("ams", [])
+                live_tray = _find_tray_in_ams_data(ams_raw, body.ams_id, body.tray_id)
+            tray_state = (live_tray or {}).get("state")
+            if not (spool_present(live_tray) is not True and tray_state in (9, 10)):
+                mqtt_client.register_assignment_verification(
+                    ams_id=body.ams_id,
+                    tray_id=body.tray_id,
+                    tray_info_idx=effective_tray_info_idx,
+                    tray_color=tray_color,
+                    cali_idx=matching_kp.cali_idx if matching_kp and matching_kp.cali_idx is not None else -1,
+                )
+                # Fresh telemetry for the check to compare against.
+                mqtt_client.request_status_update()
 
             logger.info(
                 "Auto-configured AMS slot ams=%d tray=%d for Spoolman spool %d on printer %d",

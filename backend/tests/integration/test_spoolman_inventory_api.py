@@ -834,7 +834,11 @@ class TestSpoolmanInventorySlicerFilament:
         """
         import json as _json
 
+        from backend.app.services import spool_filament_preset
+
         mock_spoolman_client.ensure_extra_field = AsyncMock(return_value=True)
+        # A preset read earlier, still remembered: the edit must replace it at once.
+        spool_filament_preset._spoolman_own_presets[42] = (float("inf"), ("GFA00", "old"))
 
         response = await async_client.patch(
             "/api/v1/spoolman/inventory/spools/42",
@@ -856,6 +860,7 @@ class TestSpoolmanInventorySlicerFilament:
                 "bambu_slicer_filament_name": _json.dumps("Devil Design PLA Basic @Bambu Lab H2D 0.4 nozzle (Custom)"),
             },
         )
+        assert 42 not in spool_filament_preset._spoolman_own_presets
 
     @pytest.mark.asyncio
     @pytest.mark.integration

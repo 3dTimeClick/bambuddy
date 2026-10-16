@@ -1148,7 +1148,9 @@ async def link_spool(
                     setting_id=effective_setting_id,
                 )
 
+                sent_cali_idx: int | None = None
                 if matching_kp and matching_kp.cali_idx is not None:
+                    sent_cali_idx = matching_kp.cali_idx
                     cali_filament_id = (
                         printer_kp.filament_id if printer_kp and printer_kp.filament_id else None
                     ) or effective_tray_info_idx
@@ -1181,6 +1183,7 @@ async def link_spool(
                         live_tray = _find_tray_in_ams_data(ams_raw, a_id, t_id)
                     live_cali_idx = (live_tray or {}).get("cali_idx")
                     if live_cali_idx is not None and live_cali_idx >= 0:
+                        sent_cali_idx = live_cali_idx
                         mqtt_client.extrusion_cali_sel(
                             ams_id=a_id,
                             tray_id=t_id,
@@ -1188,6 +1191,18 @@ async def link_spool(
                             filament_id=effective_tray_info_idx,
                             nozzle_diameter=nozzle_diameter,
                         )
+
+                # Read-back verification, as the assign paths register it
+                # (#2582); the K-profile only when one was sent.
+                mqtt_client.register_assignment_verification(
+                    ams_id=a_id,
+                    tray_id=t_id,
+                    tray_info_idx=effective_tray_info_idx,
+                    tray_color=tray_color,
+                    cali_idx=sent_cali_idx,
+                )
+                # Fresh telemetry for the check to compare against.
+                mqtt_client.request_status_update()
 
                 logger.info(
                     "Auto-configured AMS slot ams=%d tray=%d after linking Spoolman spool %d on printer %d",
