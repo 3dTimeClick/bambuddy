@@ -143,3 +143,44 @@ describe('PrintersPage — drop zone permissions (#2849)', () => {
     expect(screen.queryByText('Drop to queue')).toBeNull();
   });
 });
+
+describe('PrintersPage — dropping a 3MF on a printer card', () => {
+  beforeEach(() => {
+    uploads.length = 0;
+    permissions.granted = ['library:upload', 'queue:create'];
+  });
+
+  const dropThreeMf = async (fileType: string) => {
+    const deleted: string[] = [];
+    renderPage();
+    server.use(
+      http.post('/api/v1/library/files', () =>
+        HttpResponse.json({ id: 9, filename: 'Foo.3mf', file_type: fileType, metadata: {} }),
+      ),
+      http.delete('/api/v1/library/files/:id', ({ params }) => {
+        deleted.push(params.id as string);
+        return HttpResponse.json({ status: 'deleted' });
+      }),
+    );
+    const el = await card();
+    const file = new File(['PK'], 'Foo.3mf', { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' });
+    fireEvent.drop(el, { dataTransfer: { files: [file] } });
+    return deleted;
+  };
+
+  it('takes a sliced Foo.3mf', async () => {
+    const deleted = await dropThreeMf('gcode.3mf');
+
+    // The print dialog opens for it.
+    expect(await screen.findByText('Foo.3mf')).toBeInTheDocument();
+    expect(screen.queryByText(/has no sliced G-code/)).not.toBeInTheDocument();
+    expect(deleted).toEqual([]);
+  });
+
+  it('removes an unsliced 3MF again and says why', async () => {
+    const deleted = await dropThreeMf('3mf');
+
+    expect(await screen.findByText(/has no sliced G-code/)).toBeInTheDocument();
+    expect(deleted).toEqual(['9']);
+  });
+});

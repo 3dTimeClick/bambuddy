@@ -5006,7 +5006,7 @@ async def get_filament_requirements(
             filaments.sort(key=lambda x: x["slot_id"])
 
             # Enrich with nozzle mapping for dual-nozzle printers
-            nozzle_mapping = extract_nozzle_mapping_from_3mf(zf)
+            nozzle_mapping = extract_nozzle_mapping_from_3mf(zf, plate_id=plate_id)
             if nozzle_mapping:
                 for filament in filaments:
                     filament["nozzle_id"] = nozzle_mapping.get(filament["slot_id"])

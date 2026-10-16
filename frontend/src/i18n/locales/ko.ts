@@ -905,7 +905,8 @@ export default {
     developerModeWarning: '개발자 LAN 모드가 활성화되지 않음: {{names}}. 일부 기능이 작동하지 않을 수 있습니다.',
     howToEnable: '활성화 방법',
     incompatibleFile: '이 파일은 {{slicedFor}}용으로 슬라이싱되었지만, 이 프린터는 {{printerModel}}입니다',
-    dropNotPrintable: '.gcode 및 .gcode.3mf 파일만 인쇄할 수 있습니다',
+    dropNotPrintable: '슬라이스된 파일만 출력할 수 있습니다 (.gcode, .gcode.3mf 또는 슬라이스된 .3mf)',
+    dropNotSliced: '이 파일에는 슬라이스된 G-code가 없습니다. 먼저 슬라이스한 다음 출력하세요.',
     dropToPrint: '놓아서 인쇄',
     dropToQueue: '놓아서 대기열에 추가',
     addPreflight: {

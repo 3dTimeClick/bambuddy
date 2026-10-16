@@ -2036,6 +2036,41 @@ describe('PrintModal — per-plate filament mapping (#2551 follow-up)', () => {
     expect(plate1?.ams_mapping).toEqual([0]);
   });
 
+  it('sets Print Anyway only on the printers whose filament warning it answered', async () => {
+    // X1 Carbon is short on the mapped spool, P1S is not. Answering the warning
+    // for X1 Carbon must not wave P1S's job through the scheduler's own check.
+    const queued: { printer_id: number; skip_filament_check?: boolean }[] = [];
+    server.use(
+      http.get('/api/v1/printers/:id/inventory-remain', ({ params }) => {
+        const grams = params.id === '1' ? 10 : 1000;
+        return HttpResponse.json({
+          inventory_remain_g: { '0': grams },
+          slot_materials: [
+            { ams_id: 0, tray_id: 0, global_tray_id: 0, material_key: 'preset:GFA00|color:FF0000', remaining_g: grams, extruder: 0 },
+          ],
+        });
+      }),
+      http.post('/api/v1/queue/', async ({ request }) => {
+        queued.push((await request.json()) as { printer_id: number; skip_filament_check?: boolean });
+        return HttpResponse.json({ id: queued.length, status: 'pending' });
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<PrintModal mode="create" archiveId={1} archiveName="Two.gcode.3mf" onClose={mockOnClose} />);
+    await waitFor(() => expect(screen.getByText('X1 Carbon')).toBeInTheDocument());
+    await user.click(screen.getByText('X1 Carbon'));
+    await user.click(screen.getByText('P1S'));
+
+    await user.click(document.querySelector('button[type="submit"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByText(/Not enough filament/i)).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /print anyway/i }));
+
+    await waitFor(() => expect(queued.length).toBe(2));
+    const byPrinter = Object.fromEntries(queued.map((q) => [q.printer_id, q.skip_filament_check]));
+    expect(byPrinter).toEqual({ 1: true, 2: undefined });
+  });
+
   it('sums what the plates draw from one spool before warning about it', async () => {
     // Both plates map to the same red tray. 60 g left covers either plate on its
     // own (40 g), but not both — the check has to add them up, not test them

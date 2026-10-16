@@ -131,6 +131,7 @@ export function PrintModal({
   const [candidatePlates, setCandidatePlates] = useState<Record<number, number | null>>({});
 
   type FilamentWarningItem = {
+    printerId: number;
     printerName: string;
     slotLabel: string;
     requiredGrams: number;
@@ -1004,7 +1005,13 @@ export function PrintModal({
       ? scheduleOptions.requireManualStart
       : scheduleOptions.scheduleType === 'scheduled' && !!queueItem?.manual_start);
 
-  const handleSubmit = async (e?: React.FormEvent, options?: { skipFilamentCheck?: boolean }) => {
+  // `acknowledgedPrinters`: the printers whose filament warning the user
+  // answered with "Print Anyway". Only their jobs skip the scheduler's check;
+  // another printer in the same submit was never checked against.
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    options?: { skipFilamentCheck?: boolean; acknowledgedPrinters?: number[] },
+  ) => {
     e?.preventDefault();
 
     if (billingEnabled && selectedCostCenter == null) {
@@ -1099,6 +1106,7 @@ export function PrintModal({
               const needed = pooledRequired.get(key) ?? 0;
               if (available >= needed) continue;
               warningItems.push({
+                printerId,
                 printerName,
                 slotLabel,
                 requiredGrams: needed,
@@ -1112,6 +1120,7 @@ export function PrintModal({
 
             if (slot.remaining_g >= requiredGrams) continue;
             warningItems.push({
+              printerId,
               printerName,
               slotLabel,
               requiredGrams,
@@ -1359,7 +1368,7 @@ export function PrintModal({
       // persist that acknowledgement so the scheduler doesn't immediately
       // re-flag the item on its first dispatch tick (#1698-followup).
       skip_filament_check:
-        options?.skipFilamentCheck === true ||
+        (printerId != null && options?.acknowledgedPrinters?.includes(printerId)) ||
         (printerId != null && mappingSubstitutesMaterial(printerId, plateId, getMappingForPrinter(printerId, plateId)))
           ? true
           : undefined,
@@ -2149,8 +2158,9 @@ export function PrintModal({
           cancelText={t('common.cancel')}
           variant="warning"
           onConfirm={() => {
+            const acknowledgedPrinters = [...new Set(filamentWarningItems.map((item) => item.printerId))];
             setFilamentWarningItems(null);
-            void handleSubmit(undefined, { skipFilamentCheck: true });
+            void handleSubmit(undefined, { skipFilamentCheck: true, acknowledgedPrinters });
           }}
           onCancel={() => setFilamentWarningItems(null)}
         />

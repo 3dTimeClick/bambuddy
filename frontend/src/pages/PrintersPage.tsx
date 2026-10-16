@@ -206,6 +206,7 @@ import { getColorName, parseFilamentColor, isLightColor } from '../utils/colors'
 import { NumberInput } from '../components/NumberInput';
 import { getCurrencySymbol } from '../utils/currency';
 import { useUiSettings } from '../hooks/useUiSettings';
+import { isSlicedLibraryFile, mayBeSlicedFileName } from '../utils/libraryFiles';
 
 // The status filter's options, and the only values it may hold. One list so a
 // saved filter cannot be validated against a set the dropdown has since moved
@@ -3553,16 +3554,21 @@ function PrinterCard({
     const file = droppedFiles[0];
     if (!file) return;
 
-    // Only accept sliced/printable files (.gcode, .gcode.3mf, etc.)
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.gcode') && !lower.includes('.gcode.')) {
-      showToast(t('printers.dropNotPrintable', 'Only .gcode and .gcode.3mf files can be printed'), 'error');
+    // Sliced files only. A plain .3mf can be sliced too (a Studio plate
+    // export), which only its content tells — checked after the upload.
+    if (!mayBeSlicedFileName(file.name)) {
+      showToast(t('printers.dropNotPrintable'), 'error');
       return;
     }
 
     setIsDropUploading(true);
     try {
       const result = await api.uploadLibraryFile(file, null);
+      if (!isSlicedLibraryFile(result)) {
+        await api.deleteLibraryFile(result.id).catch(() => {});
+        showToast(t('printers.dropNotSliced'), 'error');
+        return;
+      }
 
       // Check printer compatibility if sliced_for_model is available in metadata
       const slicedFor = (result.metadata as Record<string, unknown>)?.sliced_for_model as string | undefined;
@@ -6790,12 +6796,15 @@ function PrinterCard({
           autoUpload
           accept=".gcode,.3mf"
           validateFile={(file) => {
-            const lower = file.name.toLowerCase();
-            if (!lower.endsWith('.gcode') && !lower.includes('.gcode.')) {
-              return t('printers.dropNotPrintable', 'Only .gcode and .gcode.3mf files can be printed');
+            if (!mayBeSlicedFileName(file.name)) {
+              return t('printers.dropNotPrintable');
             }
           }}
           onFileUploaded={(uploadedFile) => {
+            if (!isSlicedLibraryFile(uploadedFile)) {
+              api.deleteLibraryFile(uploadedFile.id).catch(() => {});
+              return t('printers.dropNotSliced');
+            }
             // Check printer compatibility if sliced_for_model is available in metadata
             const slicedFor = (uploadedFile.metadata as Record<string, unknown>)?.sliced_for_model as string | undefined;
             const printerModel = mapModelCode(printer.model);
