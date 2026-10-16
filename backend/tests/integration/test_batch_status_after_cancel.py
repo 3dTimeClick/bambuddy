@@ -122,3 +122,62 @@ async def test_a_grouping_whose_last_open_job_is_deleted_is_finished(
     assert (await async_client.delete(f"/api/v1/queue/{last}")).status_code == 200
 
     assert await _batch_status(async_client, grouping["id"]) == "cancelled"
+
+
+async def _settle(db_session, statuses: dict[int, str]) -> None:
+    from backend.app.services.print_batch import refresh_batches_for_items
+
+    for item_id, status in statuses.items():
+        await db_session.execute(update(PrintQueueItem).where(PrintQueueItem.id == item_id).values(status=status))
+    await refresh_batches_for_items(db_session, list(statuses))
+    await db_session.commit()
+
+
+@pytest.mark.parametrize(
+    ("ends", "expected"),
+    [
+        (("failed", "failed"), "failed"),
+        (("failed", "cancelled"), "failed"),
+        (("failed", "skipped"), "active"),
+        (("failed", "completed"), "completed"),
+    ],
+)
+async def test_a_grouping_that_produced_nothing_but_failures_is_failed(
+    async_client: AsyncClient, db_session, printer_factory, archive_factory, ends, expected
+):
+    printer = await printer_factory()
+    archive = await archive_factory(printer.id)
+    grouping, ids = await _grouping(async_client, printer.id, archive.id)
+
+    await _settle(db_session, dict(zip(ids, ends, strict=True)))
+
+    assert await _batch_status(async_client, grouping["id"]) == expected
+
+
+async def test_a_failed_grouping_takes_a_new_job_and_is_open_again(
+    async_client: AsyncClient, db_session, printer_factory, archive_factory
+):
+    printer = await printer_factory()
+    archive = await archive_factory(printer.id)
+    grouping, ids = await _grouping(async_client, printer.id, archive.id)
+    await _settle(db_session, dict.fromkeys(ids, "failed"))
+
+    added = await async_client.post(
+        "/api/v1/queue/", json={"printer_id": printer.id, "archive_id": archive.id, "batch_id": grouping["id"]}
+    )
+
+    assert added.status_code == 200, added.text
+    assert await _batch_status(async_client, grouping["id"]) == "active"
+
+
+async def test_an_order_whose_runs_all_failed_still_owes_them(
+    async_client: AsyncClient, db_session, printer_factory, archive_factory
+):
+    printer = await printer_factory()
+    archive = await archive_factory(printer.id)
+    order = await _create_order(async_client, archive.id, [{"plate_id": 1, "quantity_target": 1}])
+    run = await _queue_item(async_client, printer.id, archive.id, order["id"], plate_id=1)
+
+    await _settle(db_session, {run["id"]: "failed"})
+
+    assert await _batch_status(async_client, order["id"]) == "active"

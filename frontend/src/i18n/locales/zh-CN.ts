@@ -1459,12 +1459,14 @@ export default {
       filter: {
         active: '进行中',
         completed: '已完成',
+        failed: '失败',
         cancelled: '已取消',
         all: '全部',
       },
       status: {
         active: '进行中',
         completed: '已完成',
+        failed: '失败',
         cancelled: '已取消',
       },
       noTargets: '仅分组',

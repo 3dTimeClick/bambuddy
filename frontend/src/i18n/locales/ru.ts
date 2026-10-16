@@ -1406,12 +1406,14 @@ export default {
       filter: {
         active: "Активные",
         completed: "Завершённые",
+        failed: 'Не удалось',
         cancelled: "Отменённые",
         all: "Все",
       },
       status: {
         active: "Активен",
         completed: "Завершён",
+        failed: 'Не удалось',
         cancelled: "Отменён",
       },
       noTargets: "Только группировка",

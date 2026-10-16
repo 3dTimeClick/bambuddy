@@ -1471,12 +1471,14 @@ export default {
       filter: {
         active: 'Active',
         completed: 'Completed',
+        failed: 'Failed',
         cancelled: 'Cancelled',
         all: 'All',
       },
       status: {
         active: 'Active',
         completed: 'Completed',
+        failed: 'Failed',
         cancelled: 'Cancelled',
       },
       noTargets: 'Grouping only',

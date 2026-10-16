@@ -1468,12 +1468,14 @@ export default {
       filter: {
         active: "Активні",
         completed: "Завершені",
+        failed: 'Не вдалося',
         cancelled: "Скасовані",
         all: "Усі",
       },
       status: {
         active: "Активне",
         completed: "Завершене",
+        failed: 'Не вдалося',
         cancelled: "Скасоване",
       },
       noTargets: "Лише групування",

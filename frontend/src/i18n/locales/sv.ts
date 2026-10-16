@@ -1469,12 +1469,14 @@ export default {
       filter: {
         active: 'Aktiv',
         completed: 'Slutförd',
+        failed: 'Misslyckad',
         cancelled: 'Avbruten',
         all: 'Alla',
       },
       status: {
         active: 'Aktiv',
         completed: 'Slutförd',
+        failed: 'Misslyckad',
         cancelled: 'Avbruten',
       },
       noTargets: 'Endast gruppering',

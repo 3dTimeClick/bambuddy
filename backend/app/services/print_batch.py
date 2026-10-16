@@ -365,6 +365,19 @@ async def refresh_batch_status(db: AsyncSession, batch: PrintBatch) -> bool:
             batch.status = "cancelled"
             logger.info("Batch %s had every item cancelled — marked cancelled", batch.id)
             return True
+        # Likewise finished, but with real failures among its jobs and nothing
+        # produced: neither "completed" nor "cancelled" says that. Not while a
+        # job is skipped: resuming the printer puts it back in the queue.
+        if settled and progress.failed > 0 and progress.skipped == 0:
+            batch.status = "failed"
+            logger.info("Batch %s ended with failures and nothing printed — marked failed", batch.id)
+            return True
+
+    # A failed grouping that has open work again (a job added to it) is active.
+    if batch.status == "failed" and (progress.pending > 0 or progress.printing > 0):
+        batch.status = "active"
+        logger.info("Batch %s has open work again — reopened", batch.id)
+        return True
 
     if batch.status == "completed" and not progress.is_fulfilled:
         batch.status = "active"

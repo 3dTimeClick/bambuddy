@@ -1459,12 +1459,14 @@ export default {
       filter: {
         active: 'Activos',
         completed: 'Completados',
+        failed: 'Fallido',
         cancelled: 'Cancelados',
         all: 'Todos',
       },
       status: {
         active: 'Activo',
         completed: 'Completado',
+        failed: 'Fallido',
         cancelled: 'Cancelado',
       },
       noTargets: 'Solo agrupación',

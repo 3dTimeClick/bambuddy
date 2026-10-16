@@ -1006,8 +1006,11 @@ async def add_to_queue(
         if not existing_batch:
             raise HTTPException(404, "Batch not found")
         await _ensure_batch_in_scope(db, existing_batch.id, printer_scope)
-        if existing_batch.status != "active":
+        # A grouping whose jobs all failed takes new ones, and is open again.
+        if existing_batch.status not in ("active", "failed"):
             raise HTTPException(400, "Cannot add items to a non-active batch")
+        if existing_batch.status == "failed":
+            existing_batch.status = "active"
         if (
             actor is not None
             and existing_batch.created_by_id is not None

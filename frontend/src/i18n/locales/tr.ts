@@ -1459,12 +1459,14 @@ export default {
       filter: {
         active: 'Etkin',
         completed: 'Tamamlanan',
+        failed: 'Başarısız',
         cancelled: 'İptal edilen',
         all: 'Tümü',
       },
       status: {
         active: 'Etkin',
         completed: 'Tamamlandı',
+        failed: 'Başarısız',
         cancelled: 'İptal edildi',
       },
       noTargets: 'Yalnızca gruplama',

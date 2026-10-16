@@ -1392,12 +1392,14 @@ export default {
       filter: {
         active: '진행 중',
         completed: '완료',
+        failed: '실패',
         cancelled: '취소됨',
         all: '전체',
       },
       status: {
         active: '진행 중',
         completed: '완료',
+        failed: '실패',
         cancelled: '취소됨',
       },
       noTargets: '그룹만',

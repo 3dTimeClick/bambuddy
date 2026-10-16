@@ -1458,12 +1458,14 @@ export default {
       filter: {
         active: '進行中',
         completed: '完了',
+        failed: '失敗',
         cancelled: 'キャンセル済み',
         all: 'すべて',
       },
       status: {
         active: '進行中',
         completed: '完了',
+        failed: '失敗',
         cancelled: 'キャンセル済み',
       },
       noTargets: 'グループのみ',

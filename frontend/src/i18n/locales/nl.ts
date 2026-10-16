@@ -1469,12 +1469,14 @@ export default {
       filter: {
         active: 'Actief',
         completed: 'Voltooid',
+        failed: 'Mislukt',
         cancelled: 'Geannuleerd',
         all: 'Alle',
       },
       status: {
         active: 'Actief',
         completed: 'Voltooid',
+        failed: 'Mislukt',
         cancelled: 'Geannuleerd',
       },
       noTargets: 'Alleen groepering',
