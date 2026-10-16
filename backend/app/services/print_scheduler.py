@@ -11,9 +11,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import delete, false, func, or_, select, true, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -8197,6 +8199,61 @@ class PrintScheduler:
             if item.printer_id is not None:
                 self._unconfirmed_print_user[item.id] = item.printer_id
 
+    async def _fail_dispatch(self, db: AsyncSession, item: PrintQueueItem, message: str) -> bool:
+        """Mark a dispatching item failed, unless the user cancelled it meanwhile.
+
+        A cancel lands in another session while the upload runs (the edit route
+        even tells users to cancel a job that is being sent). An unconditional
+        write here would turn that cancellation into a failure, with a failure
+        notification, and block the next job that needs the previous print to
+        have succeeded. Returns whether the item was marked failed.
+        """
+        result = cast(
+            CursorResult,
+            await db.execute(
+                update(PrintQueueItem)
+                .where(PrintQueueItem.id == item.id)
+                .where(PrintQueueItem.status.in_(("pending", "printing")))
+                .values(status="failed", error_message=message, completed_at=datetime.now(timezone.utc))
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        await db.commit()
+        if result.rowcount == 0:
+            # Cancelled, or deleted, meanwhile: the row is not refreshed, it may be gone.
+            logger.info("Queue item %s: not marked failed (%s), it was cancelled meanwhile", item.id, message)
+            return False
+        await db.refresh(item)
+        return True
+
+    @staticmethod
+    async def _defer_until_printer_idle(db: AsyncSession, item: PrintQueueItem) -> None:
+        """Put a job whose printer turned busy before the start back in the queue.
+
+        Only if it is still printing: a stop that landed meanwhile stands.
+        """
+        await db.execute(
+            update(PrintQueueItem)
+            .where(PrintQueueItem.id == item.id)
+            .where(PrintQueueItem.status == "printing")
+            .values(status="pending", started_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+
+    @staticmethod
+    async def _close_cancelled_dispatch_toast(item: PrintQueueItem, toast_uid: int | None) -> None:
+        """Close the dispatch toast of an item the user cancelled while it was sent."""
+        try:
+            await ws_manager.send_queue_item_failed(
+                user_id=toast_uid,
+                queue_item_id=item.id,
+                printer_id=item.printer_id,
+                reason="cancelled_mid_dispatch",
+            )
+        except Exception:
+            pass  # toast is best-effort
+
     async def _start_print(self, db: AsyncSession, item: PrintQueueItem):
         """Upload file and start print for a queue item.
 
@@ -8249,10 +8306,8 @@ class PrintScheduler:
             )
             await db.commit()
         except HTTPException as exc:
-            item.status = "failed"
-            item.error_message = str(exc.detail)
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, str(exc.detail)):
+                return
             logger.error("Queue item %s: Budget check failed: %s", item.id, item.error_message)
             await self._power_off_if_needed(db, item)
             return
@@ -8261,20 +8316,16 @@ class PrintScheduler:
         result = await db.execute(select(Printer).where(Printer.id == item.printer_id))
         printer = result.scalar_one_or_none()
         if not printer:
-            item.status = "failed"
-            item.error_message = "Printer not found"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Printer not found"):
+                return
             logger.error("Queue item %s: Printer %s not found", item.id, item.printer_id)
             await self._power_off_if_needed(db, item)
             return
 
         # Check printer is connected
         if not printer_manager.is_connected(item.printer_id):
-            item.status = "failed"
-            item.error_message = "Printer not connected"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Printer not connected"):
+                return
             logger.error("Queue item %s: Printer %s not connected", item.id, item.printer_id)
             await self._power_off_if_needed(db, item)
             return
@@ -8333,10 +8384,8 @@ class PrintScheduler:
             result = await db.execute(select(PrintArchive).where(PrintArchive.id == item.archive_id))
             archive = result.scalar_one_or_none()
             if not archive:
-                item.status = "failed"
-                item.error_message = "Archive not found"
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, "Archive not found"):
+                    return
                 logger.error("Queue item %s: Archive %s not found", item.id, item.archive_id)
                 await self._power_off_if_needed(db, item)
                 return
@@ -8371,14 +8420,16 @@ class PrintScheduler:
                 trashed = (
                     await db.execute(select(LibraryFile.filename).where(LibraryFile.id == item.library_file_id))
                 ).scalar_one_or_none()
-                item.status = "failed"
-                item.error_message = (
-                    f"'{trashed}' is in the library trash — restore it and queue the print again"
-                    if trashed
-                    else "Library file not found — it was deleted after this job was queued"
-                )
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(
+                    db,
+                    item,
+                    (
+                        f"'{trashed}' is in the library trash — restore it and queue the print again"
+                        if trashed
+                        else "Library file not found — it was deleted after this job was queued"
+                    ),
+                ):
+                    return
                 logger.error(
                     "Queue item %s: library file %s is %s",
                     item.id,
@@ -8469,18 +8520,14 @@ class PrintScheduler:
                 await db.rollback()
                 item = await db.get(PrintQueueItem, queue_item_id)
                 if item:
-                    item.status = "failed"
-                    item.error_message = "Failed to create archive from library file"
-                    item.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
+                    if not await self._fail_dispatch(db, item, "Failed to create archive from library file"):
+                        return
                     await self._power_off_if_needed(db, item)
                 return
 
             if not archive:
-                item.status = "failed"
-                item.error_message = "Failed to create archive from library file"
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, "Failed to create archive from library file"):
+                    return
                 logger.error("Queue item %s: Archive creation from library file returned no archive", item.id)
                 await self._power_off_if_needed(db, item)
                 return
@@ -8549,20 +8596,16 @@ class PrintScheduler:
 
         else:
             # Neither archive nor library file specified
-            item.status = "failed"
-            item.error_message = "No source file specified"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "No source file specified"):
+                return
             logger.error("Queue item %s: No archive_id or library_file_id specified", item.id)
             await self._power_off_if_needed(db, item)
             return
 
         # Check file exists on disk
         if not file_path.exists():
-            item.status = "failed"
-            item.error_message = "Source file not found on disk"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Source file not found on disk"):
+                return
             logger.error("Queue item %s: File not found: %s", item.id, file_path)
             await self._power_off_if_needed(db, item)
             return
@@ -8592,10 +8635,8 @@ class PrintScheduler:
             rack = _rack_nozzle_diameters(nozzle_status)
             mismatch_msg = _nozzle_mismatch_message(sliced_nozzle, installed, rack)
             if mismatch_msg:
-                item.status = "failed"
-                item.error_message = mismatch_msg
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, mismatch_msg):
+                    return
                 logger.warning("Queue item %s: nozzle mismatch — %s", item.id, mismatch_msg)
                 await notification_service.on_queue_job_failed(
                     job_name=filename.replace(".gcode.3mf", "").replace(".3mf", ""),
@@ -8810,10 +8851,9 @@ class PrintScheduler:
             if upload_error is None and failure is not None and failure.kind in _UPLOAD_REQUEUE_KINDS:
                 await self._requeue_after_upload_refused(db, item, printer, error_msg, toast_uid)
                 return
-            item.status = "failed"
-            item.error_message = error_msg
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, error_msg):
+                await self._close_cancelled_dispatch_toast(item, toast_uid)
+                return
             logger.error(
                 f"Queue item {item.id}: FTP upload failed - printer={printer.name}, model={printer.model}, "
                 f"ip={printer.ip_address}. Check logs above for storage diagnostics and specific error codes."
@@ -9058,13 +9098,29 @@ class PrintScheduler:
                     # how a plate gets levelled on one nozzle and drawn with
                     # another, millimetres above the bed. Nothing has been sent
                     # to the printer yet, so failing here costs only the upload.
-                    item.status = "failed"
-                    item.error_message = (
-                        f"Nozzle rack pick no longer fits the printer: {rack_error}. "
-                        "Edit the item to choose another position."
-                    )
-                    item.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
+                    # The file is already on the SD card by this point, and a
+                    # 3MF left there is a phantom print waiting to be started
+                    # from the touchscreen. Same cleanup the start_print
+                    # failure path below does, for the same reason.
+                    try:
+                        await delete_file_async(
+                            printer.ip_address,
+                            printer.access_code,
+                            remote_path,
+                            printer_model=printer.model,
+                        )
+                    except Exception:
+                        pass  # Best-effort — don't fail the error handler
+                    if not await self._fail_dispatch(
+                        db,
+                        item,
+                        (
+                            f"Nozzle rack pick no longer fits the printer: {rack_error}. "
+                            "Edit the item to choose another position."
+                        ),
+                    ):
+                        await self._close_cancelled_dispatch_toast(item, toast_uid)
+                        return
                     logger.warning(
                         "Queue item %s: refusing to dispatch to %s — %s (chose %s, rack %s)",
                         item.id,
@@ -9086,19 +9142,6 @@ class PrintScheduler:
                             queue_item_id=item.id,
                             printer_id=item.printer_id,
                             reason="nozzle_rack_pick_stale",
-                        )
-                    except Exception:
-                        pass  # Best-effort — don't fail the error handler
-                    # The file is already on the SD card by this point, and a
-                    # 3MF left there is a phantom print waiting to be started
-                    # from the touchscreen. Same cleanup the start_print
-                    # failure path below does, for the same reason.
-                    try:
-                        await delete_file_async(
-                            printer.ip_address,
-                            printer.access_code,
-                            remote_path,
-                            printer_model=printer.model,
                         )
                     except Exception:
                         pass  # Best-effort — don't fail the error handler
@@ -9343,16 +9386,13 @@ class PrintScheduler:
                     item.printer_id,
                     post_dispatch_state,
                 )
-                item.status = "pending"
-                item.started_at = None
-                await db.commit()
+                await self._defer_until_printer_idle(db, item)
                 return
 
             # Print command failed - revert status
-            item.status = "failed"
-            item.error_message = "Failed to send print command to printer"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Failed to send print command to printer"):
+                await self._close_cancelled_dispatch_toast(item, toast_uid)
+                return
             logger.error(
                 f"Queue item {item.id}: Failed to start print on {printer.name} ({printer.model}) - "
                 f"printer_manager.start_print() returned False. "
