@@ -4914,21 +4914,19 @@ async def on_print_start(printer_id: int, data: dict):
 
         # Preferred match: subtask_id equality. MQTT reports the same subtask_id
         # across a backend restart for the same print, so this is the most
-        # reliable way to reattach. We also accept a previously stale-cancelled
-        # archive here so users upgrading mid-print get revived when the row
-        # their earlier Bambuddy version wrongly cancelled reappears (#972).
+        # reliable way to reattach. Only a row still printing: a cancelled one
+        # has been through completion (usage, history, notifications) already,
+        # and reopening it would count the print twice.
         if subtask_id:
             by_id = await db.execute(
                 select(PrintArchive)
                 .where(PrintArchive.printer_id == printer_id)
                 .where(PrintArchive.subtask_id == subtask_id)
-                .where(PrintArchive.status.in_(["printing", "cancelled"]))
+                .where(PrintArchive.status == "printing")
                 .order_by(PrintArchive.created_at.desc())
                 .limit(1)
             )
-            candidate = by_id.scalar_one_or_none()
-            if candidate and (candidate.status == "printing" or (candidate.failure_reason or "").startswith("Stale")):
-                existing_archive = candidate
+            existing_archive = by_id.scalar_one_or_none()
 
         # Fallback match: name-based lookup. Kept as-is for prints whose
         # subtask_id is missing ("0" / local / non-cloud prints).
@@ -4957,21 +4955,11 @@ async def on_print_start(printer_id: int, data: dict):
 
         if existing_archive:
             # subtask_id match → always resume, regardless of age. Same print,
-            # just a backend restart. Revive if it was previously stale-cancelled.
+            # just a backend restart.
             subtask_match = bool(subtask_id and existing_archive.subtask_id == subtask_id)
 
             if subtask_match:
-                if existing_archive.status == "cancelled":
-                    logger.warning(
-                        "Reviving stale-cancelled archive %s — matching subtask_id %s confirms same print (#972)",
-                        existing_archive.id,
-                        subtask_id,
-                    )
-                    existing_archive.status = "printing"
-                    existing_archive.failure_reason = None
-                    await db.commit()
-                else:
-                    logger.info("Resuming archive %s on subtask_id match (%s)", existing_archive.id, subtask_id)
+                logger.info("Resuming archive %s on subtask_id match (%s)", existing_archive.id, subtask_id)
                 _active_prints[(printer_id, existing_archive.filename)] = existing_archive.id
                 if existing_archive.energy_start_kwh is None:
                     await _record_energy_start(existing_archive, printer_id, db, context="subtask-resume")
@@ -5000,10 +4988,42 @@ async def on_print_start(printer_id: int, data: dict):
             looks_stale = (
                 live_progress is not None and live_progress < 1.0 and archive_age.total_seconds() > 2 * 60 * 60
             )
+            # Two subtask ids are two prints, however young the archive: one
+            # whose completion was missed must not swallow the next print of
+            # the same file. Except Bambuddy's own reprint, which reuses the
+            # row and mints a fresh id (#1807): the id it last sent says so,
+            # and after a restart, which forgets it, this printer's queue job
+            # running the archive.
+            if (
+                not looks_stale
+                and subtask_id
+                and existing_archive.subtask_id
+                and existing_archive.subtask_id != subtask_id
+            ):
+                _client = printer_manager.get_client(printer_id)
+                _dispatched = str(getattr(_client, "last_dispatch_subtask_id", None) or "").strip()
+                if _dispatched:
+                    looks_stale = _dispatched != subtask_id
+                else:
+                    from backend.app.models.print_queue import PrintQueueItem as _PQI
+
+                    queue_run = await db.scalar(
+                        select(_PQI.id)
+                        .where(_PQI.archive_id == existing_archive.id)
+                        .where(_PQI.printer_id == printer_id)
+                        .where(_PQI.status == "printing")
+                        .limit(1)
+                    )
+                    looks_stale = queue_run is None
             if looks_stale:
                 logger.warning(
-                    f"Found stale 'printing' archive {existing_archive.id} (age: {archive_age}, "
-                    f"printer progress {live_progress:.0f}%) — marking cancelled and creating new archive"
+                    "Found stale 'printing' archive %s (age: %s, printer progress %s%%, subtask %s, printer reports %s)"
+                    " — marking cancelled and creating new archive",
+                    existing_archive.id,
+                    archive_age,
+                    live_progress,
+                    existing_archive.subtask_id,
+                    subtask_id,
                 )
                 existing_archive.status = "cancelled"
                 # Canonical key, not a sentence (issue #2974). "No status update
@@ -5014,6 +5034,9 @@ async def on_print_start(printer_id: int, data: dict):
                 # single bucket instead of two untranslatable prose strings.
                 existing_archive.failure_reason = "noStatusUpdate"
                 await db.commit()
+                # Its print keys go with it; the new archive registers its own.
+                for _key in [k for k, v in _active_prints.items() if v == existing_archive.id]:
+                    del _active_prints[_key]
                 # Fall through to create new archive (don't return)
             else:
                 logger.info(
