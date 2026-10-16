@@ -62,6 +62,7 @@ from backend.app.services.print_batch import (
     load_progress,
     refresh_batch_status,
     refresh_batch_status_for_item,
+    refresh_batches_after,
 )
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
 from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
@@ -2288,6 +2289,7 @@ async def delete_queue_item(
         source_id=item.id,
         status="released",
     )
+    deleted_batch_id = item.batch_id
     if keep_as_cancelled:
         item.status = "cancelled"
         item.completed_at = datetime.now(timezone.utc)
@@ -2298,6 +2300,14 @@ async def delete_queue_item(
     else:
         await db.delete(item)
     await db.commit()
+    if not keep_as_cancelled and deleted_batch_id is not None:
+        # A grouping whose last open job was deleted may be finished now.
+        try:
+            batch = await db.get(PrintBatch, deleted_batch_id)
+            if batch is not None and await refresh_batch_status(db, batch):
+                await db.commit()
+        except Exception as e:
+            logger.warning("Failed to refresh batch %s after a delete: %s", deleted_batch_id, e)
 
     # Stop an in-flight preheat for this item: the dispatch coroutine is
     # parked in a sleep and cannot see the status we just wrote (#2727).
@@ -2471,6 +2481,7 @@ async def cancel_queue_item(
         status="released",
     )
     await db.commit()
+    await refresh_batches_after([item.id])
 
     # Stop an in-flight preheat for this item: the dispatch coroutine is
     # parked in a sleep and cannot see the status we just wrote (#2727).
@@ -2561,6 +2572,7 @@ async def stop_queue_item(
             archive.failure_reason = "Stopped by user (printer was offline)"
 
     await db.commit()
+    await refresh_batches_after([item.id])
 
     logger.info("Stopped printing queue item %s (stop command sent: %s)", item_id, stop_sent)
 

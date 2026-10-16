@@ -420,6 +420,53 @@ async def backfill_batch_statuses(db: AsyncSession) -> int:
     return changed
 
 
+async def refresh_batches_for_items(db: AsyncSession, queue_item_ids: list[int]) -> None:
+    """Re-evaluate every batch owning one of *queue_item_ids*, once each.
+
+    For the paths that end items without a print completing (a cancel, a stop,
+    the stranded-item sweep, a library delete): a grouping whose last item was
+    cancelled, or an order whose last run was closed, would otherwise stay
+    active until the next restart. Changes are left for the caller to commit.
+    """
+    if not queue_item_ids:
+        return
+    await db.flush()
+    batch_ids = (
+        (
+            await db.execute(
+                select(PrintQueueItem.batch_id)
+                .where(PrintQueueItem.id.in_(queue_item_ids))
+                .where(PrintQueueItem.batch_id.is_not(None))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for batch_id in batch_ids:
+        batch = await db.get(PrintBatch, batch_id)
+        if batch is not None:
+            await refresh_batch_status(db, batch)
+
+
+async def refresh_batches_after(queue_item_ids: list[int]) -> None:
+    """:func:`refresh_batches_for_items` in its own session, after the caller's commit.
+
+    Best-effort, as on the print-completion path: an order's status must not
+    be the reason a cancel, a stop or a scheduler step fails or rolls back.
+    """
+    if not queue_item_ids:
+        return
+    from backend.app.core import database
+
+    try:
+        async with database.async_session() as db:
+            await refresh_batches_for_items(db, queue_item_ids)
+            await db.commit()
+    except Exception as e:
+        logger.warning("Failed to refresh the batch status of queue items %s: %s", queue_item_ids, e)
+
+
 async def refresh_batch_status_for_item(db: AsyncSession, queue_item_id: int) -> None:
     """Re-evaluate the batch owning *queue_item_id*, if it has one.
 

@@ -1411,6 +1411,9 @@ class PrintScheduler:
                     )
                 if closed:
                     await db.commit()
+                    from backend.app.services.print_batch import refresh_batches_after
+
+                    await refresh_batches_after([item.id for item in items if item.status != "printing"])
                 for printer_id in list(self._terminal_since):
                     if printer_id not in seen_printers:
                         del self._terminal_since[printer_id]
@@ -4110,6 +4113,9 @@ class PrintScheduler:
         item.completed_at = datetime.now(timezone.utc)
         item.waiting_reason = None
         await db.commit()
+        from backend.app.services.print_batch import refresh_batches_after
+
+        await refresh_batches_after([item.id])
         logger.warning(
             "Queue item %s: no usable AMS mapping on printer %s — %s",
             item.id,
@@ -8224,6 +8230,9 @@ class PrintScheduler:
             logger.info("Queue item %s: not marked failed (%s), it was cancelled meanwhile", item.id, message)
             return False
         await db.refresh(item)
+        from backend.app.services.print_batch import refresh_batches_after
+
+        await refresh_batches_after([item.id])
         return True
 
     @staticmethod
@@ -9671,6 +9680,9 @@ class PrintScheduler:
             # The item is failed: its print user and expected print must not
             # pass the printer's next print off as Bambuddy's.
             scheduler._forget_unstarted_print(queue_item_id, unless_printing=True)
+            from backend.app.services.print_batch import refresh_batches_after
+
+            await refresh_batches_after([queue_item_id])
         elif revert_outcome == "reverted":
             # Another try claims the printer again. Until then no print on it
             # is vouched for as this item's, except a late start of its file.
