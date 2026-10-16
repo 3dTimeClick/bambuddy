@@ -2258,12 +2258,6 @@ export default {
     saveThumbnails: 'Salva miniature',
     captureFinishPhoto: 'Acquisisci foto finale',
     noPrintersConfigured: 'Nessuna stampante configurata',
-    // Archive settings
-    archiveMode: {
-      always: 'Crea sempre voce archivio',
-      never: 'Non creare mai voce archivio',
-      ask: 'Chiedi ogni volta',
-    },
     // Updates
     checkForUpdatesLabel: 'Controlla aggiornamenti',
     checkPrinterFirmware: 'Controlla firmware stampante',
@@ -2799,7 +2793,7 @@ export default {
     progressInTitle: 'Avanzamento nella scheda',
     progressInTitleDescription: 'Mostra la percentuale della stampa attiva e un anello di avanzamento nella scheda del browser.',
     autoArchivePrints: 'Archiviazione automatica stampe',
-    autoArchiveDescription: 'Salva automaticamente i file 3MF al completamento delle stampe',
+    autoArchiveDescription: 'Salva automaticamente i file 3MF al completamento delle stampe. Disattivato: nessuna stampante archivia le stampe avviate al di fuori di Bambuddy.',
     saveThumbnailsDescription: 'Estrai e salva le immagini di anteprima dai file 3MF',
     captureFinishPhotoDescription: 'Scatta una foto dalla fotocamera della stampante al completamento della stampa. Bambuddy registra un breve timelapse durante la stampa in modo che la foto possa essere ricavata dal momento precedente all\'abbassamento del piatto; il file del timelapse viene mantenuto se hai abilitato il timelapse per questa stampa, altrimenti viene eliminato automaticamente dopo l\'acquisizione della foto.',
     finishPhotoRestorePlate: 'Solleva il piatto per la foto finale',
@@ -2855,8 +2849,6 @@ export default {
     energyModePrintDescription: 'La dashboard mostra la somma dell\'energia usata durante le stampe',
     energyModeTotalDescription: 'La dashboard mostra l\'energia totale dalle prese smart',
     fileManager: 'Gestore file',
-    createArchiveEntry: 'Crea voce archivio durante la stampa',
-    createArchiveEntryDescription: 'Quando si stampa dal gestore file, crea opzionalmente una voce di archivio',
     lowDiskSpaceWarning: 'Avviso spazio disco insufficiente',
     lowDiskSpaceDescription: 'Mostra avviso quando lo spazio disco scende sotto questa soglia',
     printerFirmware: 'Firmware stampante',

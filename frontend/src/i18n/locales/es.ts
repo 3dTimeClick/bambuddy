@@ -2306,12 +2306,6 @@ export default {
     saveThumbnails: 'Guardar miniaturas',
     captureFinishPhoto: 'Capturar foto de finalización',
     noPrintersConfigured: 'No hay impresoras configuradas',
-    // Archive settings
-    archiveMode: {
-      always: 'Crear siempre una entrada de archivo',
-      never: 'No crear nunca una entrada de archivo',
-      ask: 'Preguntar cada vez',
-    },
     // Updates
     checkForUpdatesLabel: 'Buscar actualizaciones',
     checkPrinterFirmware: 'Comprobar el firmware de la impresora',
@@ -2849,7 +2843,7 @@ export default {
     progressInTitleDescription: 'Muestra el porcentaje de la impresión activa y un anillo de progreso en la pestaña del navegador.',
     // Archive
     autoArchivePrints: 'Archivar impresiones automáticamente',
-    autoArchiveDescription: 'Guardar automáticamente los archivos 3MF cuando se completan las impresiones',
+    autoArchiveDescription: 'Guardar automáticamente los archivos 3MF cuando se completan las impresiones. Desactivado: ninguna impresora archiva las impresiones iniciadas fuera de Bambuddy.',
     saveThumbnailsDescription: 'Extraer y guardar imágenes de vista previa de los archivos 3MF',
     captureFinishPhotoDescription: 'Tomar una foto desde la cámara de la impresora cuando se completa la impresión. Bambuddy graba un breve timelapse durante la impresión para que la foto pueda obtenerse del momento previo al descenso de la cama; el archivo del timelapse se conserva si activaste el timelapse para esta impresión, de lo contrario se elimina automáticamente tras capturar la foto.',
     finishPhotoRestorePlate: 'Elevar la cama para la foto final',
@@ -2908,8 +2902,6 @@ export default {
     energyModeTotalDescription: 'El panel muestra la energía total de los enchufes inteligentes',
     // File Manager
     fileManager: 'Gestor de archivos',
-    createArchiveEntry: 'Crear una entrada de archivo al imprimir',
-    createArchiveEntryDescription: 'Al imprimir desde el gestor de archivos, crear opcionalmente una entrada de archivo',
     lowDiskSpaceWarning: 'Advertencia de poco espacio en disco',
     lowDiskSpaceDescription: 'Mostrar una advertencia cuando el espacio libre en disco caiga por debajo de este umbral',
     // Updates

@@ -2303,12 +2303,6 @@ export default {
     saveThumbnails: '儲存縮圖',
     captureFinishPhoto: '拍攝完成照片',
     noPrintersConfigured: '未設定印表機',
-    // Archive settings
-    archiveMode: {
-      always: '始終建立歸檔條目',
-      never: '從不建立歸檔條目',
-      ask: '每次詢問',
-    },
     // Updates
     checkForUpdatesLabel: '檢查更新',
     checkPrinterFirmware: '檢查印表機韌體',
@@ -2844,7 +2838,7 @@ export default {
     progressInTitle: '在分頁顯示列印進度',
     progressInTitleDescription: '在瀏覽器分頁中顯示目前列印的百分比和進度環。',
     autoArchivePrints: '自動歸檔列印',
-    autoArchiveDescription: '列印完成時自動儲存3MF檔案',
+    autoArchiveDescription: '列印完成時自動儲存3MF檔案。關閉時，所有印表機都不會歸檔在 Bambuddy 之外啟動的列印。',
     saveThumbnailsDescription: '從3MF檔案中提取並儲存預覽影像',
     captureFinishPhotoDescription: '列印完成時從印表機攝影機拍照。Bambuddy 會在列印期間錄製一段短縮時攝影，以便從熱床下降前的瞬間取得照片；如果您為本次列印啟用了縮時攝影，檔案將保留，否則會在拍照完成後自動刪除。',
     finishPhotoRestorePlate: '為完成照片抬升熱床',
@@ -2900,8 +2894,6 @@ export default {
     energyModePrintDescription: '儀表板顯示列印期間使用的能源總和',
     energyModeTotalDescription: '儀表板顯示智慧插座的累計能源',
     fileManager: '檔案管理器',
-    createArchiveEntry: '列印時建立歸檔條目',
-    createArchiveEntryDescription: '從檔案管理器列印時，可選擇建立歸檔條目',
     lowDiskSpaceWarning: '磁碟空間不足警告',
     lowDiskSpaceDescription: '當可用磁碟空間低於此閾值時顯示警告',
     printerFirmware: '印表機韌體',

@@ -1284,6 +1284,8 @@ export function SettingsPage() {
       baseline.date_format !== localSettings.date_format ||
       baseline.time_format !== localSettings.time_format ||
       baseline.default_printer_id !== localSettings.default_printer_id ||
+      (baseline.pipeline_max_copies ?? 50) !== (localSettings.pipeline_max_copies ?? 50) ||
+      (baseline.docker_compose_dir ?? '') !== (localSettings.docker_compose_dir ?? '') ||
       baseline.ftp_retry_enabled !== localSettings.ftp_retry_enabled ||
       baseline.ftp_retry_count !== localSettings.ftp_retry_count ||
       baseline.ftp_retry_delay !== localSettings.ftp_retry_delay ||
@@ -1299,7 +1301,6 @@ export function SettingsPage() {
       baseline.ha_enabled !== localSettings.ha_enabled ||
       baseline.ha_url !== localSettings.ha_url ||
       baseline.ha_token !== localSettings.ha_token ||
-      (baseline.library_archive_mode ?? 'ask') !== (localSettings.library_archive_mode ?? 'ask') ||
       Number(baseline.library_disk_warning_gb ?? 5) !== Number(localSettings.library_disk_warning_gb ?? 5) ||
       (baseline.camera_light_mode ?? 'off') !== (localSettings.camera_light_mode ?? 'off') ||
       Number(baseline.camera_light_delay ?? 2) !== Number(localSettings.camera_light_delay ?? 2) ||
@@ -1412,6 +1413,8 @@ export function SettingsPage() {
         date_format: localSettings.date_format,
         time_format: localSettings.time_format,
         default_printer_id: localSettings.default_printer_id,
+        pipeline_max_copies: localSettings.pipeline_max_copies ?? 50,
+        docker_compose_dir: localSettings.docker_compose_dir ?? '',
         ftp_retry_enabled: localSettings.ftp_retry_enabled,
         ftp_retry_count: localSettings.ftp_retry_count,
         ftp_retry_delay: localSettings.ftp_retry_delay,
@@ -1427,7 +1430,6 @@ export function SettingsPage() {
         ha_enabled: localSettings.ha_enabled,
         ha_url: localSettings.ha_url,
         ha_token: localSettings.ha_token,
-        library_archive_mode: localSettings.library_archive_mode,
         library_disk_warning_gb: localSettings.library_disk_warning_gb,
         camera_light_mode: localSettings.camera_light_mode,
         camera_light_delay: localSettings.camera_light_delay,
@@ -2529,25 +2531,6 @@ export function SettingsPage() {
               </h2>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Archive Mode */}
-              <div>
-                <label className="block text-sm text-bambu-gray mb-1">
-                  {t('settings.createArchiveEntry')}
-                </label>
-                <select
-                  value={localSettings.library_archive_mode ?? 'ask'}
-                  onChange={(e) => updateSetting('library_archive_mode', e.target.value as 'always' | 'never' | 'ask')}
-                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
-                >
-                  <option value="always">{t('settings.archiveMode.always')}</option>
-                  <option value="never">{t('settings.archiveMode.never')}</option>
-                  <option value="ask">{t('settings.archiveMode.ask')}</option>
-                </select>
-                <p className="text-xs text-bambu-gray mt-1">
-                  {t('settings.createArchiveEntryDescription')}
-                </p>
-              </div>
-
               {/* Disk Space Warning Threshold */}
               <div>
                 <label className="block text-sm text-bambu-gray mb-1">

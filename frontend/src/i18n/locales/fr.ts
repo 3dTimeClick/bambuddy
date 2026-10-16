@@ -2258,12 +2258,6 @@ export default {
     saveThumbnails: 'Enregistrer les vignettes',
     captureFinishPhoto: 'Prendre une photo à la fin',
     noPrintersConfigured: 'Aucune imprimante configurée',
-    // Archive settings
-    archiveMode: {
-      always: 'Toujours créer une archive',
-      never: 'Ne jamais créer d\'archive',
-      ask: 'Demander à chaque fois',
-    },
     // Updates
     checkForUpdatesLabel: 'Vérifier les mises à jour',
     checkPrinterFirmware: 'Vérifier le firmware imprimante',
@@ -2800,7 +2794,7 @@ export default {
     progressInTitle: 'Progression dans l\'onglet',
     progressInTitleDescription: 'Affiche le pourcentage de l\'impression en cours et un anneau de progression dans l\'onglet du navigateur.',
     autoArchivePrints: 'Archiver automatiquement les impressions',
-    autoArchiveDescription: 'Sauvegarder automatiquement les fichiers 3MF à la fin des impressions',
+    autoArchiveDescription: 'Sauvegarder automatiquement les fichiers 3MF à la fin des impressions. Désactivé : aucune imprimante n\'archive les impressions lancées en dehors de Bambuddy.',
     saveThumbnailsDescription: 'Extraire et sauvegarder les images d\'aperçu des fichiers 3MF',
     captureFinishPhotoDescription: 'Prendre une photo avec la caméra de l\'imprimante à la fin de l\'impression. Bambuddy enregistre un court timelapse pendant l\'impression afin que la photo puisse provenir du moment précédant l\'abaissement du plateau ; le fichier du timelapse est conservé si vous avez activé le timelapse pour cette impression, sinon il est supprimé automatiquement après la capture de la photo.',
     finishPhotoRestorePlate: 'Remonter le plateau pour la photo finale',
@@ -2856,8 +2850,6 @@ export default {
     energyModePrintDescription: 'Le tableau de bord affiche la somme de l\'énergie utilisée pendant les impressions',
     energyModeTotalDescription: 'Le tableau de bord affiche l\'énergie totale des prises connectées',
     fileManager: 'Gestionnaire de fichiers',
-    createArchiveEntry: 'Créer une entrée d\'archive lors de l\'impression',
-    createArchiveEntryDescription: 'Lors de l\'impression depuis le gestionnaire de fichiers, créer optionnellement une entrée d\'archive',
     lowDiskSpaceWarning: 'Avertissement espace disque faible',
     lowDiskSpaceDescription: 'Afficher un avertissement lorsque l\'espace disque libre descend sous ce seuil',
     printerFirmware: 'Firmware imprimante',

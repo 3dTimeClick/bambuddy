@@ -2258,12 +2258,6 @@ export default {
     saveThumbnails: 'Salvar miniaturas',
     captureFinishPhoto: 'Capturar foto de conclusão',
     noPrintersConfigured: 'Nenhuma impressora configurada',
-    // Archive settings
-    archiveMode: {
-      always: 'Sempre criar entrada de arquivo',
-      never: 'Nunca criar entrada de arquivo',
-      ask: 'Perguntar a cada vez',
-    },
     // Updates
     checkForUpdatesLabel: 'Verificar atualizações',
     checkPrinterFirmware: 'Verificar firmware da impressora',
@@ -2799,7 +2793,7 @@ export default {
     progressInTitle: 'Progresso na aba',
     progressInTitleDescription: 'Mostra a porcentagem da impressão ativa e um anel de progresso na aba do navegador.',
     autoArchivePrints: 'Arquivar impressões automaticamente',
-    autoArchiveDescription: 'Salvar automaticamente arquivos 3MF quando impressões forem concluídas',
+    autoArchiveDescription: 'Salvar automaticamente arquivos 3MF quando impressões forem concluídas. Desativado: nenhuma impressora arquiva impressões iniciadas fora do Bambuddy.',
     saveThumbnailsDescription: 'Extrair e salvar imagens de pré-visualização dos arquivos 3MF',
     captureFinishPhotoDescription: 'Tirar foto da câmera da impressora quando a impressão for concluída. Bambuddy grava um timelapse curto durante a impressão para que a foto possa ser obtida do momento antes da mesa descer; o arquivo do timelapse é mantido se você habilitou o timelapse para esta impressão, caso contrário ele é excluído automaticamente após a captura da foto.',
     finishPhotoRestorePlate: 'Elevar a mesa para a foto final',
@@ -2855,8 +2849,6 @@ export default {
     energyModePrintDescription: 'O painel mostra a soma da energia usada durante as impressões',
     energyModeTotalDescription: 'O painel mostra a energia total dos plugues inteligentes',
     fileManager: 'Gerenciador de arquivos',
-    createArchiveEntry: 'Criar entrada de arquivo ao imprimir',
-    createArchiveEntryDescription: 'Ao imprimir pelo gerenciador de arquivos, criar opcionalmente uma entrada de arquivo',
     lowDiskSpaceWarning: 'Aviso de pouco espaço em disco',
     lowDiskSpaceDescription: 'Mostrar aviso quando o espaço livre em disco ficar abaixo deste limite',
     printerFirmware: 'Firmware da impressora',

@@ -438,14 +438,14 @@ export function PrintModal({
   }, [selectedPrinters, inventoryRemainQueries]);
 
   // Fetch archive details to get sliced_for_model
-  const { data: archiveDetails } = useQuery({
+  const { data: archiveDetails, isError: archiveDetailsFailed } = useQuery({
     queryKey: ['archive', archiveId],
     queryFn: () => api.getArchive(archiveId!),
     enabled: !!archiveId && !isLibraryFile,
   });
 
   // Fetch library file details to get sliced_for_model
-  const { data: libraryFileDetails } = useQuery({
+  const { data: libraryFileDetails, isError: libraryFileDetailsFailed } = useQuery({
     queryKey: ['library-file', libraryFileId],
     queryFn: () => api.getLibraryFile(libraryFileId!),
     enabled: isLibraryFile && !!libraryFileId,
@@ -453,6 +453,10 @@ export function PrintModal({
 
   // Get sliced_for_model from archive or library file
   const slicedForModel = archiveDetails?.sliced_for_model || libraryFileDetails?.sliced_for_model || null;
+  // Until the file's details are in, the model it was sliced for is unknown.
+  const sourceDetailsPending =
+    (!!archiveId && !isLibraryFile && !archiveDetails && !archiveDetailsFailed) ||
+    (isLibraryFile && !libraryFileDetails && !libraryFileDetailsFailed);
 
   // The archive's own saved AMS-slot pick from the slicer (see the "Save AMS
   // mapping" virtual-printer setting) — undefined for library files or
@@ -752,15 +756,33 @@ export function PrintModal({
     setSelectedPlates((prev) => (prev.size === 1 && prev.has(chosen) ? prev : new Set([chosen])));
   }, [isCrossModel, libraryFileId, candidatePlates]);
 
-  // Auto-select first printer when only one available
+  // Auto-select the default printer (Settings), else the only one available.
+  // The default is offered once per opening: deselecting it to pick another
+  // printer must not bring it back, and neither may settings that arrive after
+  // a printer was already chosen. It is not offered where the printer list is
+  // hidden (several variants, or printing to a model), nor when the file was
+  // sliced for another model.
+  const defaultPrinterOffered = useRef(false);
   useEffect(() => {
     // Skip auto-select for edit mode (already initialized from queueItem)
     if (mode === 'edit-queue-item') return;
+    if (selectedPrinters.length > 0) {
+      defaultPrinterOffered.current = true;
+      return;
+    }
     const activePrinters = printers?.filter(p => p.is_active) || [];
-    if (activePrinters.length === 1 && selectedPrinters.length === 0) {
+    const defaultId = settings?.default_printer_id;
+    const preferred =
+      defaultId != null && !isCrossModel && assignmentMode === 'printer' && !sourceDetailsPending
+        ? activePrinters.find(p => p.id === defaultId && (!slicedForModel || p.model === slicedForModel))
+        : undefined;
+    if (preferred && !defaultPrinterOffered.current) {
+      defaultPrinterOffered.current = true;
+      setSelectedPrinters([preferred.id]);
+    } else if (activePrinters.length === 1) {
       setSelectedPrinters([activePrinters[0].id]);
     }
-  }, [mode, printers, selectedPrinters.length]);
+  }, [mode, printers, selectedPrinters.length, settings?.default_printer_id, isCrossModel, assignmentMode, slicedForModel, sourceDetailsPending]);
 
   // Clear manual mappings and per-printer configs when printer or plate changes.
   // The per-plate mappings go with them: a manual override holds a global tray id,

@@ -4517,7 +4517,33 @@ async def on_print_start(printer_id: int, data: dict):
                 await _send_print_start_notification(printer_id, data, logger=logger)
             return
 
-        if not printer.auto_archive:
+        # Skip the printer's own jobs — a calibration run is not a user's print.
+        # See is_internal_printer_job for what counts and why both fields are
+        # tested; the pressure-advance line reports as a subtask name with no
+        # /usr/ path, which the old prefix-only test here missed entirely.
+        #
+        # No notification either. The event describes the printer calibrating
+        # itself, so "Print started" is as wrong as the archive was, and the
+        # matching completion is suppressed in on_print_complete for the same
+        # reason. Checked before the auto-archive switches, whose "off" path
+        # still notifies.
+        if is_internal_printer_job(data.get("filename", ""), data.get("subtask_name", "")):
+            logger.info(
+                "[CALLBACK] Skipping archive — internal printer job detected: filename=%s, subtask=%s",
+                data.get("filename", ""),
+                data.get("subtask_name", ""),
+            )
+            return
+
+        # The global switch is the master: off, no printer archives prints
+        # started outside Bambuddy; on, each printer's own switch decides.
+        from backend.app.api.routes.settings import get_setting
+
+        _global_auto_archive = await get_setting(db, "auto_archive")
+        archives_prints = printer.auto_archive and (
+            _global_auto_archive is None or _global_auto_archive.lower() == "true"
+        )
+        if not archives_prints:
             # auto-archive disabled — check if there's an expected print (dispatched
             # by BamBuddy via queue/reprint) that already has an archive to promote.
             # If so, fall through to the expected-print handling below so the archive
@@ -4576,23 +4602,6 @@ async def on_print_start(printer_id: int, data: dict):
                 subtask_id = None
 
         logger.info("[CALLBACK] Print start detected - filename: %s, subtask: %s", filename, subtask_name)
-
-        # Skip the printer's own jobs — a calibration run is not a user's print.
-        # See is_internal_printer_job for what counts and why both fields are
-        # tested; the pressure-advance line reports as a subtask name with no
-        # /usr/ path, which the old prefix-only test here missed entirely.
-        #
-        # No notification either. The event describes the printer calibrating
-        # itself, so "Print started" is as wrong as the archive was, and the
-        # matching completion is suppressed in on_print_complete for the same
-        # reason.
-        if is_internal_printer_job(filename, subtask_name):
-            logger.info(
-                "[CALLBACK] Skipping archive — internal printer job detected: filename=%s, subtask=%s",
-                filename,
-                subtask_name,
-            )
-            return
 
         if not filename and not subtask_name:
             # Send notification without archive data (no filename)
@@ -4903,7 +4912,7 @@ async def on_print_start(printer_id: int, data: dict):
                 return  # Skip creating a new archive
 
             # The archive was deleted after the job was queued.
-            if not printer.auto_archive:
+            if not archives_prints:
                 # Only the expected print brought a printer that does not
                 # archive this far; with it gone, nothing is archived.
                 return

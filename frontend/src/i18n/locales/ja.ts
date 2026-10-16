@@ -2302,12 +2302,6 @@ export default {
     saveThumbnails: 'サムネイルを保存',
     captureFinishPhoto: '完了写真を撮影',
     noPrintersConfigured: 'プリンターが設定されていません',
-    // Archive settings
-    archiveMode: {
-      always: '常にアーカイブを作成',
-      never: 'アーカイブを作成しない',
-      ask: '毎回確認',
-    },
     // Updates
     checkForUpdatesLabel: 'アップデートを確認',
     checkPrinterFirmware: 'プリンターファームウェアの確認',
@@ -2846,7 +2840,7 @@ export default {
     progressInTitleDescription: 'ブラウザのタブに進行中の印刷の進捗率と進捗リングを表示します。',
     // Archive
     autoArchivePrints: '印刷を自動アーカイブ',
-    autoArchiveDescription: '印刷完了時に3MFファイルを自動保存',
+    autoArchiveDescription: '印刷完了時に3MFファイルを自動保存。オフの場合、Bambuddy 以外から開始された印刷はどのプリンターでもアーカイブされません。',
     saveThumbnailsDescription: '3MFファイルからプレビュー画像を抽出して保存',
     captureFinishPhotoDescription: '印刷完了時にプリンターカメラから写真を撮影します。Bambuddy は印刷中に短いタイムラプスを記録し、ベッドが下がる前の瞬間から写真を取得できるようにします。この印刷でタイムラプスを有効にしていた場合はタイムラプスファイルが保存され、それ以外の場合は写真の取得後に自動的に削除されます。',
     finishPhotoRestorePlate: '完了写真のためにプレートを戻す',
@@ -2905,8 +2899,6 @@ export default {
     energyModeTotalDescription: 'ダッシュボードにスマートプラグの累計エネルギーを表示',
     // File Manager
     fileManager: 'ファイルマネージャー',
-    createArchiveEntry: '印刷時にアーカイブエントリを作成',
-    createArchiveEntryDescription: 'ファイルマネージャーから印刷時に、オプションでアーカイブエントリを作成',
     lowDiskSpaceWarning: 'ディスク容量不足の警告',
     lowDiskSpaceDescription: '空きディスク容量がこのしきい値を下回った場合に警告を表示',
     // Updates

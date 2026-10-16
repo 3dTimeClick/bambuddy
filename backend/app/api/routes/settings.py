@@ -670,6 +670,9 @@ _UI_FLAG_FIELDS: tuple[str, ...] = (
     # forecast's default lead time.
     "spoolman_enabled",
     "forecast_global_lead_time_days",
+    # Preselected in the print dialog; withheld below from a caller who may
+    # not use that printer.
+    "default_printer_id",
 )
 
 
@@ -677,6 +680,7 @@ _UI_FLAG_FIELDS: tuple[str, ...] = (
 async def get_ui_flags(
     db: AsyncSession = Depends(get_db),
     _: User | None = Depends(require_auth_if_enabled),
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Install configuration the app shell needs, for any signed-in user.
 
@@ -694,6 +698,8 @@ async def get_ui_flags(
     full = await _build_settings_response(db, is_api_key=False)
     dumped = full.model_dump()
     flags = {key: dumped[key] for key in _UI_FLAG_FIELDS if key in dumped}
+    if flags.get("default_printer_id") is not None and not printer_scope.allows(flags["default_printer_id"]):
+        flags["default_printer_id"] = None
     # Whether G-code snippets are set up, not the snippets themselves.
     flags["has_gcode_snippets"] = bool(dumped.get("gcode_snippets"))
     return flags

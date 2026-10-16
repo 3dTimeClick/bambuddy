@@ -2322,12 +2322,6 @@ export default {
     saveThumbnails: 'Spara minibilder',
     captureFinishPhoto: 'Ta färdig-foto',
     noPrintersConfigured: 'Inga skrivare konfigurerade',
-    // Archive settings
-    archiveMode: {
-      always: 'Skapa alltid arkivpost',
-      never: 'Skapa aldrig arkivpost',
-      ask: 'Fråga varje gång',
-    },
     // Updates
     checkForUpdatesLabel: 'Sök efter uppdateringar',
     checkPrinterFirmware: 'Kontrollera skrivarens firmware',
@@ -2866,7 +2860,7 @@ export default {
     progressInTitleDescription: 'Visa den aktiva utskriftens procentförlopp och en ring i webbläsarfliken.',
     // Archive
     autoArchivePrints: 'Auto-arkivera utskrifter',
-    autoArchiveDescription: 'Spara automatiskt 3MF-filer när utskrifter slutförs',
+    autoArchiveDescription: 'Spara automatiskt 3MF-filer när utskrifter slutförs. Av: ingen skrivare arkiverar utskrifter som startats utanför Bambuddy.',
     saveThumbnailsDescription: 'Extrahera och spara förhandsvisningsbilder från 3MF-filer',
     captureFinishPhotoDescription: 'Ta ett foto från skrivarkameran när utskriften slutförs. Bambuddy spelar in en kort timelapse under utskriften så att fotot kan hämtas från ögonblicket innan byggplattan sänks; timelapse-filen behålls om du aktiverat timelapse för denna utskrift, annars tas den automatiskt bort efter att fotot tagits.',
     finishPhotoRestorePlate: 'Återställ platta för foto',
@@ -2925,8 +2919,6 @@ export default {
     energyModeTotalDescription: 'Instrumentpanelen visar livstidsenergi från smarta kontakter',
     // File Manager
     fileManager: 'Filhanterare',
-    createArchiveEntry: 'Skapa arkivpost vid utskrift',
-    createArchiveEntryDescription: 'När du skriver ut från Filhanteraren, skapa en arkivpost',
     lowDiskSpaceWarning: 'Varning för lågt diskutrymme',
     lowDiskSpaceDescription: 'Visa en varning när tillgängligt diskutrymme är under detta tröskelvärde',
     // Updates

@@ -2303,12 +2303,6 @@ export default {
     saveThumbnails: 'Vorschaubilder speichern',
     captureFinishPhoto: 'Abschlussfoto aufnehmen',
     noPrintersConfigured: 'Keine Drucker konfiguriert',
-    // Archive settings
-    archiveMode: {
-      always: 'Immer Archiveintrag erstellen',
-      never: 'Nie Archiveintrag erstellen',
-      ask: 'Jedes Mal fragen',
-    },
     // Updates
     checkForUpdatesLabel: 'Nach Updates suchen',
     checkPrinterFirmware: 'Drucker-Firmware prüfen',
@@ -2847,7 +2841,7 @@ export default {
     progressInTitleDescription: 'Zeigt den Prozentsatz des aktiven Drucks und einen Fortschrittsring im Browser-Tab an.',
     // Archive
     autoArchivePrints: 'Drucke automatisch archivieren',
-    autoArchiveDescription: '3MF-Dateien automatisch speichern, wenn Drucke abgeschlossen sind',
+    autoArchiveDescription: '3MF-Dateien automatisch speichern, wenn Drucke abgeschlossen sind. Aus: Kein Drucker archiviert Drucke, die außerhalb von Bambuddy gestartet wurden.',
     saveThumbnailsDescription: 'Vorschaubilder aus 3MF-Dateien extrahieren und speichern',
     captureFinishPhotoDescription: 'Foto von der Druckerkamera aufnehmen, wenn der Druck abgeschlossen ist. Bambuddy zeichnet während des Drucks einen kurzen Zeitraffer auf, damit das Foto aus dem Moment vor dem Absenken der Druckplatte stammen kann. Die Zeitraffer-Datei bleibt erhalten, wenn du den Zeitraffer für diesen Druck aktiviert hast, andernfalls wird sie nach Aufnahme des Fotos automatisch gelöscht.',
     finishPhotoRestorePlate: 'Druckplatte für Abschlussfoto anheben',
@@ -2906,8 +2900,6 @@ export default {
     energyModeTotalDescription: 'Dashboard zeigt Gesamtenergie der Smart Plugs',
     // File Manager
     fileManager: 'Dateimanager',
-    createArchiveEntry: 'Archiveintrag beim Drucken erstellen',
-    createArchiveEntryDescription: 'Beim Drucken aus dem Dateimanager optional einen Archiveintrag erstellen',
     lowDiskSpaceWarning: 'Warnung bei wenig Speicherplatz',
     lowDiskSpaceDescription: 'Warnung anzeigen, wenn freier Speicherplatz unter diesen Schwellenwert fällt',
     // Updates

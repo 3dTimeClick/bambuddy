@@ -2325,12 +2325,6 @@ export default {
     saveThumbnails: 'Save thumbnails',
     captureFinishPhoto: 'Capture finish photo',
     noPrintersConfigured: 'No printers configured',
-    // Archive settings
-    archiveMode: {
-      always: 'Always create archive entry',
-      never: 'Never create archive entry',
-      ask: 'Ask each time',
-    },
     // Updates
     checkForUpdatesLabel: 'Check for updates',
     checkPrinterFirmware: 'Check printer firmware',
@@ -2869,7 +2863,7 @@ export default {
     progressInTitleDescription: 'Show the active print\'s percentage and a progress ring in the browser tab.',
     // Archive
     autoArchivePrints: 'Auto-archive prints',
-    autoArchiveDescription: 'Automatically save 3MF files when prints complete',
+    autoArchiveDescription: 'Automatically save 3MF files when prints complete. When off, no printer archives prints started outside Bambuddy.',
     saveThumbnailsDescription: 'Extract and save preview images from 3MF files',
     captureFinishPhotoDescription: 'Take a photo from printer camera when print completes. Bambuddy records a brief timelapse during the print so the photo can be sourced from the moment before the bed drops; the timelapse file is kept if you enabled timelapse for this print, otherwise it is deleted automatically after the photo is captured.',
     finishPhotoRestorePlate: 'Restore plate for finish photo',
@@ -2928,8 +2922,6 @@ export default {
     energyModeTotalDescription: 'Dashboard shows lifetime energy from smart plugs',
     // File Manager
     fileManager: 'File Manager',
-    createArchiveEntry: 'Create Archive Entry When Printing',
-    createArchiveEntryDescription: 'When printing from File Manager, optionally create an archive entry',
     lowDiskSpaceWarning: 'Low Disk Space Warning',
     lowDiskSpaceDescription: 'Show warning when free disk space falls below this threshold',
     // Updates

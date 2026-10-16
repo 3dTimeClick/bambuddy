@@ -178,6 +178,8 @@ class TestWhatItExposes:
             "light_accent",
             "spoolman_enabled",
             "forecast_global_lead_time_days",
+            # Withheld (None) from a caller outside that printer's scope.
+            "default_printer_id",
             "has_gcode_snippets",
         }
 

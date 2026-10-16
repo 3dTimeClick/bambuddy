@@ -2307,11 +2307,6 @@ export default {
     captureFinishPhoto: 'Bitiş fotoğrafı çek',
     noPrintersConfigured: 'Yapılandırılmış yazıcı yok',
     // Arşiv ayarları
-    archiveMode: {
-      always: 'Her zaman arşiv girişi oluştur',
-      never: 'Asla arşiv girişi oluşturma',
-      ask: 'Her seferinde sor',
-    },
     // Güncellemeler
     checkForUpdatesLabel: 'Güncellemeleri kontrol et',
     checkPrinterFirmware: 'Yazıcı firmware\'ini kontrol et',
@@ -2849,7 +2844,7 @@ export default {
     progressInTitleDescription: 'Tarayıcı sekmesinde etkin baskının yüzdesini ve bir ilerleme halkası gösterir.',
     // Arşiv
     autoArchivePrints: 'Baskıları otomatik arşivle',
-    autoArchiveDescription: 'Baskılar tamamlandığında 3MF dosyalarını otomatik olarak kaydet',
+    autoArchiveDescription: 'Baskılar tamamlandığında 3MF dosyalarını otomatik olarak kaydet. Kapalıyken hiçbir yazıcı Bambuddy dışında başlatılan baskıları arşivlemez.',
     saveThumbnailsDescription: '3MF dosyalarından önizleme görüntülerini çıkar ve kaydet',
     captureFinishPhotoDescription: 'Baskı tamamlandığında yazıcı kamerasından bir fotoğraf çek. Bambuddy, baskı sırasında kısa bir zaman atlamalı kayıt yapar, böylece fotoğraf tabla inmeden önceki andan alınabilir. Bu baskı için zaman atlamalı kaydı etkinleştirdiyseniz dosya saklanır, aksi takdirde fotoğraf çekildikten sonra otomatik olarak silinir.',
     finishPhotoRestorePlate: 'Bitiş fotoğrafı için tablayı yükselt',
@@ -2908,8 +2903,6 @@ export default {
     energyModeTotalDescription: 'Gösterge paneli, akıllı prizlerden ömür boyu enerjiyi gösterir',
     // Dosya Yöneticisi
     fileManager: 'Dosya Yöneticisi',
-    createArchiveEntry: 'Yazdırırken Arşiv Girişi Oluştur',
-    createArchiveEntryDescription: 'Dosya Yöneticisinden yazdırırken isteğe bağlı olarak bir arşiv girişi oluştur',
     lowDiskSpaceWarning: 'Düşük Disk Alanı Uyarısı',
     lowDiskSpaceDescription: 'Boş disk alanı bu eşiğin altına düştüğünde uyarı göster',
     // Güncellemeler

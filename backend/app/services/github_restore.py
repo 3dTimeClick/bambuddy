@@ -258,6 +258,10 @@ _MANYFOLD_CLIENT_ID_KEY = "manyfold_client_id"
 # null. Anywhere else it is refused, as the editor refuses a null.
 _READS_A_SAVED_NULL = frozenset({"ams_temp_alarm", "default_printer_id", "open_in_slicer"})
 
+# Settings that no longer exist. Older backups still hold them; a restore drops
+# them without listing them as skipped.
+_RETIRED_SETTING_KEYS = frozenset({"library_archive_mode"})
+
 
 def is_restorable_setting_key(key: str) -> bool:
     """Whether a restore writes this settings key at all (with a value its
@@ -659,6 +663,8 @@ class GitHubRestoreService:
                 continue
             if key.startswith("_"):
                 internal.append(key)
+                continue
+            if key in _RETIRED_SETTING_KEYS:
                 continue
             # A null is skipped by the restore itself, not refused.
             if value is not None:

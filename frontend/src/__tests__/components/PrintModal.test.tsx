@@ -2958,3 +2958,51 @@ describe('PrintModal edit: moving a job to another printer', () => {
     expect(patched[0].nozzle_rack_choice).toBeNull();
   });
 });
+
+describe('PrintModal default printer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    server.use(
+      http.get('/api/v1/printers/', () => HttpResponse.json(mockPrinters)),
+      http.get('/api/v1/settings/', () => HttpResponse.json({ default_printer_id: 2, currency: 'USD' })),
+      http.get('/api/v1/archives/:id/plates', () => HttpResponse.json({ is_multi_plate: false, plates: [] })),
+      http.get('/api/v1/archives/:id/filament-requirements', () => HttpResponse.json({ filaments: [] })),
+      http.get('/api/v1/printers/:id/status', () =>
+        HttpResponse.json({ connected: true, state: 'IDLE', ams: [], vt_tray: [] }),
+      ),
+    );
+  });
+
+  it('preselects the default printer from Settings', async () => {
+    render(<PrintModal mode="create" archiveId={1} archiveName="Test Print" onClose={vi.fn()} />);
+
+    expect(await screen.findByText('1 printer selected')).toBeInTheDocument();
+  });
+
+  it('does not bring the default back once it was deselected', async () => {
+    const user = userEvent.setup();
+    render(<PrintModal mode="create" archiveId={1} archiveName="Test Print" onClose={vi.fn()} />);
+    await screen.findByText('1 printer selected');
+
+    await user.click(screen.getByText('P1S'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(screen.queryByText('1 printer selected')).not.toBeInTheDocument();
+  });
+  it('does not select a default printer of another model than the file was sliced for', async () => {
+    server.use(
+      http.get('/api/v1/archives/:id', async () => {
+        // Later than printers and settings: the model must be waited for.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return HttpResponse.json({ id: 1, filename: 'test.3mf', sliced_for_model: 'X1C' });
+      }),
+    );
+    const user = userEvent.setup();
+    render(<PrintModal mode="create" archiveId={1} archiveName="Test Print" onClose={vi.fn()} />);
+    // The P1S is hidden behind "show all" as another model than X1C.
+    await user.click(await screen.findByText('show all'));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(screen.getByText('P1S').closest('button')).not.toHaveClass('border-bambu-green');
+  });
+});

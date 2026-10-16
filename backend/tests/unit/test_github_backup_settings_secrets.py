@@ -135,3 +135,11 @@ async def test_everything_backed_up_is_something_a_restore_knows(db_session):
     plan = await GitHubRestoreService()._plan_settings(db_session, collected)
 
     assert plan.unknown == () and plan.internal == ()
+
+
+@pytest.mark.asyncio
+async def test_a_retired_setting_in_an_old_backup_is_dropped_quietly(db_session):
+    plan = await GitHubRestoreService()._plan_settings(db_session, {"library_archive_mode": "ask", "currency": "EUR"})
+
+    assert plan.unknown == ()
+    assert "library_archive_mode" not in plan.stored

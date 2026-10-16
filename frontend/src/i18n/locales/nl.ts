@@ -2323,12 +2323,6 @@ export default {
     saveThumbnails: 'Miniaturen opslaan',
     captureFinishPhoto: 'Eindfoto vastleggen',
     noPrintersConfigured: 'Geen printers geconfigureerd',
-    // Archive settings
-    archiveMode: {
-      always: 'Altijd archiefitem maken',
-      never: 'Nooit archiefitem maken',
-      ask: 'Elke keer vragen',
-    },
     // Updates
     checkForUpdatesLabel: 'Controleren op updates',
     checkPrinterFirmware: 'Printerfirmware controleren',
@@ -2867,7 +2861,7 @@ export default {
     progressInTitleDescription: 'Toon het percentage van de actieve afdruk en een voortgangsring in het browsertabblad.',
     // Archive
     autoArchivePrints: 'Afdrukken automatisch archiveren',
-    autoArchiveDescription: '3MF-bestanden automatisch opslaan wanneer afdrukken zijn voltooid',
+    autoArchiveDescription: '3MF-bestanden automatisch opslaan wanneer afdrukken zijn voltooid. Uit: geen enkele printer archiveert afdrukken die buiten Bambuddy zijn gestart.',
     saveThumbnailsDescription: 'Voorbeeldafbeeldingen uit 3MF-bestanden extraheren en opslaan',
     captureFinishPhotoDescription: 'Maak een foto met de printercamera wanneer de afdruk is voltooid. Bambuddy neemt tijdens de afdruk een korte timelapse op zodat de foto kan worden genomen van het moment voordat het bed zakt; het timelapsebestand blijft behouden als je timelapse voor deze afdruk hebt ingeschakeld, anders wordt het automatisch verwijderd nadat de foto is vastgelegd.',
     finishPhotoRestorePlate: 'Plaat herstellen voor eindfoto',
@@ -2926,8 +2920,6 @@ export default {
     energyModeTotalDescription: 'Dashboard toont het totale energieverbruik van slimme stekkers over de hele levensduur',
     // File Manager
     fileManager: 'Bestandsbeheer',
-    createArchiveEntry: 'Archiefitem maken bij afdrukken',
-    createArchiveEntryDescription: 'Bij afdrukken vanuit Bestandsbeheer optioneel een archiefitem maken',
     lowDiskSpaceWarning: 'Waarschuwing weinig schijfruimte',
     lowDiskSpaceDescription: 'Waarschuwing tonen wanneer vrije schijfruimte onder deze drempel komt',
     // Updates

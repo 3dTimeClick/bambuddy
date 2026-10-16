@@ -2303,12 +2303,6 @@ export default {
     saveThumbnails: '保存缩略图',
     captureFinishPhoto: '拍摄完成照片',
     noPrintersConfigured: '未配置打印机',
-    // Archive settings
-    archiveMode: {
-      always: '始终创建归档条目',
-      never: '从不创建归档条目',
-      ask: '每次询问',
-    },
     // Updates
     checkForUpdatesLabel: '检查更新',
     checkPrinterFirmware: '检查打印机固件',
@@ -2844,7 +2838,7 @@ export default {
     progressInTitle: '在标签页显示打印进度',
     progressInTitleDescription: '在浏览器标签页中显示当前打印的百分比和进度环。',
     autoArchivePrints: '自动归档打印',
-    autoArchiveDescription: '打印完成时自动保存3MF文件',
+    autoArchiveDescription: '打印完成时自动保存3MF文件。关闭时，所有打印机都不会归档在 Bambuddy 之外启动的打印。',
     saveThumbnailsDescription: '从3MF文件中提取并保存预览图像',
     captureFinishPhotoDescription: '打印完成时从打印机摄像头拍照。Bambuddy 会在打印期间录制一段短延时摄影，以便从热床下降前的瞬间获取照片；如果您为本次打印启用了延时摄影，文件将保留，否则会在拍照完成后自动删除。',
     finishPhotoRestorePlate: '为完成照片抬升热床',
@@ -2900,8 +2894,6 @@ export default {
     energyModePrintDescription: '仪表板显示打印期间使用的能源总和',
     energyModeTotalDescription: '仪表板显示智能插座的累计能源',
     fileManager: '文件管理器',
-    createArchiveEntry: '打印时创建归档条目',
-    createArchiveEntryDescription: '从文件管理器打印时，可选择创建归档条目',
     lowDiskSpaceWarning: '磁盘空间不足警告',
     lowDiskSpaceDescription: '当可用磁盘空间低于此阈值时显示警告',
     printerFirmware: '打印机固件',
