@@ -1737,6 +1737,8 @@ class TestVirtualPrinterInstance:
         mock_session_factory.return_value = mock_session_ctx
 
         inst = VirtualPrinterInstance(
+            # The slicer's nozzle positions are kept only for a VP bound to one printer.
+            target_printer_id=7,
             vp_id=42,
             name="H2CRack",
             mode="queue",
@@ -2301,6 +2303,8 @@ class TestVirtualPrinterInstance:
         mock_session_factory.return_value = mock_session_ctx
 
         inst = VirtualPrinterInstance(
+            # The slicer's nozzle positions are kept only for a VP bound to one printer.
+            target_printer_id=7,
             vp_id=44,
             name="H2CMultiPlate",
             mode="queue",
@@ -2391,6 +2395,8 @@ class TestVirtualPrinterInstance:
         mock_session_factory.return_value = mock_session_ctx
 
         inst = VirtualPrinterInstance(
+            # The slicer's nozzle positions are kept only for a VP bound to one printer.
+            target_printer_id=7,
             vp_id=99,
             name="LateMQTT",
             mode="queue",
@@ -2879,6 +2885,8 @@ class TestVirtualPrinterInstance:
         mock_session_factory.return_value = mock_session_ctx
 
         inst = VirtualPrinterInstance(
+            # The slicer's nozzle positions are kept only for a VP bound to one printer.
+            target_printer_id=7,
             vp_id=96,
             name="RaceCommitYield",
             mode="queue",
@@ -2971,6 +2979,8 @@ class TestVirtualPrinterInstance:
         mock_session_factory.return_value = mock_session_ctx
 
         inst = VirtualPrinterInstance(
+            # The slicer's nozzle positions are kept only for a VP bound to one printer.
+            target_printer_id=7,
             vp_id=98,
             name="LateMQTTDispatched",
             mode="queue",

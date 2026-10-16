@@ -28,6 +28,7 @@ from backend.app.services.virtual_printer.mqtt_bridge import MQTTBridge
 from backend.app.services.virtual_printer.mqtt_server import SimpleMQTTServer
 from backend.app.services.virtual_printer.ssdp_server import SSDPProxy, VirtualPrinterSSDPServer
 from backend.app.services.virtual_printer.tcp_proxy import SlicerProxyManager, TCPProxy
+from backend.app.utils.printer_models import is_nozzle_rack_model
 
 if TYPE_CHECKING:
     from backend.app.services.printer_manager import PrinterManager
@@ -131,13 +132,13 @@ _SLICER_OPTIONS_WAIT_TIMEOUT = 5.0
 _RECENT_QUEUE_ITEM_TTL = 30.0
 
 # BambuStudio's tri-state calibration options (bed_leveling / flow_cali /
-# nozzle_offset_cali) travel on the project_file command as a bool plus an int
-# companion — off=0, on=1, auto=2 (getValueInt parity). The int carries the full
-# state; the bool is true only for "on".
+# nozzle_offset_cali) travel on the project_file command as an int — off=0,
+# on=1, auto=2 (getValueInt parity). Bed levelling and flow calibration add a
+# bool that is true only for "on"; nozzle offset calibration is the int alone.
 _TRISTATE_INT = {0: "off", 1: "on", 2: "auto"}
 
 
-def _tristate_from_slicer(data: dict, bool_field: str, int_field: str) -> str | None:
+def _tristate_from_slicer(data: dict, bool_field: str | None, int_field: str) -> str | None:
     """Reconstruct off/on/auto from a captured slicer project_file dict.
 
     Prefer the int companion (auto_bed_leveling / extrude_cali_flag / etc.) which
@@ -151,7 +152,7 @@ def _tristate_from_slicer(data: dict, bool_field: str, int_field: str) -> str | 
             resolved = None
         if resolved is not None:
             return resolved
-    if bool_field in data:
+    if bool_field is not None and bool_field in data:
         return "on" if bool(data[bool_field]) else "off"
     return None
 
@@ -325,6 +326,9 @@ class VirtualPrinterInstance:
         # `_RECENT_QUEUE_ITEM_TTL` are evicted opportunistically on each
         # queue-add.
         self._recent_queue_items: dict[str, tuple[list[int], float]] = {}
+        # Per entry above: the highest slot id each queued plate prints, so a
+        # late slicer AMS mapping is stamped only onto plates it reaches.
+        self._recent_queue_item_reach: dict[str, dict[int, int]] = {}
 
         # Per-instance services
         self._proxy: SlicerProxyManager | None = None
@@ -410,6 +414,18 @@ class VirtualPrinterInstance:
             # the slicer that just unwedged. Earlier audit suggesting the
             # IDLE reset was wrong — staying at FINISH is the designed
             # behaviour. The next upload's PREPARE→FINISH cycle starts fresh.
+
+    def _keeps_slicer_nozzle_mapping(self) -> bool:
+        """Whether the slicer's ``nozzle_mapping`` is stored on the queue item.
+
+        On a rack model (H2C) it holds physical rack positions, which name the
+        rack of the printer the slicer was looking at: kept only when this VP
+        targets that one printer. A VP for any printer of the model leaves it
+        empty, and the dispatch resolves the positions against the rack of the
+        printer it picks. Elsewhere it holds extruder indices, which are the
+        same on every printer of the model.
+        """
+        return self.target_printer_id is not None or not is_nozzle_rack_model(self.model)
 
     def _target_is_dual_nozzle(self) -> bool:
         """Whether the target printer has two nozzles, which decides the global
@@ -511,11 +527,13 @@ class VirtualPrinterInstance:
         committed for this filename and patches in the slicer's
         ``nozzle_mapping`` + ``ams_mapping`` + workflow flags, but only
         while the items are still ``pending`` (scheduler hasn't dispatched
-        them yet).
+        them yet). The two mappings pass the same gates as in
+        ``_add_to_print_queue``.
         """
         if not self._session_factory:
             return
         entry = self._recent_queue_items.get(stash_key)
+        plate_reach = self._recent_queue_item_reach.pop(stash_key, {})
         if entry is None:
             return
         queue_item_ids, committed_at = entry
@@ -534,6 +552,7 @@ class VirtualPrinterInstance:
         for bool_field, int_field, column in (
             ("bed_leveling", "auto_bed_leveling", "bed_levelling"),
             ("flow_cali", "extrude_cali_flag", "flow_cali"),
+            (None, "nozzle_offset_cali", "nozzle_offset_cali"),
         ):
             resolved = _tristate_from_slicer(data, bool_field, int_field)
             if resolved is not None:
@@ -548,7 +567,8 @@ class VirtualPrinterInstance:
             if mqtt_field in data:
                 patch[column] = bool(data[mqtt_field])
 
-        raw = data.get("nozzle_mapping")
+        # Same gate as in `_add_to_print_queue`.
+        raw = data.get("nozzle_mapping") if self._keeps_slicer_nozzle_mapping() else None
         if raw is not None:
             if isinstance(raw, str):
                 try:
@@ -610,8 +630,29 @@ class VirtualPrinterInstance:
                 if not eligible_ids:
                     self._recent_queue_items.pop(stash_key, None)
                     return
-                if patch:
-                    await db.execute(update(PrintQueueItem).where(PrintQueueItem.id.in_(eligible_ids)).values(**patch))
+                # As in `_add_to_print_queue`: a mapping shorter than a plate's
+                # highest slot id cannot address that plate's own slots, so that
+                # plate is left to the scheduler's computed mapping.
+                short_ids: list[int] = []
+                if "ams_mapping" in patch:
+                    reach = len(json.loads(patch["ams_mapping"]))
+                    short_ids = [i for i in eligible_ids if plate_reach.get(i, 0) > reach]
+                    if short_ids:
+                        logger.warning(
+                            "[VP %s] Late slicer ams_mapping has %d entries, too few for queue item(s) %s; "
+                            "leaving those to the scheduler's mapping.",
+                            self.name,
+                            reach,
+                            short_ids,
+                        )
+                reached_ids = [i for i in eligible_ids if i not in short_ids]
+                if patch and reached_ids:
+                    await db.execute(update(PrintQueueItem).where(PrintQueueItem.id.in_(reached_ids)).values(**patch))
+                short_patch = {k: v for k, v in patch.items() if k != "ams_mapping"}
+                if short_ids and short_patch:
+                    await db.execute(
+                        update(PrintQueueItem).where(PrintQueueItem.id.in_(short_ids)).values(**short_patch)
+                    )
 
                 # The archive was already created (with no slicer_ams_mapping)
                 # before this late MQTT arrived — see
@@ -915,7 +956,7 @@ class VirtualPrinterInstance:
                         return bool(slicer_opts[field_mqtt])
                     return settings_default
 
-                def _slicer_tristate(bool_field: str, int_field: str, settings_default: str) -> str:
+                def _slicer_tristate(bool_field: str | None, int_field: str, settings_default: str) -> str:
                     """Slicer's tri-state (off/on/auto) if present, else the default."""
                     if slicer_opts is not None:
                         resolved = _tristate_from_slicer(slicer_opts, bool_field, int_field)
@@ -936,6 +977,11 @@ class VirtualPrinterInstance:
                     "extrude_cali_flag",
                     _tristate_setting(await get_setting(db, "default_flow_cali"), "auto"),
                 )
+                nozzle_offset_cali = _slicer_tristate(
+                    None,
+                    "nozzle_offset_cali",
+                    _tristate_setting(await get_setting(db, "default_nozzle_offset_cali"), "auto"),
+                )
                 vibration_cali = _slicer_or(
                     "vibration_cali", _bool_setting(await get_setting(db, "default_vibration_cali"), True)
                 )
@@ -943,6 +989,8 @@ class VirtualPrinterInstance:
                     "layer_inspect", _bool_setting(await get_setting(db, "default_layer_inspect"), False)
                 )
                 timelapse = _slicer_or("timelapse", _bool_setting(await get_setting(db, "default_timelapse"), False))
+                # No setting for it: the column default (on) when the slicer is silent.
+                use_ams = _slicer_or("use_ams", True)
 
                 # "Ask for Outcome" is a default print option like the ones
                 # above. A plate sent here from Bambu Studio is also one of the
@@ -965,8 +1013,13 @@ class VirtualPrinterInstance:
                 # in the original fix but BambuStudio never actually sends it
                 # — verified via wire capture on H2C — so only `nozzle_mapping`
                 # is forwarded now.)
+                #
+                # On a rack model only for a VP that targets one printer: the
+                # positions name that printer's rack. An "Any <model>" VP leaves
+                # them to the dispatch, which resolves them against the rack of
+                # the printer it picks. See `_keeps_slicer_nozzle_mapping`.
                 nozzle_mapping_json: str | None = None
-                if slicer_opts is not None:
+                if slicer_opts is not None and self._keeps_slicer_nozzle_mapping():
                     raw = slicer_opts.get("nozzle_mapping")
                     if raw is not None:
                         # BambuStudio's NetworkAgent embeds this as parsed
@@ -1109,6 +1162,7 @@ class VirtualPrinterInstance:
                     # force_color_match=True when the per-VP setting is on, so
                     # upgraders keep the old behaviour by default.
                     queue_item_ids: list[int] = []
+                    queue_item_reach: dict[int, int] = {}
                     for offset, plate_id in enumerate(plate_ids, start=1):
                         required_filament_types_json: str | None = None
                         filament_overrides_json: str | None = None
@@ -1152,6 +1206,7 @@ class VirtualPrinterInstance:
                         # back to a computed mapping for that plate instead
                         # (#2700 review).
                         plate_ams_mapping_json = queue_ams_mapping_json
+                        plate_max_slot = max((r.get("slot_id") or 0) for r in requirements) if requirements else 0
                         if queue_ams_mapping is not None and requirements:
                             max_slot_id = max((r.get("slot_id") or 0) for r in requirements)
                             if max_slot_id > len(queue_ams_mapping):
@@ -1177,9 +1232,11 @@ class VirtualPrinterInstance:
                             filament_overrides=filament_overrides_json,
                             bed_levelling=bed_levelling,
                             flow_cali=flow_cali,
+                            nozzle_offset_cali=nozzle_offset_cali,
                             vibration_cali=vibration_cali,
                             layer_inspect=layer_inspect,
                             timelapse=timelapse,
+                            use_ams=use_ams,
                             confirm_outcome=confirm_outcome,
                             # Per-VP opt-in for auto-print G-code injection (#1516).
                             # Default off; when on, the scheduler still no-ops unless
@@ -1198,6 +1255,7 @@ class VirtualPrinterInstance:
                         db.add(queue_item)
                         await db.flush()  # populate queue_item.id before logging
                         queue_item_ids.append(queue_item.id)
+                        queue_item_reach[queue_item.id] = plate_max_slot
                     await db.commit()
                     # Track the freshly-committed queue items so
                     # `on_print_command` can retroactively stamp slicer-side
@@ -1210,6 +1268,10 @@ class VirtualPrinterInstance:
                     cutoff = now - _RECENT_QUEUE_ITEM_TTL
                     self._recent_queue_items = {k: v for k, v in self._recent_queue_items.items() if v[1] > cutoff}
                     self._recent_queue_items[file_path.name] = (list(queue_item_ids), now)
+                    self._recent_queue_item_reach = {
+                        k: v for k, v in self._recent_queue_item_reach.items() if k in self._recent_queue_items
+                    }
+                    self._recent_queue_item_reach[file_path.name] = queue_item_reach
                     # Last-chance check: MQTT for this filename could have
                     # arrived during ANY await between the initial pop and
                     # now — wait_for itself, archive_print, db.flush,

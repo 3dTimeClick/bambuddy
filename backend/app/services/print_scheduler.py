@@ -64,6 +64,7 @@ from backend.app.services.printer_manager import (
     supports_drying,
     supports_drying_while_printing,
 )
+from backend.app.services.queue_item_printer import drop_printer_resolved
 from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
     _global_tray_from_assignment,
@@ -7976,8 +7977,9 @@ class PrintScheduler:
         )
         self._short_hold_checked_at.pop(item.id, None)
         item.printer_id = match_id
-        # Resolved against the printer it leaves (#3239).
-        item.ams_mapping = None
+        # Resolved against the printer it leaves (#3239): the tray mapping and
+        # the nozzle positions.
+        drop_printer_resolved(item)
         item.manual_start = False
         item.filament_short = False
         item.waiting_reason = None
@@ -8145,7 +8147,7 @@ class PrintScheduler:
             # has the filament, since an unresolved slot is deliberately not a
             # conflict worth recomputing over.
             item.printer_id = None
-            item.ams_mapping = None
+            drop_printer_resolved(item)
         await db.commit()
 
         job_name = await self._get_job_name(db, item)

@@ -164,6 +164,12 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Prints queued through a virtual printer keep the slicer's nozzle choices** —
+  - **Nozzle offset calibration** from the slicer, or the default from Settings → Workflow, is used. It always ran on "Auto".
+  - **H2C rack nozzles** picked in the slicer are kept only by a virtual printer bound to one printer. A virtual printer for any H2C sent those positions to whichever H2C took the job, whatever that printer's rack held; the dispatch now picks them from that printer's rack.
+  - **A job the queue moves to another printer**, or releases back to the pool, no longer takes the old printer's nozzle positions along.
+  - **AMS on or off** from the slicer is used when the slicer's options arrive in time; it was used only when they arrived late.
+  - **A slicer AMS mapping that arrives late** is no longer put on a plate of a multi-plate send that it cannot reach; that plate gets a computed mapping, as when the options arrive in time.
 - **Settings that were not saved or not used** —
   - **Max copies per run** (Workflow) and the Docker compose directory used in the update instructions are saved. They changed on screen and were never sent, so a 100-copy pipeline run stayed refused at the old limit of 50.
   - **Default printer** (General) is now selected in the print dialog when it opens, unless the file was sliced for another model or the job goes to a model rather than a printer. The setting was saved and never used.
