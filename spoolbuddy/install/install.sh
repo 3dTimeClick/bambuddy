@@ -759,6 +759,15 @@ create_bambuddy_directories() {
 create_bambuddy_service() {
     info "Creating Bambuddy systemd service..."
 
+    # ProtectHome=true hides /home/* from the service, which breaks ExecStart
+    # when INSTALL_PATH lives under /home (issue #1685, as in install/install.sh).
+    # Read-only there keeps the venv binary resolvable; ReadWritePaths below
+    # re-grants writes for the install's data and log dirs.
+    local protect_home="true"
+    if [[ "$INSTALL_PATH" == /home/* ]]; then
+        protect_home="read-only"
+    fi
+
     # Overwriting the unit used to silently drop any ReadWritePaths the operator
     # had added — a NAS share for Scheduled Backups, typically — after which the
     # backups failed with EROFS, which looks like a permission problem and is not
@@ -821,7 +830,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=$protect_home
 # ProtectSystem=strict makes every path outside the ones below read-only for this
 # service. To back up to a NAS share, add it here or in a drop-in that survives a
 # reinstall: sudo systemctl edit bambuddy → [Service] → ReadWritePaths=/mnt/share

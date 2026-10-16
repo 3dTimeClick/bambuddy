@@ -221,3 +221,59 @@ class TestReportUpdateStatus:
         result = await api.report_update_status("dev-1", "error", "oops")
 
         assert result is None
+
+
+def _status_error(code: int, detail: str | None = None) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://localhost:5000/x")
+    body = {"json": {"detail": detail}} if detail is not None else {}
+    return httpx.HTTPStatusError("rejected", request=request, response=httpx.Response(code, request=request, **body))
+
+
+class TestRejectedRequests:
+    """A request the backend refuses is not a connection problem: buffering it
+    replays it forever, and the flush stops at the first item that fails."""
+
+    @pytest.mark.asyncio
+    async def test_a_heartbeat_for_an_unregistered_device_is_not_buffered(self, api):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock(side_effect=_status_error(404, "Device not registered"))
+        api._client.post = AsyncMock(return_value=resp)
+
+        result = await api.heartbeat(device_id="dev-1", nfc_ok=True, scale_ok=True, uptime_s=1)
+
+        assert result is None
+        assert len(api._buffer) == 0
+        assert api.unregistered is True
+
+    @pytest.mark.asyncio
+    async def test_a_proxys_bare_404_is_not_taken_for_an_unregistered_device(self, api):
+        """A reverse proxy answers 404 while Bambuddy restarts."""
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock(side_effect=_status_error(404))
+        api._client.post = AsyncMock(return_value=resp)
+
+        await api.heartbeat(device_id="dev-1", nfc_ok=True, scale_ok=True, uptime_s=1)
+
+        assert api.unregistered is False
+
+    @pytest.mark.asyncio
+    async def test_a_connection_error_is_still_buffered(self, api):
+        api._client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+        await api.heartbeat(device_id="dev-1", nfc_ok=True, scale_ok=True, uptime_s=1)
+
+        assert len(api._buffer) == 1
+        assert api.unregistered is False
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_buffered_item_does_not_block_the_rest(self, api):
+        api._buffer.append({"path": "/devices/dev-1/heartbeat", "data": {}})
+        api._buffer.append({"path": "/scale/reading", "data": {"w": 1}})
+        rejected = MagicMock(raise_for_status=MagicMock(side_effect=_status_error(404)))
+        accepted = MagicMock(raise_for_status=MagicMock())
+        api._client.post = AsyncMock(side_effect=[rejected, accepted])
+
+        await api._flush_buffer()
+
+        assert len(api._buffer) == 0
+        assert api._client.post.await_count == 2

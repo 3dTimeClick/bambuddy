@@ -1513,6 +1513,10 @@ class SpoolmanClient:
                 remaining_weight=remaining,
                 comment="Created by Bambuddy",
                 extra=extra,
+                # The roll's own net weight: the filament may be another size's
+                # (a 250 g refill of a 1000 g line), and Spoolman copies its
+                # weight when the spool gives none (#3194).
+                initial_weight=tray.tray_weight if tray.tray_weight > 0 else None,
             )
             await self.add_native_tags(created, [tray.tray_uuid, chip_uid], tag_format)
             return created

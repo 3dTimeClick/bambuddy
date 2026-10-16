@@ -164,6 +164,9 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **A spool Spoolman creates from the AMS is the size of the roll** — a 250 g refill matched to an existing 1000 g filament was created as a 1000 g spool with 250 g left, showing as 75% used.
+- **An unregistered SpoolBuddy that is still running registers again on its next heartbeat**, as the documentation says. It stayed missing until the daemon or the Pi restarted, and the refused heartbeats filled its send buffer, which then held back everything queued behind them.
+- **SpoolBuddy installer, full mode, installed under /home** — the Bambuddy service it writes now starts. The service hid /home from itself and failed with 203/EXEC, as the main installer's did before #1685.
 - **Spoolman costs** —
   - A failed or stopped print in Spoolman mode is logged in Print History with what its Spoolman spools cost for the filament it used, as with the built-in inventory. It was logged with no cost.
   - The estimated cost of a queued library file is priced from the Spoolman spools in the trays it maps to. Every slot was priced at the default filament cost.
