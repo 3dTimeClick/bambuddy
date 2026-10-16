@@ -2374,10 +2374,11 @@ async def get_media_or_request_printer_scope(
     """``RequestPrinterScope`` for routes an ``<img>`` may load with ``?token=``.
 
     Such a request carries a media token and no headers, so the header-based
-    lookup would find nobody and answer with no printers. With headers present
-    they win, exactly as in ``require_media_token_*``.
+    lookup would find nobody and answer with no printers. A media token wins
+    over any headers sent with it, exactly as in ``require_media_token_*``:
+    the printers are always those of the caller the permission check named.
     """
-    if token and credentials is None and x_api_key is None:
+    if token:
         async with async_session() as db:
             if not await is_auth_enabled(db):
                 return ALL_PRINTERS

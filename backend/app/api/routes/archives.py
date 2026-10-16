@@ -1782,7 +1782,7 @@ async def get_archive(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get a specific archive."""
     user, can_read_all = auth_result
@@ -1812,7 +1812,7 @@ async def get_archive_delete_impact(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Pre-flight for the delete-confirm modal (#1734).
 
@@ -1842,7 +1842,7 @@ async def list_archive_runs(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """List PrintLogEntry rows for this archive — one per print event.
 
@@ -1875,7 +1875,7 @@ async def find_similar_archives(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Find archives with similar settings for comparison.
 
@@ -2033,7 +2033,7 @@ async def toggle_favorite(
             Permission.ARCHIVES_UPDATE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Toggle favorite status for an archive."""
     user, can_modify_all = auth_result
@@ -2310,7 +2310,7 @@ async def get_archive_duplicates(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get duplicates for a specific archive."""
     user, can_read_all = auth_result
@@ -2451,7 +2451,7 @@ async def download_archive(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Download the 3MF file."""
     user, can_read_all = auth_result
@@ -2484,7 +2484,7 @@ async def download_archive_with_filename(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Download the 3MF file with filename in URL."""
     user, can_read_all = auth_result
@@ -2512,7 +2512,7 @@ async def create_archive_slicer_token(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Create a short-lived download token for opening files in slicer applications.
 
@@ -2756,7 +2756,7 @@ async def create_archive_media_download_token(
     auth_result: tuple[User | None, bool] = Depends(
         require_ownership_permission(Permission.ARCHIVES_READ_ALL, Permission.ARCHIVES_READ_OWN)
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Mint a single-use token bound to an archive's attached timelapse."""
 
@@ -2861,7 +2861,7 @@ async def delete_timelapse(
             Permission.ARCHIVES_DELETE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Remove the timelapse video from an archive."""
     user, can_modify_all = auth_result
@@ -3307,7 +3307,7 @@ async def get_timelapse_info(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get timelapse video metadata for editor."""
     from backend.app.schemas.timelapse import TimelapseInfoResponse
@@ -3344,7 +3344,7 @@ async def get_timelapse_thumbnails(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Generate timeline thumbnail frames for visual scrubbing."""
     import base64
@@ -3502,7 +3502,7 @@ async def upload_photo(
             Permission.ARCHIVES_UPDATE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Upload a photo of the printed result."""
     user, can_modify_all = auth_result
@@ -3602,7 +3602,7 @@ async def delete_photo(
             Permission.ARCHIVES_DELETE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete a photo."""
     user, can_modify_all = auth_result
@@ -3950,7 +3950,7 @@ async def get_archive_capabilities(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Check what viewing capabilities are available for this 3MF file."""
     import defusedxml.ElementTree as ET
@@ -4178,7 +4178,7 @@ async def get_gcode(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Extract and return G-code from the 3MF file.
 
@@ -4460,7 +4460,7 @@ async def get_archive_plates(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get available plates from a multi-plate 3MF archive.
 
@@ -4867,7 +4867,7 @@ async def get_filament_requirements(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get filament requirements from the archived 3MF file.
 
@@ -5033,7 +5033,7 @@ async def slice_archive(
     request: SliceRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.LIBRARY_UPLOAD),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
     actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Enqueue a slice job for an archive's source. Returns 202 + job_id;
@@ -5181,7 +5181,7 @@ async def get_project_page(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Get the project page data from the 3MF file."""
     from backend.app.schemas.archive import ProjectPageResponse
@@ -5212,7 +5212,7 @@ async def update_project_page(
             Permission.ARCHIVES_UPDATE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Update project page metadata in the 3MF file."""
     from backend.app.services.archive import ProjectPageParser
@@ -5341,7 +5341,7 @@ async def upload_source_3mf(
             Permission.ARCHIVES_UPDATE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Upload the original source 3MF project file for an archive."""
     user, can_modify_all = auth_result
@@ -5393,7 +5393,7 @@ async def download_source_3mf(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Download the source 3MF project file."""
     user, can_read_all = auth_result
@@ -5428,7 +5428,7 @@ async def download_source_3mf_for_slicer(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Download source 3MF with filename in URL."""
     user, can_read_all = auth_result
@@ -5459,7 +5459,7 @@ async def create_source_slicer_token(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Create a short-lived download token for opening source 3MF in slicer."""
     from backend.app.core.auth import create_slicer_download_token
@@ -5614,7 +5614,7 @@ async def delete_source_3mf(
             Permission.ARCHIVES_DELETE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete the source 3MF project file from an archive."""
     user, can_modify_all = auth_result
@@ -5652,7 +5652,7 @@ async def upload_f3d(
             Permission.ARCHIVES_UPDATE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Upload a Fusion 360 design file for an archive."""
     user, can_modify_all = auth_result
@@ -5704,7 +5704,7 @@ async def download_f3d(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Download the Fusion 360 design file."""
     user, can_read_all = auth_result
@@ -5738,7 +5738,7 @@ async def delete_f3d(
             Permission.ARCHIVES_DELETE_OWN,
         )
     ),
-    printer_scope: PrinterScope = MediaOrRequestPrinterScope,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete the Fusion 360 design file from an archive."""
     user, can_modify_all = auth_result
