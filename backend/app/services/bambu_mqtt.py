@@ -209,9 +209,13 @@ def resolve_external_spools_in_mapping(ams_mapping: object, ams_mapping2: object
     global tray the rest of Bambuddy uses: the ams_id itself on dual-nozzle
     printers (254 = left/deputy, 255 = right/main), 254 on single-nozzle
     printers, which have one external spool that the wire always calls 255.
-    ``{255, 255}`` is the unmapped marker and stays -1. Every other entry is
-    left exactly as captured. Without a usable ``ams_mapping2`` the input is
-    returned unchanged.
+    ``{255, 255}`` is the unmapped marker and stays -1.
+
+    An A2L AMS-Lite tray is the local slot 0-3 in the flat list and
+    ``{ams_id: 16, slot_id: n}`` in ``ams_mapping2``; it becomes its normalised
+    global tray 24+n. Kept local, it read as a regular AMS tray, so usage was
+    charged to the wrong spool. Every other entry is left exactly as captured.
+    Without a usable ``ams_mapping2`` the input is returned unchanged.
     """
     if not isinstance(ams_mapping, list) or not isinstance(ams_mapping2, list):
         return ams_mapping
@@ -219,11 +223,14 @@ def resolve_external_spools_in_mapping(ams_mapping: object, ams_mapping2: object
         return ams_mapping
     resolved = list(ams_mapping)
     for i, (flat, detail) in enumerate(zip(ams_mapping, ams_mapping2, strict=True)):
-        if flat != -1 or not isinstance(detail, dict):
+        if not isinstance(detail, dict):
             continue
         ams_id = detail.get("ams_id")
         slot_id = detail.get("slot_id")
-        if ams_id not in (254, 255) or slot_id == 255:
+        if ams_id == A2L_LITE_PHYSICAL_AMS_ID and slot_id in (0, 1, 2, 3):
+            resolved[i] = A2L_LITE_GLOBAL_BASE + slot_id
+            continue
+        if flat != -1 or ams_id not in (254, 255) or slot_id == 255:
             continue
         resolved[i] = ams_id if is_dual_nozzle else 254
     return resolved
