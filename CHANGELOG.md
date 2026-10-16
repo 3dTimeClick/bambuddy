@@ -164,6 +164,11 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Which plate of a multi-plate file printed** —
+  - Print History logs the filament and cost of the plate that printed. A reprint of another plate of the same file used to log the first plate's estimate.
+  - Filament usage after a Bambuddy restart mid-print is charged for the plate the queue job printed, not for the plate of the archive's first print.
+  - A print started outside Bambuddy records its plate on the archive when the printer reports it, so reprints, usage and Print History use that plate instead of the first one or the whole file.
+  - The archive's thumbnail and details describe the plate Bambuddy sent, also when the printer reports only the file name or names another plate.
 - **Reprints and their archives** —
   - A reprint that completes no longer keeps showing why the previous run of the same archive failed (for example a clogged nozzle).
   - A queued job whose archive was deleted before it started is now archived anew when it prints, on a printer that archives its prints. Before, the print ran with no archive, no start notification and no usage tracking.

@@ -8449,7 +8449,13 @@ async def on_print_complete(printer_id: int, data: dict):
                 _est_full_path = (
                     app_settings.base_dir / archive.file_path if archive.file_path else None
                 )  # SEC-PATH-OK: archive.file_path is DB-stored, internally generated
-                _est_grams, _est_cost = _plate_scoped_run_estimate(archive, _est_full_path)
+                # The plate that printed, as billing reads it: a reprint of
+                # another plate must not log the archive's first plate.
+                _est_grams, _est_cost = _plate_scoped_run_estimate(
+                    archive,
+                    _est_full_path,
+                    billing_plate_id if billing_plate_id is not None else notify_plate_id,
+                )
                 _run_grams = _compute_run_filament_grams(
                     _run_status,
                     _est_grams,

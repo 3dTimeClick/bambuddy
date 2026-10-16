@@ -1250,6 +1250,14 @@ class ArchiveService:
 
         return duplicates
 
+    @staticmethod
+    def _has_sliced_plate(file_path: Path, plate_number: int) -> bool:
+        try:
+            with zipfile.ZipFile(file_path) as zf:
+                return f"Metadata/plate_{plate_number}.gcode" in zf.namelist()
+        except (OSError, zipfile.BadZipFile):
+            return False
+
     async def archive_print(
         self,
         printer_id: int | None,
@@ -1387,6 +1395,17 @@ class ArchiveService:
             match = re.search(r"plate_(\d+)", filename)
             if match:
                 plate_number = int(match.group(1))
+        if plate_id is None:
+            # A print Bambuddy did not dispatch only names its plate in the
+            # gcode path. Kept as the archive's plate when the file really has
+            # it: some firmware reports the .3mf name there instead, and a user
+            # name like "x_plate_2" must not label a single-plate file.
+            if plate_number is not None and self._has_sliced_plate(dest_file, plate_number):
+                plate_id = plate_number
+        else:
+            # The dispatcher knows the plate; the path may name none, or not
+            # the plate sent (#1166). Without it the parser describes another.
+            plate_number = plate_id
 
         # Parse 3MF metadata
         parser = ThreeMFParser(dest_file, plate_number=plate_number)

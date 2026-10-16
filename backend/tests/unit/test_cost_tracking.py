@@ -454,8 +454,9 @@ class TestCostCalculation:
         ams_mapping = [0, 1]
 
         # db returns: archive, assignment1, spool1, assignment2, spool2
-        # ams_mapping is provided, so no queue item lookup is performed
-        db = _mock_db_sequential([archive, assignment1, spool1, assignment2, spool2])
+        # db: archive, queue item for the plate (None), then assignments and
+        # spools; the given ams_mapping skips only the mapping fallback
+        db = _mock_db_sequential([archive, None, assignment1, spool1, assignment2, spool2])
 
         # Two filaments used
         filament_usage = [
