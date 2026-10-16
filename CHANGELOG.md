@@ -168,6 +168,7 @@ All notable changes to Bambuddy will be documented in this file.
   - A failed or stopped print in Spoolman mode is logged in Print History with what its Spoolman spools cost for the filament it used, as with the built-in inventory. It was logged with no cost.
   - The estimated cost of a queued library file is priced from the Spoolman spools in the trays it maps to. Every slot was priced at the default filament cost.
 - **Spoolman usage** —
+  - A failed or stopped single-filament print that switched to the AMS backup spool charges each Spoolman spool its share, as a completed print and the built-in inventory do. All of it went to the spool that ran out.
   - Two copies of the same archive printing at once on two printers are both charged to Spoolman. The second print's start failed on the shared archive and that print was never deducted.
   - A filament slot the print does not feed is no longer charged to the external spool, or to whichever AMS tray sits at that position, as with the built-in inventory.
 - **Spoolman slots** —
