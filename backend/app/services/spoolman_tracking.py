@@ -592,8 +592,11 @@ async def cleanup_tracking(
     db,
     last_layer_num: int | None = None,
     last_progress: int | None = None,
-):
-    """Report partial usage and clean up Spoolman tracking data for failed/aborted prints."""
+) -> float | None:
+    """Report partial usage and clean up Spoolman tracking data for failed/aborted prints.
+
+    Returns what the charged spools' prices make the run cost, or None when
+    none of them carries a price (or nothing was tracked)."""
     from backend.app.models.active_print_spoolman import ActivePrintSpoolman
 
     # Get tracking data first (needed for partial usage reporting)
@@ -606,15 +609,18 @@ async def cleanup_tracking(
 
     if not tracking:
         logger.debug("[SPOOLMAN] No tracking data to clean up for printer=%s, archive=%s", printer_id, archive_id)
-        return
+        return None
 
-    # Try to report partial usage before cleanup
+    # Try to report partial usage before cleanup, pricing each charge as it
+    # is made: the run's own cost, as the built-in inventory logs it.
+    print_cost = _PrintCost()
     try:
         await _report_partial_usage(
             printer_id,
             tracking,
             last_layer_num=last_layer_num,
             last_progress=last_progress,
+            cost_out=print_cost,
         )
     except Exception as e:
         logger.warning("[SPOOLMAN] Partial usage report failed: %s", e)
@@ -627,6 +633,14 @@ async def cleanup_tracking(
     )
     await db.commit()
     logger.debug("[SPOOLMAN] Cleaned up tracking data for printer=%s, archive=%s", printer_id, archive_id)
+    # A charged spool without a price at the default rate, as the built-in
+    # inventory prices its own (usage_tracker's cost_per_kg fallback).
+    run_cost = print_cost.cost
+    if print_cost.unpriced_grams > 0:
+        from backend.app.services.print_cost_estimate import default_cost_per_kg
+
+        run_cost += print_cost.unpriced_grams / 1000.0 * await default_cost_per_kg(db)
+    return round(run_cost, 2) or None
 
 
 async def release_archived_slot_rows(printer_id: int) -> None:
@@ -825,6 +839,7 @@ class _PrintCost:
 
     cost: float = 0.0
     priced_grams: float = 0.0
+    unpriced_grams: float = 0.0
     priced: int = 0
     unpriced: int = 0
 
@@ -835,6 +850,7 @@ class _PrintCost:
         rate = _spool_cost_per_gram(spool)
         if rate is None:
             self.unpriced += 1
+            self.unpriced_grams += grams
             logger.debug("[SPOOLMAN] %s: spool has no usable price, will fall back to the default rate", label)
             return
         self.cost += grams * rate
@@ -1127,6 +1143,7 @@ async def _report_partial_usage(
     tracking,
     last_layer_num: int | None = None,
     last_progress: int | None = None,
+    cost_out: _PrintCost | None = None,
 ):
     """Report partial filament usage based on actual G-code layer data.
 
@@ -1218,6 +1235,7 @@ async def _report_partial_usage(
             handled_global_tray_ids=set(),
             archive_id=getattr(tracking, "archive_id", -1),
             print_used_keys=_print_used_tray_keys(slot_to_tray, getattr(tracking, "tray_now_at_start", None), state),
+            cost_out=cost_out,
         )
         return
 
@@ -1284,6 +1302,7 @@ async def _report_partial_usage(
                 "Partial (G-code)",
                 printer_serial,
                 printer_id=printer_id,
+                cost_out=cost_out,
             )
             if spools_updated > 0:
                 logger.info("[SPOOLMAN] Reported partial usage to %s spool(s) using G-code data", spools_updated)
@@ -1322,6 +1341,7 @@ async def _report_partial_usage(
         "Partial (linear)",
         printer_serial,
         printer_id=printer_id,
+        cost_out=cost_out,
     )
     if spools_updated > 0:
         logger.info("[SPOOLMAN] Reported partial usage to %s spool(s) using linear interpolation", spools_updated)

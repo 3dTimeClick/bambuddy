@@ -70,12 +70,45 @@ def _parse_mapping(mapping: list[int] | str | None) -> list[int] | None:
     return None
 
 
-def _global_tray_id(assignment: SpoolAssignment) -> int:
+def _global_tray_id(assignment) -> int:
     if assignment.ams_id == 255:
         return 254 + assignment.tray_id
     if assignment.ams_id >= 128:
         return assignment.ams_id
     return assignment.ams_id * 4 + assignment.tray_id
+
+
+async def _spoolman_cost_by_tray(db: AsyncSession, printer_id: int, trays: set[int]) -> dict[int, float | None]:
+    """Per-kg price of the Spoolman spool in each of ``trays``, from the spool's
+    own price or its filament's. Only those spools are fetched, after a health
+    check: this runs on queue add and at dispatch. Empty when Spoolman cannot
+    be asked, and the estimate uses the default rate, as for an unpriced spool.
+    """
+    from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
+    from backend.app.services.spoolman_tracking import _get_spoolman_client_with_fallback, _spool_cost_per_gram
+
+    rows = [
+        row
+        for row in (
+            await db.execute(select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.printer_id == printer_id))
+        )
+        .scalars()
+        .all()
+        if _global_tray_id(row) in trays
+    ]
+    if not rows:
+        return {}
+    by_tray: dict[int, float | None] = {}
+    try:
+        client = await _get_spoolman_client_with_fallback()
+        if client is None:
+            return {}
+        for row in rows:
+            per_gram = _spool_cost_per_gram(await client.get_spool(row.spoolman_spool_id))
+            by_tray[_global_tray_id(row)] = per_gram * 1000.0 if per_gram is not None else None
+    except Exception as exc:  # noqa: BLE001 — an estimate falls back to the default rate
+        logger.debug("Spoolman prices unavailable for the queue estimate: %s", exc)
+    return by_tray
 
 
 async def default_cost_per_kg(db: AsyncSession) -> float:
@@ -172,11 +205,14 @@ async def estimate_queue_source_cost(
     default_cost = await default_cost_per_kg(db)
     cost_by_tray: dict[int, float | None] = {}
     mapping = _parse_mapping(ams_mapping)
-    # Built-in spool prices only. In Spoolman mode the built-in table may still
-    # hold rows from before the user switched -- nothing clears it since #2812 --
-    # and pricing an estimate from a spool the printer is not drawing on would
-    # be worse than the default rate this falls back to.
-    if printer_id is not None and mapping and not await spoolman_owns_assignments(db):
+    # The prices of the spools the mode's own table puts in those trays. The
+    # built-in table may still hold rows from before a switch to Spoolman --
+    # nothing clears it since #2812 -- and pricing from a spool the printer is
+    # not drawing on would be worse than the default rate this falls back to.
+    spoolman_mode = await spoolman_owns_assignments(db)
+    if printer_id is not None and mapping and spoolman_mode:
+        cost_by_tray = await _spoolman_cost_by_tray(db, printer_id, {t for t in mapping if t >= 0})
+    if printer_id is not None and mapping and not spoolman_mode:
         assignments = (
             (
                 await db.execute(

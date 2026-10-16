@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.app.models import active_print_spoolman  # noqa: F401  (registers its table)
 from backend.app.services.spoolman_tracking import (
     _snapshot_tray_remain,
     store_print_data,
@@ -536,6 +537,107 @@ class TestPartialUsageRemainDelta:
             await _report_partial_usage(printer_id=1, tracking=tracking)
 
         client.use_spool.assert_awaited_once_with(7, 50.0)
+
+
+class TestPartialUsageCost:
+    """A failed or stopped print's charges are priced as they are made, so the
+    run is logged with its own cost, as in the built-in inventory."""
+
+    @pytest.mark.asyncio
+    async def test_the_remain_delta_charge_is_priced(self):
+        from backend.app.services.spoolman_tracking import _PrintCost, _report_partial_usage
+
+        tracking = SimpleNamespace(
+            archive_id=99,
+            filament_usage=None,
+            layer_usage=None,
+            filament_properties=None,
+            ams_trays={"0": {"tray_uuid": "AAAA"}},
+            slot_to_tray=None,
+            tray_remain_start={"0-0": {"remain": 90, "tray_uuid": "AAAA"}},
+        )
+        client = AsyncMock()
+        # 20 for the 1000 g spool: 0.02 a gram.
+        client.get_spool = AsyncMock(
+            return_value={"id": 7, "price": 20.0, "initial_weight": 1000.0, "filament": {"weight": 1000.0}}
+        )
+        client.use_spool = AsyncMock()
+        printer_manager = MagicMock()
+        printer_manager.get_status.return_value = SimpleNamespace(
+            raw_data={"ams": [{"id": 0, "tray": [{"id": 0, "tray_uuid": "AAAA", "remain": 70}]}]},
+            layer_num=42,
+            total_layers=100,
+        )
+        cost = _PrintCost()
+
+        with (
+            patch("backend.app.api.routes.settings.get_setting", AsyncMock(return_value="true")),
+            patch(
+                "backend.app.services.spoolman_tracking._get_spoolman_client_with_fallback",
+                AsyncMock(return_value=client),
+            ),
+            patch("backend.app.services.spoolman_tracking._get_printer_serial", AsyncMock(return_value="serial")),
+            patch(
+                "backend.app.services.spoolman_tracking._resolve_spool_id_via_slot_assignment",
+                AsyncMock(return_value=7),
+            ),
+            patch("backend.app.services.printer_manager.printer_manager", printer_manager),
+        ):
+            await _report_partial_usage(printer_id=1, tracking=tracking, cost_out=cost)
+
+        assert round(cost.cost, 2) == 4.0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_returns_the_runs_cost(self, db_session, printer_factory, archive_factory):
+        from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+        from backend.app.services.spoolman_tracking import cleanup_tracking
+
+        printer = await printer_factory()
+        archive = await archive_factory(printer.id, status="printing", with_run=False)
+        db_session.add(ActivePrintSpoolman(printer_id=printer.id, archive_id=archive.id, ams_trays={}))
+        await db_session.commit()
+
+        async def _charge(printer_id, tracking, last_layer_num=None, last_progress=None, cost_out=None):
+            cost_out.add(50.0, {"price": 20.0, "initial_weight": 1000.0}, "Slot 1")
+
+        with patch("backend.app.services.spoolman_tracking._report_partial_usage", side_effect=_charge):
+            run_cost = await cleanup_tracking(printer.id, archive.id, db_session, last_progress=50)
+
+        assert run_cost == 1.0
+
+    @pytest.mark.asyncio
+    async def test_a_charged_spool_without_a_price_is_costed_at_the_default(
+        self, db_session, printer_factory, archive_factory
+    ):
+        """20 g at 60/kg plus 30 g off an unpriced spool at the 25/kg default,
+        as the built-in inventory prices it."""
+        from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+        from backend.app.services.spoolman_tracking import cleanup_tracking
+
+        printer = await printer_factory()
+        archive = await archive_factory(printer.id, status="printing", with_run=False)
+        db_session.add(ActivePrintSpoolman(printer_id=printer.id, archive_id=archive.id, ams_trays={}))
+        await db_session.commit()
+
+        async def _charge(printer_id, tracking, last_layer_num=None, last_progress=None, cost_out=None):
+            cost_out.add(20.0, {"price": 60.0, "initial_weight": 1000.0}, "Slot 1")
+            cost_out.add(30.0, {"price": None}, "Slot 2")
+
+        with patch("backend.app.services.spoolman_tracking._report_partial_usage", side_effect=_charge):
+            assert await cleanup_tracking(printer.id, archive.id, db_session) == 1.95
+
+    @pytest.mark.asyncio
+    async def test_cleanup_without_a_priced_spool_reports_no_cost(self, db_session, printer_factory, archive_factory):
+        from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+        from backend.app.services.spoolman_tracking import cleanup_tracking
+
+        printer = await printer_factory()
+        archive = await archive_factory(printer.id, status="printing", with_run=False)
+        db_session.add(ActivePrintSpoolman(printer_id=printer.id, archive_id=archive.id, ams_trays={}))
+        await db_session.commit()
+
+        with patch("backend.app.services.spoolman_tracking._report_partial_usage", AsyncMock()):
+            assert await cleanup_tracking(printer.id, archive.id, db_session) is None
 
 
 class _AsyncCtx:

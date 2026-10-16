@@ -8166,6 +8166,9 @@ async def on_print_complete(printer_id: int, data: dict):
         logger.warning("Failed to clear persisted print session for printer %s: %s", printer_id, e)
 
     # Spoolman: report filament usage (requires archive_id for tracking data lookup)
+    # A partial run's cost from the Spoolman spools it was charged to; the
+    # built-in inventory's comes in usage_results.
+    spoolman_run_cost: float | None = None
     if archive_id:
         if data.get("status") == "completed":
             try:
@@ -8177,7 +8180,7 @@ async def on_print_complete(printer_id: int, data: dict):
             # Report partial usage if tracking data exists (only stored when weight sync is disabled)
             try:
                 async with async_session() as db:
-                    await _cleanup_spoolman_tracking(
+                    spoolman_run_cost = await _cleanup_spoolman_tracking(
                         printer_id,
                         archive_id,
                         db,
@@ -8507,6 +8510,8 @@ async def on_print_complete(printer_id: int, data: dict):
                 _run_cost: float | None = None
                 if usage_results:
                     _run_cost = sum(r.get("cost") or 0 for r in usage_results) or None
+                if _run_cost is None and _run_status != "completed":
+                    _run_cost = spoolman_run_cost
                 if _run_cost is None and _run_status == "completed":
                     _run_cost = _est_cost
 
