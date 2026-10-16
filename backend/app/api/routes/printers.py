@@ -1074,7 +1074,9 @@ async def get_current_print_user(
         raise HTTPException(404, "Printer not found")
 
     user_info = printer_manager.get_current_print_user(printer_id)
-    return user_info or {}
+    if not user_info:
+        return {}
+    return {"user_id": user_info["user_id"], "username": user_info["username"]}
 
 
 @router.post("/{printer_id}/refresh-status")

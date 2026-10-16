@@ -196,7 +196,7 @@ class TestSchedulerPropagatesOwnerToPrinterManager:
         monkeypatch.setattr(
             scheduler_module.printer_manager,
             "set_current_print_user",
-            lambda printer_id, uid, username: captured.append((printer_id, uid, username)),
+            lambda printer_id, uid, username, **_: captured.append((printer_id, uid, username)),
         )
 
         await PrintScheduler()._propagate_owner_to_printer_manager(db_session, queue_item)
@@ -218,7 +218,7 @@ class TestSchedulerPropagatesOwnerToPrinterManager:
         monkeypatch.setattr(
             scheduler_module.printer_manager,
             "set_current_print_user",
-            lambda *args: captured.append(args),
+            lambda *args, **_: captured.append(args),
         )
 
         await PrintScheduler()._propagate_owner_to_printer_manager(db_session, queue_item)
@@ -243,7 +243,7 @@ class TestSchedulerPropagatesOwnerToPrinterManager:
         monkeypatch.setattr(
             scheduler_module.printer_manager,
             "set_current_print_user",
-            lambda *args: captured.append(args),
+            lambda *args, **_: captured.append(args),
         )
 
         # Must not raise — the dispatch loop would otherwise lose the whole

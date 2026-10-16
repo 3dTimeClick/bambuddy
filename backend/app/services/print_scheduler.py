@@ -1246,6 +1246,17 @@ class PrintScheduler:
         # unsuccessful exit; a successful start removes the item id and leaves
         # the reservation for finance_billing to consume with the archive.
         self._unconfirmed_budget_reservations: set[int] = set()
+        # The print user `_start_print` handed to printer_manager for an item
+        # whose print command has not been sent yet (item_id -> printer_id).
+        # `_dispatch_one` takes it back on every unsuccessful exit, like the
+        # expected print above: it marks the printer's next print as Bambuddy's.
+        self._unconfirmed_print_user: dict[int, int] = {}
+        # Prints whose command went out but which the printer has not been
+        # seen starting yet: item_id -> (printer_id, remote_filename, archive_id),
+        # the file and archive None for a library print. The watchdog drops the
+        # entry once the print runs, and withdraws what it stands for when the
+        # print never starts (see `_forget_unstarted_print`).
+        self._sent_unstarted_print: dict[int, tuple[int, str | None, int | None]] = {}
         # Chamber temperature history for smart soak-time reduction.
         # printer_id -> deque of (monotonic_timestamp, celsius) sampled each scheduler tick.
         # Entries older than _chamber_history_ttl are pruned on write.
@@ -1379,6 +1390,8 @@ class PrintScheduler:
                     item.status = status
                     item.completed_at = datetime.now(timezone.utc)
                     closed = True
+                    # The printer is idle: nothing it prints next is this item's.
+                    self._forget_unstarted_print(item.id, unless_printing=True)
                     logger.warning(
                         "Queue item %s was still 'printing' after printer %s reported %s for %.0fs — "
                         "closing it as %s. Its completion event was never matched to it, which blocks "
@@ -1465,6 +1478,8 @@ class PrintScheduler:
         for keyed in (self._auto_dry_units, self._auto_dry_above):
             for key in [key for key in keyed if key[0] == printer_id]:
                 del keyed[key]
+        for item_id in [i for i, sent in self._sent_unstarted_print.items() if sent[0] == printer_id]:
+            del self._sent_unstarted_print[item_id]
 
     async def check_queue(self) -> bool:
         """Check for prints ready to start.
@@ -2630,6 +2645,9 @@ class PrintScheduler:
                 # A confirmed send removes the entry itself, so this is a no-op
                 # on the happy path.
                 self._rollback_unconfirmed_expected_print(item_id)
+                # Likewise the print user it set: the printer's next print is
+                # not this item's.
+                self._rollback_unconfirmed_print_user(item_id)
                 # Mirror the pre-#1625 background-dispatch lifecycle: a
                 # reservation survives only after start_print() accepted the
                 # command. Failure, cancellation, deferral, and exceptions all
@@ -2706,6 +2724,43 @@ class PrintScheduler:
             )
         except Exception:
             pass  # toast is best-effort
+
+    def _rollback_unconfirmed_print_user(self, item_id: int) -> None:
+        printer_id = self._unconfirmed_print_user.pop(item_id, None)
+        if printer_id is not None:
+            printer_manager.clear_current_print_user_for_item(printer_id, item_id)
+
+    def _forget_unstarted_print(self, item_id: int, *, unless_printing: bool, keep_expected: bool = False) -> None:
+        """Withdraw the expected print and print user of a sent print that never started.
+
+        Both tell the rest of Bambuddy that the printer's next print is this
+        item's: left behind, a print started by hand later is taken for it.
+        With ``unless_printing``, a printer that is printing after all keeps
+        them, as that print is most likely this one starting late.
+
+        ``keep_expected`` withdraws only the print user, which vouches for any
+        print on the printer. The expected print names this item's file, so a
+        late start of it is still matched to its archive.
+        """
+        sent = self._sent_unstarted_print.get(item_id)
+        if sent is None:
+            return
+        printer_id, remote_filename, archive_id = sent
+        if unless_printing:
+            status = printer_manager.get_status(printer_id)
+            if status is not None and status.state in _ACTIVE_PRINT_STATES:
+                return
+        printer_manager.clear_current_print_user_for_item(printer_id, item_id)
+        if keep_expected:
+            return
+        del self._sent_unstarted_print[item_id]
+        if remote_filename is not None and archive_id is not None:
+            try:
+                from backend.app.main import unregister_expected_print
+
+                unregister_expected_print(printer_id, remote_filename, archive_id)
+            except Exception:
+                logger.warning("Queue item %s: failed to unregister expected print", item_id)
 
     def _rollback_unconfirmed_expected_print(self, item_id: int) -> None:
         """Drop an expectation for a print command that was never sent.
@@ -7051,6 +7106,8 @@ class PrintScheduler:
         """
         if item_id in self._inflight:
             self._cancelled_dispatches.add(item_id)
+        # A print sent for it earlier that never started is not one any more.
+        self._forget_unstarted_print(item_id, unless_printing=False)
 
     async def _preheat_sleep(self, item_id: int, seconds: float) -> bool:
         """Sleep in slices, returning False as soon as the item stops wanting preheat.
@@ -8120,7 +8177,9 @@ class PrintScheduler:
             )
         ).first()
         if owner:
-            printer_manager.set_current_print_user(item.printer_id, owner.id, owner.username)
+            printer_manager.set_current_print_user(item.printer_id, owner.id, owner.username, queue_item_id=item.id)
+            if item.printer_id is not None:
+                self._unconfirmed_print_user[item.id] = item.printer_id
 
     async def _start_print(self, db: AsyncSession, item: PrintQueueItem):
         """Upload file and start print for a queue item.
@@ -9144,6 +9203,13 @@ class PrintScheduler:
             # rolled back.
             self._unconfirmed_expected_print.pop(item.id, None)
             self._unconfirmed_budget_reservations.discard(item.id)
+            self._unconfirmed_print_user.pop(item.id, None)
+            if item.printer_id is not None:
+                self._sent_unstarted_print[item.id] = (
+                    item.printer_id,
+                    remote_filename if archive else None,
+                    archive.id if archive else None,
+                )
             # Handoff to the print's own gcode: keep whatever preheat set (bed
             # target, chamber target, airduct heating) — the gcode owns
             # heater/flap control from here. Clearing the pin prevents
@@ -9376,6 +9442,7 @@ class PrintScheduler:
                 # would otherwise look like "command landed" and leave the
                 # queue item stuck in 'printing' forever (#1370).
                 scheduler._release_dispatch_hold(printer_id)
+                scheduler._sent_unstarted_print.pop(queue_item_id, None)
                 try:
                     await ws_manager.send_queue_item_acked(
                         user_id=created_by_id,
@@ -9413,6 +9480,7 @@ class PrintScheduler:
                 last_status = status
                 if status.state in _ACTIVE_PRINT_STATES:
                     scheduler._release_dispatch_hold(printer_id)
+                    scheduler._sent_unstarted_print.pop(queue_item_id, None)
                     try:
                         await ws_manager.send_queue_item_acked(
                             user_id=created_by_id,
@@ -9542,6 +9610,17 @@ class PrintScheduler:
                 e,
             )
             revert_outcome = "revert_failed"
+
+        if revert_outcome in ("command_rejected", "gave_up"):
+            # The item is failed: its print user and expected print must not
+            # pass the printer's next print off as Bambuddy's.
+            scheduler._forget_unstarted_print(queue_item_id, unless_printing=True)
+        elif revert_outcome == "reverted":
+            # Another try claims the printer again. Until then no print on it
+            # is vouched for as this item's, except a late start of its file.
+            scheduler._forget_unstarted_print(queue_item_id, unless_printing=True, keep_expected=True)
+        elif revert_outcome == "already_moved_on":
+            scheduler._sent_unstarted_print.pop(queue_item_id, None)
 
         if revert_outcome == "already_moved_on":
             # Preserves the pre-#1370 early-return: if on_print_complete (or any

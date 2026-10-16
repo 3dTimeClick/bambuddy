@@ -422,9 +422,13 @@ class PrinterManager:
         """Get printer info by ID."""
         return self._printer_info.get(printer_id)
 
-    def set_current_print_user(self, printer_id: int, user_id: int, username: str):
-        """Track who started the current print (Issue #206)."""
-        self._current_print_user[printer_id] = {"user_id": user_id, "username": username}
+    def set_current_print_user(self, printer_id: int, user_id: int, username: str, queue_item_id: int | None = None):
+        """Track who started the current print (Issue #206), and for which queue item."""
+        self._current_print_user[printer_id] = {
+            "user_id": user_id,
+            "username": username,
+            "queue_item_id": queue_item_id,
+        }
 
     def get_current_print_user(self, printer_id: int) -> dict | None:
         """Get the user who started the current print (Issue #206)."""
@@ -433,6 +437,15 @@ class PrinterManager:
     def clear_current_print_user(self, printer_id: int):
         """Clear the current print user when print completes (Issue #206)."""
         self._current_print_user.pop(printer_id, None)
+
+    def clear_current_print_user_for_item(self, printer_id: int, queue_item_id: int) -> None:
+        """Clear the print user if a queue item's dispatch set it and that print never started.
+
+        A later dispatch's user, set for another item, stays.
+        """
+        user = self._current_print_user.get(printer_id)
+        if user is not None and user.get("queue_item_id") == queue_item_id:
+            del self._current_print_user[printer_id]
 
     def forget_user(self, user_id: int) -> None:
         """A deleted user is credited with none of the prints still running."""

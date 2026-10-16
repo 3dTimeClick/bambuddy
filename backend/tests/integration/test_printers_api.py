@@ -1160,14 +1160,12 @@ class TestPrinterDataIntegrity:
         printer = await printer_factory(name="Test Printer")
 
         with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
-            mock_pm.get_current_print_user.return_value = {"user_id": 42, "username": "testuser"}
+            mock_pm.get_current_print_user.return_value = {"user_id": 42, "username": "testuser", "queue_item_id": 5}
 
             response = await async_client.get(f"/api/v1/printers/{printer.id}/current-print-user")
 
             assert response.status_code == 200
-            result = response.json()
-            assert result["user_id"] == 42
-            assert result["username"] == "testuser"
+            assert response.json() == {"user_id": 42, "username": "testuser"}
 
 
 class TestPrintControlAPI:
