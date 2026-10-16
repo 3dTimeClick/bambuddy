@@ -1100,6 +1100,7 @@ export default {
       moreOptions: '더 많은 옵션은 우클릭',
       addToFavorites: '즐겨찾기에 추가',
       removeFromFavorites: '즐겨찾기에서 제거',
+      aborted: '중단됨',
       cancelled: '취소됨',
       failed: '실패',
       confirmPending: '결과는?',
@@ -5677,6 +5678,7 @@ export default {
     filamentUsedPlaceholder: '예: 46.16',
     filamentUsedHelp: '3MF 없이 보관된 인쇄는 직접 입력하면 필라멘트 합계에 반영됩니다. 3MF가 있는 보관 항목을 다시 스캔하면 이 값은 파일에서 다시 읽어옵니다.',
     filamentUsedLocked: '모든 아카이브를 편집할 수 있는 사용자만 이 값을 변경할 수 있습니다. 이 아카이브의 이후 출력은 이 값을 기준으로 청구됩니다.',
+    statusHelp: '통계에서 \'실패\'와 \'중단됨\'은 실패로 집계됩니다. \'취소됨\'은 중지로 집계되며 성공률을 낮추지 않습니다.',
     notes: '메모',
     notesPlaceholder: '이 인쇄에 대한 메모 추가...',
     externalLink: '외부 링크',
@@ -5718,7 +5720,9 @@ export default {
     statuses: {
       completed: '완료됨',
       failed: '실패',
-      aborted: '취소됨',
+      aborted: '중단됨',
+      cancelled: '취소됨',
+      archived: '보관됨',
       printing: '인쇄 중'
     }
   },

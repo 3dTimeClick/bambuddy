@@ -31,8 +31,9 @@ export const FAILURE_REASON_KEYS = [
   'other',
 ] as const;
 
-// Keys for archive statuses - translated at render time
-const ARCHIVE_STATUS_KEYS = ['completed', 'failed', 'aborted', 'printing'] as const;
+// The finished outcomes an archive can be given by hand (the API refuses any
+// other). Translated at render time.
+const ARCHIVE_STATUS_KEYS: readonly string[] = ['completed', 'failed', 'aborted', 'cancelled'];
 
 // Mirrors the API's own bound on filament_used_grams. Clamped here as well so
 // the field cannot produce a request the backend would reject with a 422 —
@@ -286,13 +287,10 @@ export function EditArchiveModal({ archive, onClose, existingTags = [] }: EditAr
       updateData.failure_reason = failureReason || undefined;
     } else if (status === 'completed' && userVerdict === 'reject') {
       updateData.failure_reason = failureReason || undefined;
-    } else if (archive.status === 'failed' || archive.status === 'aborted' || archive.user_verdict === 'reject') {
-      // Clear failure_reason when neither a failure nor a reject carries one.
-      // Gated on the archive having held a reject verdict rather than on the
-      // field merely being populated: a 'cancelled' or 'stopped' archive is
-      // neither failed nor aborted, its reason is written by the machine
-      // ("Stopped by user (printer was offline)"), and the status dropdown has
-      // no option that would let the user put it back.
+    } else if (status === 'completed' && archive.failure_reason) {
+      // A completed print without a reject carries no reason. A cancelled one
+      // keeps its own: the machine wrote it ("User cancelled", "No status
+      // update received") and the dialog has no field to put it back.
       updateData.failure_reason = null;
     }
 
@@ -548,12 +546,20 @@ export function EditArchiveModal({ archive, onClose, existingTags = [] }: EditAr
               }}
               className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
             >
+              {/* Any other status (still printing, never printed) is shown as it
+                  is, and is only sent if the user picks an outcome. */}
+              {archive.status && !ARCHIVE_STATUS_KEYS.includes(archive.status) && (
+                <option value={archive.status} disabled>
+                  {t(`editArchive.statuses.${archive.status}`, { defaultValue: archive.status })}
+                </option>
+              )}
               {ARCHIVE_STATUS_KEYS.map((statusKey) => (
                 <option key={statusKey} value={statusKey}>
                   {t(`editArchive.statuses.${statusKey}`)}
                 </option>
               ))}
             </select>
+            <p className="text-xs text-bambu-gray mt-1">{t('editArchive.statusHelp')}</p>
           </div>
 
           {/* Outcome verdict (#1898) - only meaningful on completed prints */}

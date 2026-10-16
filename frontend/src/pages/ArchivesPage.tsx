@@ -1019,7 +1019,13 @@ function ArchiveCard({
         </button>
         {(archive.status === 'failed' || archive.status === 'aborted') && (
           <div className="absolute top-2 left-12 px-2 py-1 rounded text-xs bg-status-error/80 text-white">
-            {archive.status === 'aborted' ? t('archives.card.cancelled') : t('archives.card.failed')}
+            {archive.status === 'aborted' ? t('archives.card.aborted') : t('archives.card.failed')}
+          </div>
+        )}
+        {/* Stopped rather than failed: counted apart from failures in the statistics. */}
+        {archive.status === 'cancelled' && (
+          <div className="absolute top-2 left-12 px-2 py-1 rounded text-xs bg-status-warning/80 text-white">
+            {t('archives.card.cancelled')}
           </div>
         )}
         {/* Outcome-confirmation badges (#1898): a completed print either
@@ -2427,7 +2433,12 @@ function ArchiveListRow({
             <p className="text-white text-sm truncate">{archive.print_name || archive.filename}</p>
             {(archive.status === 'failed' || archive.status === 'aborted') && (
               <span className="px-1.5 py-0.5 rounded text-[10px] leading-tight bg-status-error/80 text-white flex-shrink-0">
-                {archive.status === 'aborted' ? t('archives.card.cancelled') : t('archives.card.failed')}
+                {archive.status === 'aborted' ? t('archives.card.aborted') : t('archives.card.failed')}
+              </span>
+            )}
+            {archive.status === 'cancelled' && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] leading-tight bg-status-warning/80 text-white flex-shrink-0">
+                {t('archives.card.cancelled')}
               </span>
             )}
             {/* Outcome-confirmation badges (#1898), compact list variants */}

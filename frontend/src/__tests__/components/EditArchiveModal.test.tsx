@@ -311,6 +311,89 @@ describe('EditArchiveModal', () => {
     });
   });
 
+  describe('status', () => {
+    function patchSpy() {
+      const seen: { body?: Record<string, unknown> } = {};
+      server.use(
+        http.patch('/api/v1/archives/:id', async ({ request }) => {
+          seen.body = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json({ ...mockArchive, ...seen.body });
+        }),
+      );
+      return seen;
+    }
+    const statusSelect = () =>
+      (screen.getAllByRole('combobox') as HTMLSelectElement[]).find((select) =>
+        Array.from(select.options).some((option) => option.value === 'cancelled'),
+      )!;
+
+    it('offers the finished outcomes, cancelled and aborted apart', () => {
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'completed' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const options = Array.from(statusSelect().options).map((o) => [o.value, o.textContent]);
+      expect(options).toEqual([
+        ['completed', 'Completed'],
+        ['failed', 'Failed'],
+        ['aborted', 'Aborted'],
+        ['cancelled', 'Cancelled'],
+      ]);
+    });
+
+    it('opens a cancelled archive as cancelled', () => {
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'cancelled' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      expect(statusSelect().value).toBe('cancelled');
+    });
+
+    it('shows a printing archive as it is and leaves it out of an untouched save', async () => {
+      const user = userEvent.setup();
+      const seen = patchSpy();
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'printing' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const current = Array.from(statusSelect().options).find((o) => o.value === 'printing');
+      expect(current?.disabled).toBe(true);
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      await waitFor(() => expect(seen.body).toBeDefined());
+      expect(seen.body).not.toHaveProperty('status');
+    });
+
+    it('keeps the recorded reason when an aborted print is moved to cancelled', async () => {
+      const user = userEvent.setup();
+      const seen = patchSpy();
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'aborted', failure_reason: 'userCancelled' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      await user.selectOptions(statusSelect(), 'cancelled');
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      await waitFor(() => expect(seen.body?.status).toBe('cancelled'));
+      expect(seen.body).not.toHaveProperty('failure_reason');
+    });
+
+    it('clears the reason of a cancelled print marked completed', async () => {
+      const user = userEvent.setup();
+      const seen = patchSpy();
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'cancelled', failure_reason: 'noStatusUpdate' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      await user.selectOptions(statusSelect(), 'completed');
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      await waitFor(() => expect(seen.body?.status).toBe('completed'));
+      expect(seen.body?.failure_reason).toBeNull();
+    });
+
+    it('sends cancelled when cancelled is chosen', async () => {
+      const user = userEvent.setup();
+      const seen = patchSpy();
+      render(<EditArchiveModal archive={{ ...mockArchive, status: 'failed' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      await user.selectOptions(statusSelect(), 'cancelled');
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      await waitFor(() => expect(seen.body?.status).toBe('cancelled'));
+    });
+  });
+
   describe('filament grams (#1820)', () => {
     // A print archived without its 3MF carries no weight at all, and no rescan
     // can supply one — there is no file to read. Typing it here is the only
