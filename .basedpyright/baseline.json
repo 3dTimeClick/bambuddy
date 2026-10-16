@@ -1442,22 +1442,6 @@
                 }
             },
             {
-                "code": "reportAssignmentType",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 76,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 19,
-                    "endColumn": 37,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAttributeAccessIssue",
                 "range": {
                     "startColumn": 34,

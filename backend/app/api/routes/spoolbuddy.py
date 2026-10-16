@@ -642,7 +642,12 @@ async def nfc_write_tag(
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
-    """Queue an NFC tag write command for a SpoolBuddy device."""
+    """Queue an NFC tag write command for a SpoolBuddy device.
+
+    The spool comes from the inventory in use: Spoolman when it is enabled,
+    otherwise Bambuddy's own. Built-in spools are kept after switching to
+    Spoolman, so one with the same id must not stand in for the Spoolman spool.
+    """
     from backend.app.models.spool import Spool
     from backend.app.services.opentag3d import encode_opentag3d, encode_opentag3d_from_mapped
 
@@ -652,21 +657,17 @@ async def nfc_write_tag(
     if not device:
         raise HTTPException(status_code=404, detail="Device not registered")
 
-    # Try local DB first
-    result = await db.execute(select(Spool).where(Spool.id == req.spool_id))
-    spool = result.scalar_one_or_none()
+    sm_client = await _get_spoolman_client_or_none(db)
 
     nfc_warnings: list[str] = []
-    if spool:
+    if sm_client is None:
+        spool = (await db.execute(select(Spool).where(Spool.id == req.spool_id))).scalar_one_or_none()
+        if spool is None:
+            raise HTTPException(status_code=404, detail="Spool not found")
         ndef_data = encode_opentag3d(spool)
         data_origin = "local"
     else:
-        # Local DB miss — fall back to Spoolman when enabled
         from backend.app.api.routes._spoolman_helpers import _map_spoolman_spool
-
-        sm_client = await _get_spoolman_client_or_none(db)
-        if sm_client is None:
-            raise HTTPException(status_code=404, detail="Spool not found")
 
         async with _translate_spoolbuddy_errors():
             sm_spool = await sm_client.get_spool(req.spool_id)
