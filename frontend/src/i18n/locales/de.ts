@@ -5928,6 +5928,7 @@ export default {
     filamentUsed: 'Verbrauchtes Filament (g)',
     filamentUsedPlaceholder: 'z. B. 46.16',
     filamentUsedHelp: 'Von Hand eintragen, wenn ein Druck ohne 3MF archiviert wurde, damit er in die Filament-Summen eingeht. Beim erneuten Einlesen eines Archivs mit 3MF wird der Wert wieder aus der Datei übernommen.',
+    filamentUsedLocked: 'Nur Benutzer, die alle Archive bearbeiten dürfen, können diesen Wert ändern: Spätere Drucke dieses Archivs werden danach berechnet.',
     notes: 'Notizen',
     notesPlaceholder: 'Notizen zu diesem Druck hinzufügen...',
     externalLink: 'Externer Link',

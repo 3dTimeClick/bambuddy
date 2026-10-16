@@ -5916,6 +5916,7 @@ export default {
     filamentUsed: 'Filament utilisé (g)',
     filamentUsedPlaceholder: 'p. ex. 46.16',
     filamentUsedHelp: 'À saisir à la main lorsqu\'une impression a été archivée sans son 3MF, afin qu\'elle compte quand même dans les totaux de filament. Une nouvelle analyse d\'une archive qui possède son 3MF relit la valeur depuis le fichier.',
+    filamentUsedLocked: 'Seuls les utilisateurs autorisés à modifier toutes les archives peuvent changer cette valeur : les impressions suivantes de cette archive sont facturées à partir d\'elle.',
     notes: 'Notes',
     notesPlaceholder: 'Notes sur l\'impression...',
     externalLink: 'Lien externe',

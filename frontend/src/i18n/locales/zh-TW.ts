@@ -5915,6 +5915,7 @@ export default {
     filamentUsed: '已用耗材 (g)',
     filamentUsedPlaceholder: '例如 46.16',
     filamentUsedHelp: '當列印工作在沒有 3MF 的情況下封存時，可手動填寫，使其仍計入耗材總量。重新掃描具有 3MF 的封存項目時，此數值會從檔案重新讀取。',
+    filamentUsedLocked: '只有可以編輯所有封存的使用者才能變更此數值：此封存之後的列印將據此計費。',
     notes: '備註',
     notesPlaceholder: '新增關於此列印的備註...',
     externalLink: '外部連結',

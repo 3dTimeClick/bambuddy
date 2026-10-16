@@ -5900,6 +5900,7 @@ export default {
     filamentUsed: 'Kullanılan filament (g)',
     filamentUsedPlaceholder: 'ör. 46.16',
     filamentUsedHelp: 'Bir baskı 3MF dosyası olmadan arşivlendiyse elle girin; böylece filament toplamlarına yine de dahil olur. 3MF dosyası olan bir arşiv yeniden tarandığında bu değer dosyadan yeniden okunur.',
+    filamentUsedLocked: 'Bu değeri yalnızca tüm arşivleri düzenleyebilen kullanıcılar değiştirebilir: bu arşivin sonraki baskıları buna göre ücretlendirilir.',
     notes: 'Notlar',
     notesPlaceholder: 'Bu baskı hakkında notlar ekleyin...',
     externalLink: 'Harici Bağlantı',

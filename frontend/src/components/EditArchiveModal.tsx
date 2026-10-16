@@ -3,6 +3,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { X, Save, Tag, Camera, Trash2, Loader2, Plus, FolderKanban, Hash, Link, Weight } from 'lucide-react';
 import { api } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 import type { Archive } from '../api/client';
 import { Button } from './Button';
 import { PrintLogTable } from './PrintLogTable';
@@ -101,6 +102,12 @@ export function EditArchiveModal({ archive, onClose, existingTags = [] }: EditAr
   const [filamentGrams, setFilamentGrams] = useState(
     archive.filament_used_grams != null ? String(archive.filament_used_grams) : ''
   );
+  const { hasPermission } = useAuth();
+  // Later prints of the archive are charged from its weight: without the right
+  // to edit every archive, it can only be filled in for an archive without its
+  // 3MF, which has none and cannot be printed again (the API refuses the rest).
+  const filamentGramsLocked =
+    !hasPermission('archives:update_all') && (archive.filament_used_grams != null || !!archive.file_path);
   const [photos, setPhotos] = useState<string[]>(archive.photos || []);
   const [externalUrl, setExternalUrl] = useState(archive.external_url || '');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -422,11 +429,12 @@ export function EditArchiveModal({ archive, onClose, existingTags = [] }: EditAr
                 if (current === '' || !Number.isFinite(parsed)) return '';
                 return String(Math.min(parsed, MAX_FILAMENT_GRAMS));
               })}
-              className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+              className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder={t('editArchive.filamentUsedPlaceholder')}
+              disabled={filamentGramsLocked}
             />
             <p className="text-xs text-bambu-gray mt-1">
-              {t('editArchive.filamentUsedHelp')}
+              {filamentGramsLocked ? t('editArchive.filamentUsedLocked') : t('editArchive.filamentUsedHelp')}
             </p>
           </div>
 

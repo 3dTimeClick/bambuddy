@@ -5981,6 +5981,7 @@ export default {
     filamentUsed: 'Filament used (g)',
     filamentUsedPlaceholder: 'e.g. 46.16',
     filamentUsedHelp: 'Set this by hand when a print archived without its 3MF, so it still counts towards the filament totals. Rescanning an archive that has its 3MF reads the figure back from the file.',
+    filamentUsedLocked: 'Only users who can edit all archives can change this figure: later prints of this archive are charged from it.',
     notes: 'Notes',
     notesPlaceholder: 'Add notes about this print...',
     externalLink: 'External Link',

@@ -1935,6 +1935,16 @@ async def update_archive(
     previous_filament_grams = archive.filament_used_grams
 
     update_payload = update_data.model_dump(exclude_unset=True)
+    # Later runs of the archive are charged from its cost and weight: a caller
+    # limited to their own archives sets neither. The one exception is the
+    # weight of an archive without its 3MF (#1820), which has none and cannot
+    # be printed again.
+    if not can_modify_all:
+        if "cost" in update_payload:
+            raise HTTPException(403, "Only users who can edit all archives can set an archive's cost")
+        if "filament_used_grams" in update_payload and update_payload["filament_used_grams"] != previous_filament_grams:
+            if previous_filament_grams is not None or archive.file_path:
+                raise HTTPException(403, "Only users who can edit all archives can change an archive's filament weight")
     # A new printer must be one the caller may use (as on upload), and both
     # targets must exist. None clears either: a printer-less archive is in
     # every scope, like one uploaded without a printer.
@@ -1958,6 +1968,7 @@ async def update_archive(
         update_payload.get("filament_used_grams")
         and "cost" not in update_payload
         and update_payload["filament_used_grams"] != previous_filament_grams
+        and (can_modify_all or archive.cost is None)
     ):
         archive.cost = await _one_print_cost(db, archive, previous_grams=previous_filament_grams)
         repriced = True

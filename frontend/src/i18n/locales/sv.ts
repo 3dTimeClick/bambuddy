@@ -5977,6 +5977,7 @@ errors: {
     filamentUsed: 'Filament använt (g)',
     filamentUsedPlaceholder: 't.ex. 46,16',
     filamentUsedHelp: 'Ställ in detta manuellt när en utskrift arkiveras utan sin 3MF, så att den fortfarande räknas mot filamenttotalen. Om man skannar om ett arkiv som har sin 3MF läser man tillbaka siffran från filen.',
+    filamentUsedLocked: 'Endast användare som får redigera alla arkiv kan ändra detta värde: senare utskrifter av arkivet debiteras utifrån det.',
     notes: 'Anteckningar',
     notesPlaceholder: 'Lägg till anteckningar om denna utskrift...',
     externalLink: 'Extern länk',

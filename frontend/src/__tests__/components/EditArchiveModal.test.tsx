@@ -2,13 +2,14 @@
  * Tests for the EditArchiveModal component.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils';
 import { EditArchiveModal } from '../../components/EditArchiveModal';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
+import { setAuthToken } from '../../api/client';
 
 const mockArchive = {
   id: 1,
@@ -326,6 +327,67 @@ describe('EditArchiveModal', () => {
       );
       return seen;
     }
+
+    describe('without the right to edit every archive', () => {
+      let meServed = false;
+
+      const signInWith = (me: Record<string, unknown>) => {
+        meServed = false;
+        setAuthToken('own-archives-token', 'session');
+        server.use(
+          http.get('*/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: true, requires_setup: false })),
+          http.get('/api/v1/auth/me', () => {
+            meServed = true;
+            return HttpResponse.json({
+              id: 7,
+              username: 'owner',
+              is_active: true,
+              groups: [],
+              created_at: '2026-10-16T00:00:00Z',
+              ...me,
+            });
+          }),
+        );
+      };
+      const owner = { is_admin: false, permissions: ['archives:read_own', 'archives:update_own'] };
+
+      afterEach(() => {
+        setAuthToken(null);
+      });
+
+      it('cannot change a weight the archive already has', async () => {
+        signInWith(owner);
+        render(<EditArchiveModal archive={{ ...mockArchive, filament_used_grams: 50 }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+        await waitFor(() => expect(screen.getByLabelText(/filament used/i)).toBeDisabled());
+        expect(screen.getByText(/only users who can edit all archives can change this figure/i)).toBeInTheDocument();
+      });
+
+      it('cannot fill in the weight of an archive that has its 3MF', async () => {
+        signInWith(owner);
+        render(<EditArchiveModal archive={{ ...mockArchive, file_path: 'archive/1/benchy.gcode.3mf' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+        await waitFor(() => expect(screen.getByLabelText(/filament used/i)).toBeDisabled());
+      });
+
+      it('can fill in the weight of an archive without its 3MF', async () => {
+        signInWith(owner);
+        render(<EditArchiveModal archive={{ ...mockArchive, file_path: '' }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+        await waitFor(() => expect(meServed).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(screen.getByLabelText(/filament used/i)).toBeEnabled();
+      });
+
+      it('stays editable for an admin', async () => {
+        signInWith({ is_admin: true, permissions: [] });
+        render(<EditArchiveModal archive={{ ...mockArchive, filament_used_grams: 50 }} onClose={mockOnClose} onSave={mockOnSave} />);
+
+        await waitFor(() => expect(meServed).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(screen.getByLabelText(/filament used/i)).toBeEnabled();
+      });
+    });
 
     it('sends a figure typed for an archive that has none', async () => {
       const user = userEvent.setup();

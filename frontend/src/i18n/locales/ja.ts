@@ -5929,6 +5929,7 @@ export default {
     filamentUsed: '使用フィラメント (g)',
     filamentUsedPlaceholder: '例: 46.16',
     filamentUsedHelp: '3MF なしでアーカイブされた印刷は、手入力するとフィラメント合計に反映されます。3MF があるアーカイブを再スキャンすると、この値はファイルから読み直されます。',
+    filamentUsedLocked: 'この値を変更できるのは、すべてのアーカイブを編集できるユーザーだけです。このアーカイブの以降の印刷はこの値に基づいて課金されます。',
     notes: 'メモ',
     notesPlaceholder: 'この印刷についてメモを追加...',
     externalLink: '外部リンク',

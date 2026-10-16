@@ -5979,6 +5979,7 @@ export default {
     filamentUsed: 'Gebruikt filament (g)',
     filamentUsedPlaceholder: 'bijv. 46.16',
     filamentUsedHelp: 'Stel dit handmatig in wanneer een afdruk zonder 3MF is gearchiveerd, zodat deze toch meetelt in de filamenttotalen. Bij het opnieuw scannen van een archief met een 3MF wordt de waarde weer uit het bestand gelezen.',
+    filamentUsedLocked: 'Alleen gebruikers die alle archieven mogen bewerken, kunnen deze waarde wijzigen: latere afdrukken van dit archief worden ermee afgerekend.',
     notes: 'Notities',
     notesPlaceholder: 'Voeg notities over deze afdruk toe...',
     externalLink: 'Externe link',

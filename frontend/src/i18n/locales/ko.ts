@@ -5676,6 +5676,7 @@ export default {
     filamentUsed: '사용된 필라멘트 (g)',
     filamentUsedPlaceholder: '예: 46.16',
     filamentUsedHelp: '3MF 없이 보관된 인쇄는 직접 입력하면 필라멘트 합계에 반영됩니다. 3MF가 있는 보관 항목을 다시 스캔하면 이 값은 파일에서 다시 읽어옵니다.',
+    filamentUsedLocked: '모든 아카이브를 편집할 수 있는 사용자만 이 값을 변경할 수 있습니다. 이 아카이브의 이후 출력은 이 값을 기준으로 청구됩니다.',
     notes: '메모',
     notesPlaceholder: '이 인쇄에 대한 메모 추가...',
     externalLink: '외부 링크',
