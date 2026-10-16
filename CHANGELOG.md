@@ -164,6 +164,7 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **A print whose dispatch failed no longer leaves its cost centre behind** — the next print of the same archive without a cost centre of its own was charged to it, instead of the user or the archive's cost centre.
 - **Which plate of a multi-plate file printed** —
   - Print History logs the filament and cost of the plate that printed. A reprint of another plate of the same file used to log the first plate's estimate.
   - Filament usage after a Bambuddy restart mid-print is charged for the plate the queue job printed, not for the plate of the archive's first print.

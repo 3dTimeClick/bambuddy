@@ -29,6 +29,7 @@ def expected_print_tables():
         "_expected_print_registered_at",
         "_print_ams_mappings",
         "_print_plate_ids",
+        "_print_cost_center_ids",
     )
     saved = {n: dict(getattr(main, n)) for n in names}
     for n in names:
@@ -48,7 +49,9 @@ def test_unregister_leaves_every_registry_as_it_found_them(expected_print_tables
     """The strongest form: register then unregister is a round trip to empty."""
     main = expected_print_tables
 
-    main.register_expected_print(1, "widget.3mf", 298, ams_mapping=[3, 6], created_by_id=7, plate_id=1)
+    main.register_expected_print(
+        1, "widget.3mf", 298, ams_mapping=[3, 6], created_by_id=7, plate_id=1, cost_center_id=5
+    )
     assert main._expected_prints, "nothing registered — the test proves nothing"
 
     main.unregister_expected_print(1, "widget.3mf", 298)
@@ -58,6 +61,7 @@ def test_unregister_leaves_every_registry_as_it_found_them(expected_print_tables
     assert main._expected_print_registered_at == {}
     assert main._print_ams_mappings == {}
     assert main._print_plate_ids == {}
+    assert main._print_cost_center_ids == {}
 
 
 def test_unregister_clears_the_filename_variants_too(expected_print_tables):

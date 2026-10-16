@@ -1209,9 +1209,9 @@ def unregister_expected_print(printer_id: int, filename: str, archive_id: int) -
     ``ams_mapping`` / ``plate_id`` with it. Hence the explicit inverse.
 
     Mirrors the sweep's rules, including the one that is easy to get wrong:
-    ``_print_ams_mappings`` / ``_print_plate_ids`` are keyed by archive, not by
-    file, so they may only be dropped once no live key still points at that
-    archive.
+    ``_print_ams_mappings`` / ``_print_plate_ids`` / ``_print_cost_center_ids``
+    are keyed by archive, not by file, so they may only be dropped once no
+    live key still points at that archive.
     """
     keys = [(printer_id, filename)]
     if filename.endswith(".3mf"):
@@ -1228,6 +1228,7 @@ def unregister_expected_print(printer_id: int, filename: str, archive_id: int) -
 
     if archive_id not in set(_expected_prints.values()):
         _print_ams_mappings.pop(archive_id, None)
+        _print_cost_center_ids.pop(archive_id, None)
         _print_plate_ids.pop(archive_id, None)
 
     if removed:
