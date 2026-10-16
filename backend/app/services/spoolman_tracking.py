@@ -152,15 +152,12 @@ async def _get_printer_serial(printer_id: int) -> str:
 def _resolve_global_tray_id(slot_id: int, slot_to_tray: list | None, ams_trays: dict | None = None) -> int:
     """Map a 1-based slot_id to a global_tray_id using optional custom mapping.
 
-    Custom mapping: slot_to_tray[slot_id - 1] is used when >= 0.
-    A value of -1 in the custom mapping means the slicer routed this slot to
-    the external spool. BambuStudio converts virtual tray IDs (254/255) to -1
-    in the flat ams_mapping array before sending to the printer — see
-    start_print() in bambu_mqtt.py which documents this convention. We mirror
-    it here: when -1 is seen, look up the external spool's actual
-    global_tray_id (254/255) in ams_trays rather than falling through to the
-    position-based default (which would map slot_id=1 to the first AMS tray
-    and credit an unrelated spool — see #1276, regression of #853).
+    Custom mapping: slot_to_tray[slot_id - 1] is used when >= 0. A negative
+    value means the slot feeds nothing and answers -1, which no tray has: the
+    flat ams_mapping writes an external spool as -1 on the wire, but the
+    captured mapping puts its 254/255 back from ams_mapping2 (#3166), so a -1
+    left in it is unmapped. Never the position-based default for such a slot,
+    which would credit an unrelated spool (#1276, regression of #853).
     Position-based default: uses sorted ams_trays keys so external spools (ID 254/255)
     naturally follow standard AMS trays, matching the slicer's slot numbering.
     Final fallback: slot_id - 1 (legacy, works for pure AMS without external spools).
@@ -169,14 +166,11 @@ def _resolve_global_tray_id(slot_id: int, slot_to_tray: list | None, ams_trays: 
         mapped_tray = slot_to_tray[slot_id - 1]
         if mapped_tray >= 0:
             return mapped_tray
-        if mapped_tray == -1 and ams_trays:
-            # -1 means external spool. 254 = VIRTUAL_TRAY_DEPUTY_ID (main on
-            # single-nozzle, left/deputy on H2D dual-nozzle); 255 =
-            # VIRTUAL_TRAY_MAIN_ID. Prefer 254 when both exist since that's
-            # what single-nozzle printers report via tray_now.
-            for ext_id in (254, 255):
-                if ext_id in ams_trays:
-                    return ext_id
+        # A negative value is a slot the print does not feed: the captured
+        # mapping already names an external spool 254/255 (#3166), and the
+        # built-in tracker charges nothing for it either. No tray has this id,
+        # so the slot is skipped rather than guessed by position.
+        return -1
     # Position-based default: sort available tray IDs so external spools (254/255)
     # come after standard AMS trays, matching the slicer's slot assignment order.
     if ams_trays:
@@ -496,12 +490,16 @@ async def store_print_data(
         # Resolve the queue item once — used both for the plate-scoped 3MF parsing
         # fallback (#1697: multi-plate file dispatched for one plate must only count
         # that plate's filament) and for the ams_mapping fallback below.
+        # This printer's: a batch prints one archive as several queue items,
+        # on several printers at once.
         queue_result = await db.execute(
             select(PrintQueueItem)
             .where(PrintQueueItem.archive_id == archive_id)
+            .where(PrintQueueItem.printer_id == printer_id)
             .where(PrintQueueItem.status == "printing")
+            .order_by(PrintQueueItem.id.desc())
         )
-        queue_item = queue_result.scalar_one_or_none()
+        queue_item = queue_result.scalars().first()
         # Caller-supplied plate_id wins (direct-Print path); fall back to the queue
         # item's plate_id (queue dispatch path).
         effective_plate_id = (
@@ -1387,7 +1385,12 @@ async def report_usage(printer_id: int, archive_id: int):
 
         client = await _get_spoolman_client_with_fallback()
         if not client:
-            logger.warning("[SPOOLMAN] Not reachable for usage reporting")
+            logger.warning(
+                "[SPOOLMAN] Not reachable for usage reporting (printer=%s, archive=%s): "
+                "this print's usage is not sent, correct the spools in Spoolman by hand",
+                printer_id,
+                archive_id,
+            )
             return
 
         # Consult the live printer state for the tray-change log written by

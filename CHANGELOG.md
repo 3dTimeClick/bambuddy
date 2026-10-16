@@ -164,6 +164,9 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Spoolman usage** —
+  - Two copies of the same archive printing at once on two printers are both charged to Spoolman. The second print's start failed on the shared archive and that print was never deducted.
+  - A filament slot the print does not feed is no longer charged to the external spool, or to whichever AMS tray sits at that position, as with the built-in inventory.
 - **Spoolman slots** —
   - Assigning or linking a Spoolman spool to an AMS slot is now checked against what the printer reports back, as with the built-in inventory. A printer that ignored the new filament showed no "not confirmed" notice, and later usage went to the wrong spool.
   - Configure AMS Slot opens with the slicer preset set on the Spoolman spool when no per-printer-model preset applies, and the slot's K profile is matched under it. Before, the dialog opened with no preset and the K profile was matched against the tray's own filament.

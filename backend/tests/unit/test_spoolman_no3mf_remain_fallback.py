@@ -238,7 +238,7 @@ class TestStorePrintDataNo3mf:
         db = AsyncMock()
         queue_item = SimpleNamespace(ams_mapping=None, plate_id=None)
         queue_result = MagicMock()
-        queue_result.scalar_one_or_none.return_value = queue_item
+        queue_result.scalars.return_value.first.return_value = queue_item
         delete_result = MagicMock()
         db.execute = AsyncMock(side_effect=[queue_result, delete_result])
         db.add = MagicMock()
