@@ -774,6 +774,11 @@ export function PrintModal({
         setPerPrinterConfigs({});
         setInitialExpandApplied(new Set());
       }
+      // Rack positions name slots of the queued printer's nozzle rack.
+      if (printersChanged) {
+        setNozzleRackChoice({});
+        setNozzleRackChoiceByPlate({});
+      }
     } else {
       setManualMappings({});
       setManualMappingsByPlate({});
@@ -1461,7 +1466,8 @@ export function PrintModal({
                 manual_start: editManualStart,
                 ams_mapping: printerMapping,
                 // Only ever set here, never cleared: an earlier "Print Anyway"
-                // stays acknowledged across an edit, as it does today.
+                // stays acknowledged across an edit on the same printer. On
+                // another printer the backend drops it unless sent here.
                 skip_filament_check: mappingSubstitutesMaterial(printerId, plateId, printerMapping) ? true : undefined,
                 // null, not undefined: an operator who cleared their picks
                 // means "assign these again", and undefined would leave the

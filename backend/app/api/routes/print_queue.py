@@ -64,6 +64,7 @@ from backend.app.services.print_batch import (
     refresh_batch_status_for_item,
 )
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
+from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
 from backend.app.services.queue_position import lock_queue_positions, max_queue_position
 from backend.app.utils.printer_models import (
     is_gcode_compatible,
@@ -1330,7 +1331,11 @@ async def bulk_update_queue_items(
             raise HTTPException(400, "Printer not found")
 
     # Fetch all items, minus any bound to a printer the caller can't see (#1727)
-    result = await db.execute(select(PrintQueueItem).where(PrintQueueItem.id.in_(data.item_ids)))
+    result = await db.execute(
+        select(PrintQueueItem)
+        .where(PrintQueueItem.id.in_(data.item_ids))
+        .options(selectinload(PrintQueueItem.variants))
+    )
     items = [item for item in result.scalars().all() if printer_scope.allows(item.printer_id)]
 
     updated_count = 0
@@ -1362,6 +1367,17 @@ async def bulk_update_queue_items(
             continue
 
         item_update_data = update_data.copy()
+        if "printer_id" in item_update_data and item_update_data["printer_id"] != item.printer_id:
+            # A job with printer alternatives picks its own printer (#671),
+            # as the single edit refuses to override.
+            if item.variants:
+                skipped_count += 1
+                continue
+            # Now bound to this printer: not to a model, and nothing worked
+            # out for the old printer carries over.
+            item.target_model = None
+            item.target_location = None
+            drop_printer_resolved(item)
         if validates_billing_fields:
             trusted_estimated_cost = await _trusted_item_estimated_cost(
                 db,
@@ -2153,6 +2169,11 @@ async def update_queue_item(
         update_data["ams_mapping"] = None
         if item.printer_id and "skip_filament_check" not in update_data:
             update_data["skip_filament_check"] = False
+    # Likewise a job moved off its printer to another one: what the dialog
+    # sends for the new printer is kept, the rest goes with the old one.
+    if item.printer_id is not None and new_printer_id != item.printer_id:
+        for field, default in PRINTER_RESOLVED_DEFAULTS.items():
+            update_data.setdefault(field, default)
 
     # Serialize ams_mapping to JSON for TEXT column storage
     if "ams_mapping" in update_data:

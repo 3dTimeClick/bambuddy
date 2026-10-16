@@ -28,6 +28,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.models.print_batch import PrintBatch, PrintBatchPlate
 from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
+from backend.app.services.queue_item_printer import drop_printer_resolved
 from backend.app.services.queue_position import next_queue_position
 
 logger = logging.getLogger(__name__)
@@ -461,6 +462,12 @@ def _clone_queue_item(source: PrintQueueItem, *, position: int, created_by_id: i
     )
     for column in CLONED_SETTING_COLUMNS:
         setattr(clone, column, getattr(source, column))
+    # A printer the scheduler picked for a model-based job (or one with
+    # printer alternatives) was that run's pick, not the user's: each copy
+    # waits for any printer of the model again.
+    if source.printer_id is not None and (source.target_model or source.variants):
+        clone.printer_id = None
+        drop_printer_resolved(clone)
     return clone
 
 

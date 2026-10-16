@@ -2878,3 +2878,48 @@ describe('PrintModal — a deliberate material substitution is acknowledged (#27
     expect(saved.skip_filament_check).toBeUndefined();
   });
 });
+
+describe('PrintModal edit: moving a job to another printer', () => {
+  const mockOnClose = vi.fn();
+  let patched: Record<string, unknown>[];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    patched = [];
+    server.use(
+      http.get('/api/v1/printers/', () =>
+        HttpResponse.json([
+          { id: 1, name: 'Printer 01', model: 'H2C', ip_address: '192.168.1.101', enabled: true, is_active: true },
+          { id: 2, name: 'Printer 02', model: 'H2C', ip_address: '192.168.1.102', enabled: true, is_active: true },
+        ]),
+      ),
+      http.get('/api/v1/archives/:id/plates', () => HttpResponse.json({ is_multi_plate: false, plates: [] })),
+      http.get('/api/v1/printers/:id/status', () =>
+        HttpResponse.json({ connected: true, state: 'IDLE', ams: [], vt_tray: [] }),
+      ),
+      http.patch('/api/v1/queue/:id', async ({ request }) => {
+        patched.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ id: 1, status: 'pending' });
+      }),
+    );
+  });
+
+  it("does not carry the old printer's nozzle rack picks over", async () => {
+    const user = userEvent.setup();
+    const item = createMockQueueItem({
+      printer_id: 1,
+      target_model: null,
+      nozzle_rack_choice: { 0: 3 },
+    } as Partial<PrintQueueItem>);
+    render(<PrintModal mode="edit-queue-item" archiveId={1} archiveName="Job" queueItem={item} onClose={mockOnClose} />);
+
+    // The dialog adds printers; moving the job is deselecting one, selecting the other.
+    await user.click(await screen.findByText('Printer 01'));
+    await user.click(screen.getByText('Printer 02'));
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].printer_id).toBe(2);
+    expect(patched[0].nozzle_rack_choice).toBeNull();
+  });
+});
