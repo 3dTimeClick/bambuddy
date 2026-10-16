@@ -2805,6 +2805,9 @@ async def on_ams_change(printer_id: int, ams_data: list):
     # this; computed once, up front, so neither depends on the other having run.
     _unlink_state = printer_manager.get_status(printer_id)
     printing_now = (getattr(_unlink_state, "state", "") or "").upper() in ("RUNNING", "PAUSE")
+    # The session alone is not enough: a restart that finds a stale persisted
+    # session registers none for the print that is running.
+    _print_active = _print_active or printing_now
 
     # MQTT relay - publish AMS change
     try:
