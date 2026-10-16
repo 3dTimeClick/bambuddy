@@ -164,6 +164,10 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Reprints and their archives** —
+  - A reprint that completes no longer keeps showing why the previous run of the same archive failed (for example a clogged nozzle).
+  - A queued job whose archive was deleted before it started is now archived anew when it prints, on a printer that archives its prints. Before, the print ran with no archive, no start notification and no usage tracking.
+  - A timelapse deleted while it was being converted to MP4, or replaced by a reprint's in the meantime, no longer comes back when the conversion finishes.
 - **Print dialog fixes** —
   - **Print Anyway** in a print to several printers now only waves through the printers whose filament warning it answered. Before, it went onto every selected printer, so one that was never checked also skipped the scheduler's filament checks.
   - A job with printer alternatives whose plate dropdown was left untouched showed **Plate 1** but was queued with no plate, so it asked for every plate's filaments and the whole file's print time and could find no printer.

@@ -4644,6 +4644,10 @@ async def on_print_start(printer_id: int, data: dict):
                 # Update archive status to printing
                 archive.status = "printing"
                 archive.started_at = datetime.now(timezone.utc)
+                # The previous run's outcome is not this one's: a reprint that
+                # completes must not keep showing why the last one failed.
+                archive.failure_reason = None
+                archive.completed_at = None
 
                 # The previous run's answer is still on this row and the
                 # completion prompt is gated on ``user_verdict is None`` (#1898),
@@ -4883,8 +4887,20 @@ async def on_print_start(printer_id: int, data: dict):
                 # (#1403 follow-up — see pwostran's 2026-05-18 support bundle).
                 await _capture_timelapse_baseline_at_start(printer, printer_id, logger, archive_id=archive.id)
                 await _forget_if_printer_gone(printer_id)
+                return  # Skip creating a new archive
 
-            return  # Skip creating a new archive
+            # The archive was deleted after the job was queued.
+            if not printer.auto_archive:
+                # Only the expected print brought a printer that does not
+                # archive this far; with it gone, nothing is archived.
+                return
+            # Otherwise archive the print anew rather than drop it, so it still
+            # gets its notification, usage tracking and history.
+            logger.warning(
+                "Expected archive %s for printer %s no longer exists; archiving the print anew",
+                expected_archive_id,
+                printer_id,
+            )
 
         # Check if there's already a "printing" archive for this printer/file
         # This prevents duplicates when backend restarts during an active print

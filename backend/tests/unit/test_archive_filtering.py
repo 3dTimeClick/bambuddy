@@ -663,8 +663,7 @@ class TestConvertTimelapseToMp4:
     """Test the background AVI-to-MP4 conversion."""
 
     @pytest.mark.asyncio
-    async def test_converts_avi_to_mp4(self, tmp_path):
-        """Should call FFmpeg to convert and update the DB path."""
+    async def _convert(self, tmp_path, shown: str):
         source = tmp_path / "video.avi"
         source.write_bytes(b"fake avi")
         mp4_path = tmp_path / "video.mp4"
@@ -675,7 +674,7 @@ class TestConvertTimelapseToMp4:
 
         mock_archive = MagicMock()
         mock_archive.id = 42
-        mock_archive.timelapse_path = "archives/42/video.avi"
+        mock_archive.timelapse_path = shown
 
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -703,6 +702,13 @@ class TestConvertTimelapseToMp4:
 
             await _convert_timelapse_to_mp4(42, source)
 
+        return mock_exec, mock_session, mock_archive, mp4_path
+
+    @pytest.mark.asyncio
+    async def test_converts_avi_to_mp4(self, tmp_path):
+        """Should call FFmpeg to convert and update the DB path."""
+        mock_exec, mock_session, mock_archive, _ = await self._convert(tmp_path, shown="video.avi")
+
         # FFmpeg should have been called
         mock_exec.assert_called_once()
         cmd_args = mock_exec.call_args[0]
@@ -713,6 +719,15 @@ class TestConvertTimelapseToMp4:
         # DB should have been updated to .mp4 path
         mock_session.commit.assert_called_once()
         assert mock_archive.timelapse_path == "video.mp4"
+
+    @pytest.mark.asyncio
+    async def test_an_archive_that_moved_on_keeps_what_it_shows(self, tmp_path):
+        """The video was deleted, or a reprint's replaced it, while it converted."""
+        _, mock_session, mock_archive, mp4_path = await self._convert(tmp_path, shown="other.mp4")
+
+        mock_session.commit.assert_not_called()
+        assert mock_archive.timelapse_path == "other.mp4"
+        assert not mp4_path.exists()
 
     @pytest.mark.asyncio
     async def test_skips_when_no_ffmpeg(self, tmp_path):

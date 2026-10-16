@@ -2041,9 +2041,17 @@ async def _convert_timelapse_to_mp4(archive_id: int, source_path: Path) -> None:
 
             result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
             archive = result.scalar_one_or_none()
-            if archive:
-                archive.timelapse_path = str(mp4_path.relative_to(settings.base_dir))
-                await db.commit()
+            source_rel = str(source_path.relative_to(settings.base_dir))
+            # Only if the archive still shows this video: one deleted while it
+            # converted, or replaced by a reprint's, must not come back.
+            if archive is None or archive.timelapse_path != source_rel:
+                logger.info(
+                    "Archive %s no longer shows %s; discarding its MP4 conversion", archive_id, source_path.name
+                )
+                mp4_path.unlink(missing_ok=True)
+                return
+            archive.timelapse_path = str(mp4_path.relative_to(settings.base_dir))
+            await db.commit()
 
         # Remove original non-MP4 file
         if source_path.exists():
