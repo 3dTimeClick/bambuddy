@@ -1004,6 +1004,33 @@ async def update_spool(
     return _map_spoolman_spool(updated)
 
 
+async def _release_spool_slots(db: AsyncSession, spool_id: int, *, keep_tracked: bool) -> list[tuple[int, int, int]]:
+    """Delete a spool's slot rows; returns the freed (printer, ams, tray) slots.
+
+    ``keep_tracked`` keeps the rows of a printer with a print being tracked:
+    its usage is charged at completion by the slot's spool, which only the row
+    knows for a spool without a tag. ``release_archived_slot_rows`` frees them
+    once that print is reported. The caller commits, then announces.
+    """
+    from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+
+    query = select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.spoolman_spool_id == spool_id)
+    if keep_tracked:
+        query = query.where(SpoolmanSlotAssignment.printer_id.not_in(select(ActivePrintSpoolman.printer_id)))
+    rows = (await db.execute(query)).scalars().all()
+    freed = [(r.printer_id, r.ams_id, r.tray_id) for r in rows]
+    for row in rows:
+        await db.delete(row)
+    return freed
+
+
+async def _announce_freed_slots(freed: list[tuple[int, int, int]]) -> None:
+    for printer_id, ams_id, tray_id in freed:
+        await ws_manager.broadcast(
+            {"type": "spool_assignment_changed", "printer_id": printer_id, "ams_id": ams_id, "tray_id": tray_id}
+        )
+
+
 async def _purge_local_rows_for_spool(db: AsyncSession, spool_id: int) -> None:
     """Drop the Bambuddy-side rows a deleted Spoolman spool leaves behind.
 
@@ -1031,8 +1058,12 @@ async def delete_spool(
     async with _translate_spoolman_errors():
         await client.delete_spool(spool_id)
     await _purge_local_rows_for_spool(db, spool_id)
+    # Its slots go too: a row left behind points tracking and the scheduler
+    # at an id Spoolman no longer has.
+    freed = await _release_spool_slots(db, spool_id, keep_tracked=False)
     await db.commit()
     await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return {"status": "deleted"}
 
 
@@ -1046,12 +1077,16 @@ async def archive_spool(
     client = await _get_client(db)
     async with _translate_spoolman_errors():
         spool = await client.set_spool_archived(spool_id, archived=True)
+    # An archived spool gives its slots up, as in the built-in inventory.
+    freed = await _release_spool_slots(db, spool_id, keep_tracked=True)
+    await db.commit()
+    await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     try:
         mapped = _map_spoolman_spool(spool)
     except ValueError as exc:
         logger.warning("Malformed Spoolman spool (id=%r): %s", spool_id, exc)
         raise HTTPException(status_code=502, detail="Spoolman returned malformed spool data") from exc
-    await ws_manager.broadcast({"type": "inventory_changed"})
     return mapped
 
 
@@ -1157,12 +1192,14 @@ async def bulk_delete_spools(
     """Hard-delete every listed Spoolman spool. Per-spool failures are collected."""
     client = await _get_client(db)
     deleted = 0
+    freed: list[tuple[int, int, int]] = []
     errors: list[dict] = []
     for sid in payload.ids:
         try:
             async with _translate_spoolman_errors():
                 await client.delete_spool(sid)
             await _purge_local_rows_for_spool(db, sid)
+            freed += await _release_spool_slots(db, sid, keep_tracked=False)
             deleted += 1
         except HTTPException as exc:
             errors.append({"id": sid, "status": exc.status_code, "detail": exc.detail})
@@ -1172,6 +1209,7 @@ async def bulk_delete_spools(
     if deleted:
         await db.commit()
         await ws_manager.broadcast({"type": "inventory_changed"})
+        await _announce_freed_slots(freed)
     return {"deleted": deleted, "errors": errors}
 
 
@@ -1184,11 +1222,13 @@ async def bulk_archive_spools(
     """Archive every listed Spoolman spool. Per-spool failures are collected."""
     client = await _get_client(db)
     archived = 0
+    freed: list[tuple[int, int, int]] = []
     errors: list[dict] = []
     for sid in payload.ids:
         try:
             async with _translate_spoolman_errors():
                 await client.set_spool_archived(sid, archived=True)
+            freed += await _release_spool_slots(db, sid, keep_tracked=True)
             archived += 1
         except HTTPException as exc:
             errors.append({"id": sid, "status": exc.status_code, "detail": exc.detail})
@@ -1196,7 +1236,9 @@ async def bulk_archive_spools(
             logger.exception("Spoolman bulk-archive failed for spool %s", sid)
             errors.append({"id": sid, "status": 500, "detail": str(exc)})
     if archived:
+        await db.commit()
         await ws_manager.broadcast({"type": "inventory_changed"})
+        await _announce_freed_slots(freed)
     return {"archived": archived, "errors": errors}
 
 

@@ -326,7 +326,7 @@ export function AssignToAmsModal({
       queryClient.invalidateQueries({ queryKey: ['slotPresets'] });
       queryClient.invalidateQueries({ queryKey: ['spool-assignments'] });
       queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
-      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments-all'] });
+      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['inventory-spools'] });
       queryClient.invalidateQueries({ queryKey: ['spoolman-inventory-spools'] });
       setTimeout(() => onClose(), pendingConfig ? 2500 : 1500);

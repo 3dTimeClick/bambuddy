@@ -9,8 +9,10 @@ import json
 import logging
 import math
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 
 from backend.app.api.routes._spoolman_helpers import spoolman_net_weight
 from backend.app.core.config import settings as app_settings
@@ -627,6 +629,71 @@ async def cleanup_tracking(
     )
     await db.commit()
     logger.debug("[SPOOLMAN] Cleaned up tracking data for printer=%s, archive=%s", printer_id, archive_id)
+
+
+async def release_archived_slot_rows(printer_id: int) -> None:
+    """Unassign the printer's slots whose Spoolman spool is archived or gone.
+
+    Archiving a spool through Bambuddy keeps the slot of a printer whose print
+    it may be feeding: usage is charged at completion by the slot's spool, and
+    only the slot row knows it for a spool without a tag. Run once that print's
+    usage is reported. Also catches spools archived or deleted in Spoolman.
+    Best-effort: a failure leaves the rows for the next print to try again.
+    """
+    from backend.app.api.routes.settings import get_setting
+    from backend.app.core.websocket import ws_manager
+    from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
+
+    try:
+        async with async_session() as db:
+            enabled = await get_setting(db, "spoolman_enabled")
+            if not enabled or enabled.lower() != "true":
+                return
+            rows = (
+                (
+                    await db.execute(
+                        select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.printer_id == printer_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not rows:
+                return
+            client = await _get_spoolman_client_with_fallback()
+            if not client:
+                return
+            live = {
+                spool["id"]
+                for spool in await client.get_all_spools(allow_archived=True)
+                if spool.get("id") is not None and not spool.get("archived")
+            }
+            freed: list[tuple[int, int]] = []
+            for row in rows:
+                if row.spoolman_spool_id in live:
+                    continue
+                # Keyed on the spool too: the slot may have been given another
+                # spool since the rows were read.
+                result = cast(
+                    CursorResult,
+                    await db.execute(
+                        delete(SpoolmanSlotAssignment).where(
+                            SpoolmanSlotAssignment.id == row.id,
+                            SpoolmanSlotAssignment.spoolman_spool_id == row.spoolman_spool_id,
+                        )
+                    ),
+                )
+                if result.rowcount:
+                    freed.append((row.ams_id, row.tray_id))
+            if not freed:
+                return
+            await db.commit()
+        for ams_id, tray_id in freed:
+            await ws_manager.broadcast(
+                {"type": "spool_assignment_changed", "printer_id": printer_id, "ams_id": ams_id, "tray_id": tray_id}
+            )
+    except Exception as e:  # noqa: BLE001 — best-effort cleanup after completion
+        logger.warning("[SPOOLMAN] Could not release archived spools' slots on printer %s: %s", printer_id, e)
 
 
 async def _get_spoolman_client_with_fallback():

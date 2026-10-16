@@ -102,7 +102,7 @@ export function SpoolBuddyAmsPage() {
   // Without these, AmsUnitCard shows an empty fill bar and the Link button
   // stays active even though the slot is occupied.
   const { data: spoolmanSlotAssignmentsAll = [] } = useQuery({
-    queryKey: ['spoolman-slot-assignments-all'],
+    queryKey: ['spoolman-slot-assignments', 'all'],
     queryFn: () => api.getSpoolmanSlotAssignments(),
     enabled: !!spoolmanEnabled,
     staleTime: 30 * 1000,
@@ -326,7 +326,7 @@ export function SpoolBuddyAmsPage() {
       // these PrintersPage / InventoryPage / SpoolBuddyDashboard keep showing
       // the spool as still assigned for ~30s until refetchInterval kicks in.
       queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
-      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments-all'] });
+      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['spoolman-inventory-spools'] });
       setSlotActionPicker(null);
     },
@@ -349,7 +349,7 @@ export function SpoolBuddyAmsPage() {
       // unlinkSpoolMutation does the same set — keep them aligned so both
       // unbind paths refresh the same caches.
       queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
-      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments-all'] });
+      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['spoolman-inventory-spools'] });
       queryClient.invalidateQueries({ queryKey: ['unlinked-spools'] });
       queryClient.invalidateQueries({ queryKey: ['linked-spools'] });

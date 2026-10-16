@@ -255,7 +255,7 @@ describe('SpoolBuddyAmsPage Phase 13', () => {
   });
 
   describe('P13-5 — unlinkSpoolMutation invalidates all 5 dependent query keys', () => {
-    it('invalidates linked-spools, unlinked-spools, spoolman-slot-assignments, spoolman-slot-assignments-all, spoolman-inventory-spools', async () => {
+    it('invalidates linked-spools, unlinked-spools, spoolman-slot-assignments (all printers too, by prefix), spoolman-inventory-spools', async () => {
       spoolmanStatusValue = { enabled: true, connected: true };
       // BL slot 0 has tray_uuid that maps to a linked spool — so the unlink
       // button is reachable in the picker.
@@ -293,7 +293,6 @@ describe('SpoolBuddyAmsPage Phase 13', () => {
           'linked-spools',
           'unlinked-spools',
           'spoolman-slot-assignments',
-          'spoolman-slot-assignments-all',
           'spoolman-inventory-spools',
         ]));
       });
@@ -302,7 +301,7 @@ describe('SpoolBuddyAmsPage Phase 13', () => {
   });
 
   describe('P13-6a — Spoolman queries fire when spoolmanEnabled', () => {
-    it('fetches spoolman-slot-assignments-all and spoolman-inventory-spools when spoolman is enabled', async () => {
+    it('fetches the all-printers spoolman-slot-assignments and spoolman-inventory-spools when spoolman is enabled', async () => {
       spoolmanStatusValue = { enabled: true, connected: true };
       renderPage();
 

@@ -164,6 +164,13 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Spool slots** —
+  - Archiving a spool, one or in bulk, unassigns it from its AMS slots, with the built-in inventory and with Spoolman, and slots still held by spools archived earlier are released on update. The slot kept showing the archived spool and charged it the next print's usage. A Bambu Lab spool's tag still in the AMS after archiving is not given to another spool or turned into a new one. With Spoolman, a spool feeding a running print keeps its slot until the print's usage is reported.
+  - Deleting a Spoolman spool removes its slot assignments too, and a spool archived or deleted in Spoolman itself releases its slots after the next print on that printer. The slot kept pointing at a spool Spoolman no longer had.
+  - Printer cards and slot lists update right away when a Spoolman spool is archived, deleted or unassigned.
+  - **Sync** and **Sync all** in Settings → Spoolman no longer unlink a slot that reads empty while its printer is printing (a runout), or one the AMS still reports as holding a spool.
+  - The spool list in the Assign dialog updates right after a Spoolman assignment, so the spool just assigned is no longer offered for a second slot.
+  - **Restore** on an archived spool inside an expanded group row of the inventory table works. It did nothing.
 - **Spool weights from the AMS** —
   - **Sync Weights from AMS** and **Sync Spoolman Weights from AMS** leave the spools of a printer that is printing alone, and say how many. Synced halfway through a print, that print's usage was counted twice at completion.
   - A spool weighed on the SpoolBuddy scale is locked like one whose weight was set by hand, so the automatic AMS remain% sync no longer overwrites the measured weight.

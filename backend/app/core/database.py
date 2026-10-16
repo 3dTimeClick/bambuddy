@@ -5807,8 +5807,22 @@ async def _run_migrations(conn):
     await _migrate_spool_usage_outlives_its_spool(conn)
     await _backfill_pipeline_job_final_status(conn)
     await _release_stuck_budget_reservations(conn)
+    await _release_slots_of_archived_spools(conn)
     await _migrate_pg_column_types(conn)
     await _migrate_pg_columns_to_model(conn)
+
+
+async def _release_slots_of_archived_spools(conn) -> None:
+    """An archived spool gives its AMS slots up: archiving does so now, and the
+    slots still held by one archived earlier are released here. Idempotent."""
+    from sqlalchemy import text
+
+    async with conn.begin_nested():
+        released = await conn.execute(
+            text("DELETE FROM spool_assignment WHERE spool_id IN (SELECT id FROM spool WHERE archived_at IS NOT NULL)")
+        )
+    if released.rowcount:
+        logger.info("Released %d AMS slot(s) still assigned to archived spools", released.rowcount)
 
 
 # Columns that migrations added nullable or with a server default the model

@@ -753,7 +753,7 @@ export function SpoolFormModal({
     enabled: isOpen && isEditing && !spoolmanMode,
   });
   const { data: spoolmanSlotAssignments, isLoading: spoolmanAssignmentsLoading } = useQuery({
-    queryKey: ['spoolman-slot-assignments-all'],
+    queryKey: ['spoolman-slot-assignments', 'all'],
     queryFn: () => api.getSpoolmanSlotAssignments(),
     enabled: isOpen && isEditing && spoolmanMode,
   });
@@ -818,7 +818,7 @@ export function SpoolFormModal({
     },
     onSuccess: async () => {
       if (spoolmanMode) {
-        await queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments-all'] });
+        await queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments', 'all'] });
         await queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
       } else {
         await queryClient.invalidateQueries({ queryKey: ['spool-assignments'] });

@@ -27,7 +27,8 @@ from backend.app.models.spoolman_k_profile import SpoolmanKProfile
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.user import User
 from backend.app.services import slot_unlink_grace
-from backend.app.services.printer_manager import printer_manager
+from backend.app.services.ams_slot_presence import spool_present
+from backend.app.services.printer_manager import PrinterManager, printer_manager
 from backend.app.services.slicer_filament_resolver import resolve_slicer_filament
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
 from backend.app.services.spool_filament_preset import resolve_spoolman_preset
@@ -220,6 +221,17 @@ async def disconnect_spoolman(
     return {"success": True, "message": "Disconnected from Spoolman"}
 
 
+def _empty_slot_may_be_unlinked(state, tray_data: dict) -> bool:
+    """The automatic pass's guards for a tray that reads empty (#3186): not while
+    the printer prints, where a runout reads empty, and not in a slot whose
+    presence bit says a spool is there. Its grace period is left out: the sync
+    was asked for.
+    """
+    if str(getattr(state, "state", "") or "").upper() in PrinterManager.ACTIVE_PRINT_STATES:
+        return False
+    return spool_present(tray_data) is not True
+
+
 @router.post("/sync/{printer_id}", response_model=SyncResult)
 async def sync_printer_ams(
     printer_id: int,
@@ -358,7 +370,8 @@ async def sync_printer_ams(
             tray_id_raw = int(tray_data.get("id", 0))
             tray = client.parse_ams_tray(ams_id, tray_data)
             if not tray:
-                empty_slots.append((ams_id, tray_id_raw))
+                if _empty_slot_may_be_unlinked(state, tray_data):
+                    empty_slots.append((ams_id, tray_id_raw))
                 continue
 
             spool_tag = (
@@ -577,7 +590,8 @@ async def sync_all_printers(
                 tray_id_raw = int(tray_data.get("id", 0))
                 tray = client.parse_ams_tray(ams_id, tray_data)
                 if not tray:
-                    all_empty_slots.append((printer.id, ams_id, tray_id_raw))
+                    if _empty_slot_may_be_unlinked(state, tray_data):
+                        all_empty_slots.append((printer.id, ams_id, tray_id_raw))
                     continue
 
                 spool_tag = (

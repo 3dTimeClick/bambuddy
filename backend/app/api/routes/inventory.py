@@ -1674,6 +1674,29 @@ async def delete_spool(
     return {"status": "deleted"}
 
 
+async def _release_slots(db: AsyncSession, spool_ids: list[int]) -> list[tuple[int, int, int]]:
+    """Unassign archived spools from their AMS slots; returns the freed slots.
+
+    Assigning refuses an archived spool and nothing downstream checks the flag,
+    so a slot left pointing at one would keep showing it and charge it the next
+    print's usage. The caller commits, then announces the slots.
+    """
+    if not spool_ids:
+        return []
+    rows = (await db.execute(select(SpoolAssignment).where(SpoolAssignment.spool_id.in_(spool_ids)))).scalars().all()
+    freed = [(a.printer_id, a.ams_id, a.tray_id) for a in rows]
+    for assignment in rows:
+        await db.delete(assignment)
+    return freed
+
+
+async def _announce_freed_slots(freed: list[tuple[int, int, int]]) -> None:
+    for printer_id, ams_id, tray_id in freed:
+        await ws_manager.broadcast(
+            {"type": "spool_assignment_changed", "printer_id": printer_id, "ams_id": ams_id, "tray_id": tray_id}
+        )
+
+
 @router.post("/spools/{spool_id}/archive", response_model=SpoolResponse)
 async def archive_spool(
     spool_id: int,
@@ -1689,9 +1712,11 @@ async def archive_spool(
         raise HTTPException(404, "Spool not found")
 
     spool.archived_at = datetime.now(timezone.utc)
+    freed = await _release_slots(db, [spool.id])
     await db.commit()
     result = await db.execute(select(Spool).options(*spool_response_loads()).where(Spool.id == spool_id))
     await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return result.scalar_one()
 
 
@@ -1868,9 +1893,12 @@ async def bulk_archive_spools(
             continue
         spool.archived_at = now
         archived.append(spool.id)
+    # Already-archived ones too: archived before archiving released slots.
+    freed = await _release_slots(db, archived + already)
     await db.commit()
     if archived:
         await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return {"archived": len(archived), "already_archived": already, "not_found": not_found}
 
 

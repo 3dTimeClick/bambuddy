@@ -161,6 +161,7 @@ from backend.app.services.spool_filament_preset import printer_safe_filament_id
 from backend.app.services.spoolman import close_spoolman_client, get_spoolman_client, init_spoolman_client
 from backend.app.services.spoolman_tracking import (
     cleanup_tracking as _cleanup_spoolman_tracking,
+    release_archived_slot_rows as _release_archived_spoolman_slots,
     report_usage as _report_spoolman_usage,
     store_print_data as _store_spoolman_print_data,
 )
@@ -2859,6 +2860,7 @@ async def on_ams_change(printer_id: int, ams_data: list):
                 is_bambu_tag,
                 is_valid_tag,
                 link_tag_to_inventory_spool,
+                tag_belongs_to_archived_spool,
             )
 
             _spoolman_on = await get_setting(db, "spoolman_enabled")
@@ -3009,6 +3011,10 @@ async def on_ams_change(printer_id: int, ams_data: list):
                         if is_bambu_tag(tag_uid, tray_uuid, tray_info_idx):
                             # BL spool with RFID tag: auto-match → inventory match → auto-create
                             spool = await get_spool_by_tag(db, tag_uid, tray_uuid)
+                            if not spool and await tag_belongs_to_archived_spool(db, tag_uid, tray_uuid):
+                                # An archived spool still in the AMS: the slot
+                                # stays free rather than adopting its tag.
+                                continue
                             if not spool:
                                 # Try matching an untagged inventory spool (same material/color)
                                 spool = await find_matching_untagged_spool(db, tray)
@@ -3061,8 +3067,11 @@ async def on_ams_change(printer_id: int, ams_data: list):
                                 ams_id,
                                 tray_id,
                             )
-                        elif is_valid_tag(tag_uid, tray_uuid):
-                            # Non-BL spool with some tag — let user choose
+                        elif is_valid_tag(tag_uid, tray_uuid) and not await tag_belongs_to_archived_spool(
+                            db, tag_uid, tray_uuid
+                        ):
+                            # Non-BL spool with some tag — let user choose (not
+                            # an archived one's, whose slot stays free)
                             await _broadcast_unknown_tag(
                                 printer_id=printer_id,
                                 ams_id=ams_id,
@@ -8177,6 +8186,7 @@ async def on_print_complete(printer_id: int, data: dict):
                     )
             except Exception as e:
                 logger.debug("[SPOOLMAN] Cleanup failed: %s", e)
+        await _release_archived_spoolman_slots(printer_id)
 
     log_timing("Filament usage tracking")
 
