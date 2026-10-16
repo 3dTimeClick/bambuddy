@@ -2247,6 +2247,7 @@ export default {
     amsSyncing: '同步中...',
     amsSyncSuccess: '已同步 {{synced}} 個耗材，跳過 {{skipped}} 個',
     amsSyncError: '從 AMS 同步重量失敗',
+    amsSyncSkippedPrinting: '正在列印的印表機上的 {{count}} 個料卷未作變更。列印完成後請再次同步。',
     spoolmanAmsSyncButton: '從 AMS 同步 Spoolman 重量',
     spoolmanAmsSyncTitle: '從 AMS 同步 Spoolman 耗材重量',
     spoolmanAmsSyncMessage: '這將根據已連線印表機的目前 AMS 剩餘百分比值更新所有 Spoolman 耗材重量。印表機必須線上。',

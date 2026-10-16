@@ -2247,6 +2247,7 @@ export default {
     amsSyncing: 'Synchronisiere...',
     amsSyncSuccess: '{{synced}} Spule(n) synchronisiert, {{skipped}} übersprungen',
     amsSyncError: 'Synchronisierung der Gewichte vom AMS fehlgeschlagen',
+    amsSyncSkippedPrinting: '{{count}} Spule(n) an einem Drucker, der gerade druckt, unverändert gelassen. Nach dem Druck erneut synchronisieren.',
     spoolmanAmsSyncButton: 'Spoolman-Gewichte vom AMS synchronisieren',
     spoolmanAmsSyncTitle: 'Spoolman-Spulengewichte vom AMS synchronisieren',
     spoolmanAmsSyncMessage: 'Dabei werden alle Spoolman-Spulengewichte anhand der aktuellen AMS-Füllstandswerte der verbundenen Drucker aktualisiert. Die Drucker müssen online sein.',

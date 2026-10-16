@@ -2250,6 +2250,7 @@ export default {
     amsSyncing: 'Sincronizando...',
     amsSyncSuccess: '{{synced}} bobina(s) sincronizada(s), {{skipped}} omitida(s)',
     amsSyncError: 'Error al sincronizar los pesos desde el AMS',
+    amsSyncSkippedPrinting: '{{count}} bobina(s) en una impresora que está imprimiendo se dejaron sin cambios. Sincroniza de nuevo cuando termine la impresión.',
     spoolmanAmsSyncButton: 'Sincronizar pesos de Spoolman desde el AMS',
     spoolmanAmsSyncTitle: 'Sincronizar los pesos de las bobinas de Spoolman desde el AMS',
     spoolmanAmsSyncMessage: 'Esto actualizará todos los pesos de las bobinas de Spoolman según los valores actuales de % restante del AMS de las impresoras conectadas. Las impresoras deben estar en línea.',

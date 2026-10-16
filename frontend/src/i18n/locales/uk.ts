@@ -2265,6 +2265,7 @@ export default {
     amsSyncing: "Синхронізація...",
     amsSyncSuccess: "Синхронізовано: {{synced}}; пропущено: {{skipped}}",
     amsSyncError: "Не вдалося синхронізувати масу з AMS",
+    amsSyncSkippedPrinting: "{{count}} котушк(и) на принтері, який зараз друкує, залишено без змін. Синхронізуйте знову після завершення друку.",
     spoolmanAmsSyncButton: "Синхронізувати масу котушок Spoolman з AMS",
     spoolmanAmsSyncTitle: "Синхронізація маси котушок Spoolman з AMS",
     spoolmanAmsSyncMessage: "Масу всіх котушок Spoolman буде оновлено відповідно до поточних значень залишку в AMS підключених принтерів. Принтери мають бути в мережі.",

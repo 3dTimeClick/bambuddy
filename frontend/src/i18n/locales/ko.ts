@@ -2151,6 +2151,7 @@ export default {
     amsSyncing: '동기화 중...',
     amsSyncSuccess: '{{synced}}개 스풀 동기화됨, {{skipped}}개 건너뜀',
     amsSyncError: 'AMS에서 무게 동기화 실패',
+    amsSyncSkippedPrinting: '출력 중인 프린터의 스풀 {{count}}개는 변경하지 않았습니다. 출력이 끝난 뒤 다시 동기화하세요.',
     spoolmanAmsSyncButton: 'AMS에서 Spoolman 무게 동기화',
     spoolmanAmsSyncTitle: 'AMS에서 Spoolman 스풀 무게 동기화',
     spoolmanAmsSyncMessage: '연결된 프린터의 현재 AMS 잔여% 값으로 모든 Spoolman 스풀 무게를 업데이트합니다. 프린터가 온라인이어야 합니다.',

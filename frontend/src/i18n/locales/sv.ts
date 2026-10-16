@@ -2266,6 +2266,7 @@ export default {
     amsSyncing: 'Synkroniserar...',
     amsSyncSuccess: '{{synced}} rulle(ar) synkroniserade, {{skipped}} hoppades över',
     amsSyncError: 'Kunde inte synkronisera vikter från AMS',
+    amsSyncSkippedPrinting: '{{count}} spole/spolar på en skrivare som skriver ut lämnades orörda. Synkronisera igen när utskriften är klar.',
     spoolmanAmsSyncButton: 'Synkronisera Spoolman-vikter från AMS',
     spoolmanAmsSyncTitle: 'Synkronisera Spoolman-rullvikter från AMS',
     spoolmanAmsSyncMessage: 'Detta kommer att uppdatera alla Spoolman-rullars vikter baserat på de aktuella AMS-procentvärdena från anslutna skrivare. Skrivaren måste vara online.',

@@ -2269,6 +2269,7 @@ export default {
     amsSyncing: 'Syncing...',
     amsSyncSuccess: '{{synced}} spool(s) synced, {{skipped}} skipped',
     amsSyncError: 'Failed to sync weights from AMS',
+    amsSyncSkippedPrinting: '{{count}} spool(s) on a printer that is printing left alone. Sync again once the print has finished.',
     spoolmanAmsSyncButton: 'Sync Spoolman Weights from AMS',
     spoolmanAmsSyncTitle: 'Sync Spoolman Spool Weights from AMS',
     spoolmanAmsSyncMessage: 'This will update all Spoolman spool weights based on the current AMS remain% values from connected printers. Printers must be online.',

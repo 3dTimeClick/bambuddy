@@ -7189,7 +7189,7 @@ export const api = {
   clearSpoolUsageHistory: (spoolId: number) =>
     request<{ status: string }>(`/inventory/spools/${spoolId}/usage`, { method: 'DELETE' }),
   syncWeightsFromAms: () =>
-    request<{ synced: number; skipped: number }>('/inventory/sync-ams-weights', { method: 'POST' }),
+    request<{ synced: number; skipped: number; printing?: number }>('/inventory/sync-ams-weights', { method: 'POST' }),
   getSkuSettings: () =>
     request<FilamentSkuSettings[]>('/inventory/sku-settings'),
   upsertSkuSettings: (data: Omit<FilamentSkuSettings, 'id'>) =>
@@ -7310,7 +7310,7 @@ export const api = {
         : '/spoolman/inventory/slot-assignments/all',
     ),
   syncSpoolmanAmsWeights: () =>
-    request<{ synced: number; skipped: number }>('/spoolman/inventory/sync-ams-weights', { method: 'POST' }),
+    request<{ synced: number; skipped: number; printing?: number }>('/spoolman/inventory/sync-ams-weights', { method: 'POST' }),
 
   getSpoolmanKProfiles: (spoolId: number) =>
     request<SpoolKProfile[]>(`/spoolman/inventory/spools/${spoolId}/k-profiles`),

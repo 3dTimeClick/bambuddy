@@ -1057,6 +1057,9 @@ async def update_spool_weight(
         spool.weight_used = max(0, spool.label_weight - net_filament)
         spool.last_scale_weight = req.weight_grams
         spool.last_weighed_at = datetime.now(timezone.utc)
+        # A measured figure, which the AMS remain% sync must not overwrite
+        # (as a hand-set one, see update_spool).
+        spool.weight_locked = True
         await db.commit()
         logger.info(
             "SpoolBuddy updated spool %d weight: %.1fg on scale, %.1fg used",

@@ -61,7 +61,7 @@ from backend.app.services.location_service import (
     maybe_sync_spoolman_locations,
     resolve_spoolman_location_string,
 )
-from backend.app.services.printer_manager import printer_manager
+from backend.app.services.printer_manager import PrinterManager, printer_manager
 from backend.app.services.slicer_filament_resolver import resolve_slicer_filament
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
 from backend.app.services.spool_filament_preset import resolve_spoolman_preset
@@ -1591,8 +1591,13 @@ async def sync_spoolman_ams_weights(
     # Only slots on printers the caller may see (#1727)
     assignments = [a for a in result.scalars().all() if printer_scope.allows(a.printer_id)]
 
+    from backend.app.services.usage_tracker import _active_sessions
+
     synced = 0
     skipped = 0
+    # A printing printer is left alone: its print's usage is charged when it
+    # completes, on top of whatever remaining weight the spool has by then.
+    printing = 0
 
     def _find_tray(ams_data: list, ams_id: int, tray_id: int) -> dict | None:
         if not ams_data:
@@ -1619,13 +1624,29 @@ async def sync_spoolman_ams_weights(
             continue
 
         state = printer_manager.get_status(assignment.printer_id)
-        if not state or not state.raw_data:
+        # A disconnected printer keeps its last report, which is not a reading.
+        if not state or not state.raw_data or getattr(state, "connected", True) is False:
             logger.info(
                 "Spoolman AMS sync: printer %d not connected, skipping spool %d",
                 assignment.printer_id,
                 assignment.spoolman_spool_id,
             )
             skipped += 1
+            continue
+
+        # Until completion has charged the print its session stays open, also
+        # after the printer has reported the print finished.
+        if (
+            str(getattr(state, "state", "") or "").upper() in PrinterManager.ACTIVE_PRINT_STATES
+            or assignment.printer_id in _active_sessions
+        ):
+            logger.info(
+                "Spoolman AMS sync: printer %d is printing, skipping spool %d",
+                assignment.printer_id,
+                assignment.spoolman_spool_id,
+            )
+            skipped += 1
+            printing += 1
             continue
 
         ams_raw = state.raw_data.get("ams", [])
@@ -1695,7 +1716,7 @@ async def sync_spoolman_ams_weights(
                 )
             skipped += 1
 
-    return {"synced": synced, "skipped": skipped}
+    return {"synced": synced, "skipped": skipped, "printing": printing}
 
 
 @router.post("/slot-assignments")

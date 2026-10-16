@@ -2148,6 +2148,7 @@ export default {
     amsSyncing: "Синхронизация...",
     amsSyncSuccess: "Синхронизировано катушек: {{synced}}, пропущено: {{skipped}}",
     amsSyncError: "Не удалось синхронизировать вес из AMS",
+    amsSyncSkippedPrinting: "{{count}} катушк(и) на принтере, который сейчас печатает, оставлены без изменений. Синхронизируйте снова после окончания печати.",
     spoolmanAmsSyncButton: "Синхронизировать вес Spoolman из AMS",
     spoolmanAmsSyncTitle: "Синхронизация веса катушек Spoolman из AMS",
     spoolmanAmsSyncMessage: "Вес всех катушек Spoolman будет обновлён по текущим значениям остатка из AMS подключённых принтеров. Принтеры должны быть в сети.",

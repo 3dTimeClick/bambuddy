@@ -2250,6 +2250,7 @@ export default {
     amsSyncing: 'Senkronize ediliyor...',
     amsSyncSuccess: '{{synced}} makara senkronize edildi, {{skipped}} atlandı',
     amsSyncError: "AMS'den ağırlıklar senkronize edilemedi",
+    amsSyncSkippedPrinting: "Yazdırma yapan bir yazıcıdaki {{count}} makara değiştirilmedi. Baskı bittikten sonra yeniden eşitleyin.",
     spoolmanAmsSyncButton: "AMS'den Spoolman Ağırlıklarını Senkronize Et",
     spoolmanAmsSyncTitle: "AMS'den Spoolman Makara Ağırlıklarını Senkronize Et",
     spoolmanAmsSyncMessage: 'Bu, bağlı yazıcılardan gelen mevcut AMS kalan% değerlerine göre tüm Spoolman makara ağırlıklarını güncelleyecek. Yazıcılar çevrimiçi olmalıdır.',

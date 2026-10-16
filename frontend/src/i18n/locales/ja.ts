@@ -2246,6 +2246,7 @@ export default {
     amsSyncing: '同期中...',
     amsSyncSuccess: '{{synced}}個のスプールを同期、{{skipped}}個をスキップ',
     amsSyncError: 'AMSからの重量同期に失敗しました',
+    amsSyncSkippedPrinting: '印刷中のプリンターの {{count}} 個のスプールは変更しませんでした。印刷終了後にもう一度同期してください。',
     spoolmanAmsSyncButton: 'AMSからSpoolmanの重量を同期',
     spoolmanAmsSyncTitle: 'AMSからSpoolmanスプール重量を同期',
     spoolmanAmsSyncMessage: '接続されたプリンターの現在のAMS残量値に基づいて、すべてのSpoolmanスプール重量を更新します。プリンターがオンラインである必要があります。',

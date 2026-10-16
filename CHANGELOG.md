@@ -164,6 +164,10 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Spool weights from the AMS** —
+  - **Sync Weights from AMS** and **Sync Spoolman Weights from AMS** leave the spools of a printer that is printing alone, and say how many. Synced halfway through a print, that print's usage was counted twice at completion.
+  - A spool weighed on the SpoolBuddy scale is locked like one whose weight was set by hand, so the automatic AMS remain% sync no longer overwrites the measured weight.
+  - **Sync Weights from AMS** now also updates locked spools and releases their lock. Nothing else could release it, so a spool whose weight was once set by hand was skipped by the sync for good.
 - **SpoolBuddy** —
   - The Write Tag page no longer stays on "Writing tag..." when the tag was written but could not be linked to the spool. It shows why: Spoolman not set up, linking in Spoolman failed, or the spool no longer exists.
   - A scanned tag that cannot be looked up because Spoolman is unavailable, or because the lookup failed, now says so in the kiosk status bar for a few seconds. Before, nothing happened.

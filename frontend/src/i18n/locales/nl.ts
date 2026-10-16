@@ -2267,6 +2267,7 @@ export default {
     amsSyncing: 'Synchroniseren...',
     amsSyncSuccess: '{{synced}} spoel(en) gesynchroniseerd, {{skipped}} overgeslagen',
     amsSyncError: 'Gewichten synchroniseren vanuit AMS mislukt',
+    amsSyncSkippedPrinting: '{{count}} spoel(en) op een printer die aan het printen is ongewijzigd gelaten. Synchroniseer opnieuw zodra de print klaar is.',
     spoolmanAmsSyncButton: 'Spoolman-gewichten synchroniseren vanuit AMS',
     spoolmanAmsSyncTitle: 'Spoolman-spoelgewichten synchroniseren vanuit AMS',
     spoolmanAmsSyncMessage: 'Hiermee worden alle Spoolman-spoelgewichten bijgewerkt op basis van de huidige AMS remain%-waarden van verbonden printers. Printers moeten online zijn.',

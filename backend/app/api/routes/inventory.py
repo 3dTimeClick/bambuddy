@@ -2760,9 +2760,14 @@ async def sync_weights_from_ams(
 
     Overwrites the database weight_used for every assigned spool using the
     current AMS remain% from connected printers.  This is a manual recovery
-    tool — it bypasses the normal "only increase" guard.
+    tool — it bypasses the normal "only increase" guard, and the weight lock
+    a hand-set or weighed figure carries, which it releases.
+
+    A printer that is printing is left alone: its print's usage is charged
+    when it completes, on top of whatever weight the spool has by then.
     """
-    from backend.app.services.printer_manager import printer_manager
+    from backend.app.services.printer_manager import PrinterManager, printer_manager
+    from backend.app.services.usage_tracker import _active_sessions
 
     result = await db.execute(select(SpoolAssignment).options(selectinload(SpoolAssignment.spool)))
     # Only slots on printers the caller may see (#1727)
@@ -2771,6 +2776,7 @@ async def sync_weights_from_ams(
 
     synced = 0
     skipped = 0
+    printing = 0
 
     for assignment in assignments:
         spool = assignment.spool
@@ -2779,19 +2785,26 @@ async def sync_weights_from_ams(
             skipped += 1
             continue
 
-        if spool.weight_locked:
-            logger.debug("AMS weight sync: spool %d is weight-locked, skipping", spool.id)
-            skipped += 1
-            continue
-
         state = printer_manager.get_status(assignment.printer_id)
-        if not state or not state.raw_data:
+        # A disconnected printer keeps its last report, which is not a reading.
+        if not state or not state.raw_data or getattr(state, "connected", True) is False:
             logger.info(
                 "AMS weight sync: printer %d not connected, skipping spool %d",
                 assignment.printer_id,
                 spool.id,
             )
             skipped += 1
+            continue
+
+        # Until completion has charged the print its session stays open, also
+        # after the printer has reported the print finished.
+        if (
+            str(getattr(state, "state", "") or "").upper() in PrinterManager.ACTIVE_PRINT_STATES
+            or assignment.printer_id in _active_sessions
+        ):
+            logger.info("AMS weight sync: printer %d is printing, skipping spool %d", assignment.printer_id, spool.id)
+            skipped += 1
+            printing += 1
             continue
 
         ams_raw = state.raw_data.get("ams", [])
@@ -2839,12 +2852,16 @@ async def sync_weights_from_ams(
                 remain_val,
             )
             spool.weight_used = new_used
+            spool.weight_locked = False
             synced += 1
         else:
+            if spool.weight_locked:
+                # The figure already agrees with the AMS; the override still applies.
+                spool.weight_locked = False
             skipped += 1
 
     await db.commit()
-    return {"synced": synced, "skipped": skipped}
+    return {"synced": synced, "skipped": skipped, "printing": printing}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
