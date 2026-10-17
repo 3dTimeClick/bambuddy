@@ -1901,6 +1901,15 @@ class PrintScheduler:
             scope_auth_enabled = await is_auth_enabled(db)
             creator_scopes: dict[int, PrinterScope] = {}
 
+            # Printers a model job passes over while drying blocks the queue,
+            # as a pinned job waits for its own. A parked timer never ends,
+            # so it does not hold (#2896).
+            drying_held: set[int] = (
+                {pid for pid in self._drying_in_progress if not self._drying_is_only_parked(pid)}
+                if self._drying_in_progress and await self._get_bool_setting(db, "queue_drying_block")
+                else set()
+            )
+
             async def _creator_scope(user_id: int | None) -> PrinterScope:
                 if not scope_auth_enabled or user_id is None:
                     return ALL_PRINTERS
@@ -1928,7 +1937,7 @@ class PrintScheduler:
                     and await self._release_short_model_hold(
                         db,
                         item,
-                        busy_printers | interlocked.keys(),
+                        busy_printers | interlocked.keys() | drying_held,
                         require_plate_clear,
                         await _creator_scope(item.created_by_id),
                     )
@@ -2279,7 +2288,7 @@ class PrintScheduler:
                                 # Sensor-held printers are unavailable to the
                                 # matcher but stay out of busy_printers itself
                                 # (#1148) — see where `interlocked` is built.
-                                busy_printers | interlocked.keys() | gate_blocked,
+                                busy_printers | interlocked.keys() | gate_blocked | drying_held,
                                 effective_types,
                                 item.target_location,
                                 filament_overrides=filament_overrides,
@@ -2436,6 +2445,13 @@ class PrintScheduler:
                         # this item asked for a model, not this printer.
                         if await self._block_on_unmatched_filament(db, item, release_assignment=True):
                             continue
+
+                        # As for a pinned job: drying stops once the print is
+                        # decided, unless it may run through it.
+                        if self._drying_in_progress.get(
+                            printer_id
+                        ) and not await self._drying_may_continue_through_print(db, printer_id):
+                            await self._stop_drying(printer_id)
 
                         _claim_library_row(item)
                         dispatch_ids.append(item.id)
@@ -5671,6 +5687,38 @@ class PrintScheduler:
         for key in [k for k in self._notified_stock_alerts if k not in forecasts]:
             del self._notified_stock_alerts[key]
 
+    @staticmethod
+    async def _creator_printer_scope(db: AsyncSession, user_id: int | None) -> PrinterScope:
+        """The printers a job's creator may use (#1727), as the queue pass reads them."""
+        from backend.app.core.auth import is_auth_enabled
+
+        if user_id is None or not await is_auth_enabled(db):
+            return ALL_PRINTERS
+        return await resolve_user_id_printer_scope(db, user_id)
+
+    async def _model_job_printer_ids(
+        self,
+        db: AsyncSession,
+        item: PrintQueueItem,
+        scope: PrinterScope,
+        cache: dict[tuple[str, str | None, int | None], set[int]],
+    ) -> set[int]:
+        """Every printer an "Any <model>" job could land on: the active printers
+        of each of its candidate models, in its location, that its creator may use.
+
+        ``cache`` holds one lookup per model, location and creator for the pass,
+        so a long queue of model jobs does not query once per job."""
+        printer_ids: set[int] = set()
+        for candidate in _candidates_for(item):
+            if not candidate.target_model:
+                continue
+            key = (candidate.target_model, item.target_location, item.created_by_id)
+            if key not in cache:
+                printers = await self._printers_for_model(db, candidate.target_model, item.target_location, scope)
+                cache[key] = {printer.id for printer in printers}
+            printer_ids |= cache[key]
+        return printer_ids
+
     async def _check_auto_drying(
         self,
         db: AsyncSession,
@@ -5715,13 +5763,25 @@ class PrintScheduler:
         self._sync_drying_state()
 
         # Find printers with scheduled items (for queue drying mode)
+        # An "Any <model>" job counts for every printer it could land on.
         printers_with_scheduled: set[int] = set()
         printers_with_items: set[int] = set()
+        creator_scopes: dict[int | None, PrinterScope] = {}
+        model_printers: dict[tuple[str, str | None, int | None], set[int]] = {}
         for item in queue_items:
             if item.printer_id:
-                printers_with_items.add(item.printer_id)
-                if item.scheduled_time and not item.manual_start:
-                    printers_with_scheduled.add(item.printer_id)
+                item_printers = {item.printer_id}
+            elif item.target_model or item.variants:
+                if item.created_by_id not in creator_scopes:
+                    creator_scopes[item.created_by_id] = await self._creator_printer_scope(db, item.created_by_id)
+                item_printers = await self._model_job_printer_ids(
+                    db, item, creator_scopes[item.created_by_id], model_printers
+                )
+            else:
+                continue
+            printers_with_items |= item_printers
+            if item.scheduled_time and not item.manual_start:
+                printers_with_scheduled |= item_printers
 
         # If only queue mode is on and no printers have scheduled items, stop drying
         # (but skip this short-circuit when print_drying_enabled is on — busy printers
