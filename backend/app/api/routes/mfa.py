@@ -41,6 +41,7 @@ from sqlalchemy.orm import selectinload, undefer
 from backend.app.api.routes._oidc_helpers import assert_safe_public_https_url
 from backend.app.api.routes.settings import get_setting, set_setting
 from backend.app.core.auth import (
+    RequireAdminIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     create_access_token,
     get_current_active_user,
@@ -1279,10 +1280,13 @@ async def verify_2fa(
 async def admin_disable_2fa(
     user_id: int,
     body: AdminDisable2FARequest = Body(default_factory=AdminDisable2FARequest),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.USERS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Admin endpoint: disable all 2FA for a given user.
+
+    Admin-only, like every other change to a user account (users.update_user).
 
     Nit 3: Requires the admin's own password as a re-auth step (matching how
     disable_email_otp protects a user's own 2FA removal). OIDC/LDAP-only admins
@@ -1292,6 +1296,10 @@ async def admin_disable_2fa(
     if current_user and current_user.password_hash:
         if not body.admin_password or not verify_password(body.admin_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin password required")
+
+    target_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     # Delete TOTP record
     await db.execute(delete(UserTOTP).where(UserTOTP.user_id == user_id))
@@ -1308,21 +1316,18 @@ async def admin_disable_2fa(
 
     # I2: Invalidate existing JWTs for the target user by bumping password_changed_at.
     # Without this, a stolen token remains valid after 2FA removal.
-    target_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if target_user:
-        target_user.password_changed_at = datetime.now(timezone.utc)
-        # The WebSocket and camera tokens too: reusable for an hour, they would
-        # reconnect a closed dashboard straight away.
-        from backend.app.api.routes.users import drop_pending_tokens
+    target_user.password_changed_at = datetime.now(timezone.utc)
+    # The WebSocket and camera tokens too: reusable for an hour, they would
+    # reconnect a closed dashboard straight away.
+    from backend.app.api.routes.users import drop_pending_tokens
 
-        await drop_pending_tokens(db, target_user.username)
+    await drop_pending_tokens(db, target_user.username)
 
     await db.commit()
-    if target_user:
-        # And their open dashboards: they are never signed in again.
-        from backend.app.core.websocket import ws_manager
+    # And their open dashboards: they are never signed in again.
+    from backend.app.core.websocket import ws_manager
 
-        await ws_manager.close_user(user_id)
+    await ws_manager.close_user(user_id)
     actor = current_user.username if current_user else "anonymous"
     logger.info("Admin %s disabled all 2FA for user_id=%d", actor, user_id)
     return {"message": "2FA disabled for user"}

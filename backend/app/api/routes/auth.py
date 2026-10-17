@@ -18,6 +18,7 @@ from backend.app.core.auth import (
     ALGORITHM,
     SECRET_KEY,
     Permission,
+    RequireAdminIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     _is_token_fresh,
     _validate_api_key,
@@ -1607,6 +1608,7 @@ async def get_ldap_status(db: AsyncSession = Depends(get_db)):
 @router.get("/ldap/search", response_model=list[LDAPSearchResultResponse])
 async def search_ldap_directory(
     q: str,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.USERS_CREATE),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1680,6 +1682,7 @@ async def search_ldap_directory(
 @router.post("/ldap/provision", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def provision_ldap_user(
     payload: LDAPProvisionRequest,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.USERS_CREATE),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1691,7 +1694,7 @@ async def provision_ldap_user(
     login path (`_provision_ldap_user`), so behavior stays identical regardless
     of whether the user was created here or on first login.
 
-    Requires USERS_CREATE.
+    Admin-only with USERS_CREATE, like users.create_user.
     """
     from sqlalchemy import func as sa_func
 

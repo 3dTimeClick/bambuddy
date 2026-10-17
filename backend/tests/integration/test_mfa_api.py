@@ -654,19 +654,15 @@ class TestAdminDisable2FA:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_admin_disable_requires_admin(self, async_client: AsyncClient):
-        """Only admins can use the admin disable endpoint."""
-        # The only user in a fresh setup IS admin, so just check the 404 path
+    async def test_admin_disable_unknown_user_is_404(self, async_client: AsyncClient):
         token = await _setup_and_login(async_client, "admincheck", "admincheck123")
-        # Try to disable for a non-existent user_id — should get 200 (no-op) or 404
         response = await async_client.request(
             "DELETE",
             "/api/v1/auth/2fa/admin/99999",
             json={"admin_password": _norm_pw("admincheck123")},
             headers=_auth_header(token),
         )
-        # Admin users succeed regardless (returns 200 even if user doesn't exist)
-        assert response.status_code == 200
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -1154,6 +1150,37 @@ class TestAdminDisableNonAdminRejection:
             f"/api/v1/auth/2fa/admin/{create_resp.json()['id']}",
             headers=_auth_header(regular_token),
         )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_users_update_permission_alone_is_not_enough(self, async_client: AsyncClient):
+        """Editing users is admin-only; so is removing their 2FA."""
+        admin_token = await _setup_and_login(async_client, "adminperm2fa", "adminperm2fa1")
+        admin_id = (await async_client.get("/api/v1/auth/me", headers=_auth_header(admin_token))).json()["id"]
+
+        group = await async_client.post(
+            "/api/v1/groups",
+            json={"name": "User managers", "permissions": ["users:read", "users:update"]},
+            headers=_auth_header(admin_token),
+        )
+        assert group.status_code == 201, group.text
+        created = await async_client.post(
+            "/api/v1/users",
+            json={"username": "usermgr2fa", "password": "Usermgr2fa1!", "group_ids": [group.json()["id"]]},
+            headers=_auth_header(admin_token),
+        )
+        assert created.status_code == 201, created.text
+        login = await async_client.post(LOGIN_URL, json={"username": "usermgr2fa", "password": "Usermgr2fa1!"})
+        manager_token = login.json()["access_token"]
+
+        resp = await async_client.request(
+            "DELETE",
+            f"/api/v1/auth/2fa/admin/{admin_id}",
+            json={"admin_password": "Usermgr2fa1!"},
+            headers=_auth_header(manager_token),
+        )
+
         assert resp.status_code == 403
 
 
