@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import suppress
-from unittest.mock import mock_open, patch
+from unittest.mock import AsyncMock, mock_open, patch
 
 import pytest
 
@@ -240,3 +240,53 @@ def test_bambu_rtsp_is_ours_whatever_the_parent():
 
 def test_unknown_parent_is_not_ours_for_usb():
     assert not camera._is_bambuddy_ffmpeg(STREAM, None, OWN_PID)
+
+
+# ---------------------------------------------------------------------------
+# 6. A stuck ffmpeg can never hang the stream's own cleanup (#2580)
+# ---------------------------------------------------------------------------
+
+
+class _WedgedProc:
+    """ffmpeg blocked in write() on a full pipe: SIGTERM is ignored, and after
+    SIGKILL wait() never returns while its pipes are unread."""
+
+    def __init__(self) -> None:
+        self.pid = 52999
+        self.returncode = None
+        self.stdout = asyncio.StreamReader()
+        self.stdout.feed_data(b"\xff\xd8" + b"x" * 200 + b"\xff\xd9")
+        self.stderr = asyncio.StreamReader()
+        self.killed = False
+
+    def terminate(self) -> None:
+        pass
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        await asyncio.Event().wait()
+        return -9  # pragma: no cover
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_usb_ffmpeg_does_not_hang_the_stream_cleanup(monkeypatch):
+    """The shared upstream's cleanup runs in the fan-out broadcaster, which stop,
+    a camera change, printer delete and shutdown all wait on."""
+    from backend.app.services import external_camera
+
+    monkeypatch.setattr(camera, "_FFMPEG_TERM_TIMEOUT", 0.05)
+    monkeypatch.setattr(camera, "_FFMPEG_KILL_TIMEOUT", 0.05)
+    proc = _WedgedProc()
+    monkeypatch.setattr(external_camera, "get_ffmpeg_path", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(external_camera, "_safe_usb_device_path", lambda _d: "/dev/video0")
+    monkeypatch.setattr("asyncio.create_subprocess_exec", AsyncMock(return_value=proc))
+
+    stream = external_camera._stream_usb("/dev/video0", 5)
+    assert await asyncio.wait_for(anext(stream), 2)
+
+    await asyncio.wait_for(stream.aclose(), 2)
+
+    assert proc.killed

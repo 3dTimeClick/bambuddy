@@ -1128,6 +1128,20 @@ async def _stream_mjpeg(url: str) -> AsyncGenerator[bytes, None]:
         logger.error("MJPEG stream error: %s", e)
 
 
+async def _end_stream_ffmpeg(process: asyncio.subprocess.Process) -> None:
+    """Stop a streaming ffmpeg, bounded.
+
+    Through the camera routes' terminator, which drains the pipes while it
+    waits: a streaming ffmpeg is usually blocked writing to a full stdout pipe,
+    where it ignores SIGTERM and, once killed, wait() never returns (#2580).
+    Unbounded, that hung the shared upstream's teardown, and with it every stop,
+    camera change, printer delete and shutdown waiting on the fan-out.
+    """
+    from backend.app.api.routes.camera import _terminate_ffmpeg
+
+    await _terminate_ffmpeg(process)
+
+
 async def _stream_rtsp(
     url: str,
     fps: int,
@@ -1304,12 +1318,7 @@ async def _stream_rtsp(
         if log_watch is not None:
             log_watch.cancel()
         if process and process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2.0)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
+            await _end_stream_ffmpeg(process)
         if proxy_server:
             await close_tls_proxy(proxy_server)
 
@@ -1417,9 +1426,4 @@ async def _stream_usb(
         logger.error("USB stream error: %s", e)
     finally:
         if process and process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2.0)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
+            await _end_stream_ffmpeg(process)

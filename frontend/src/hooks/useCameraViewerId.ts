@@ -2,9 +2,9 @@ import { useState } from 'react';
 
 /**
  * A random id for one camera viewer, stable while it is mounted. It goes on
- * the viewer's stream URL and on its /camera/stop, so the stop ends that
- * viewer's own external camera stream and leaves other viewers' running
- * (external cameras run one stream per viewer, unseen by the fan-out guard).
+ * the viewer's stream URL and on its /camera/stop. Every camera, external ones
+ * included, now shares one upstream per printer, and the stop leaves it running
+ * while another viewer still watches; the id names the viewer in the request.
  *
  * Math.random, not crypto.randomUUID: that needs a secure context, and
  * Bambuddy is often opened over plain http on the LAN.

@@ -65,8 +65,15 @@ def _frames(monkeypatch):
         yield
 
 
+def _request() -> MagicMock:
+    """A connected client: the fan-out asks between frames whether it left."""
+    request = MagicMock()
+    request.is_disconnected = AsyncMock(return_value=False)
+    return request
+
+
 async def _open(printer_id: int, opener):
-    response = await camera.camera_stream(printer_id, MagicMock(), fps=5, opener=opener)
+    response = await camera.camera_stream(printer_id, _request(), fps=5, opener=opener)
     stream = response.body_iterator
     await anext(stream)
     return stream
@@ -168,7 +175,7 @@ async def test_a_stream_opened_as_the_session_ends_does_not_outlive_it(admin, pr
     )
     await db_session.commit()
 
-    response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=opener)
+    response = await camera.camera_stream(printer, _request(), fps=5, opener=opener)
     assert await _ended(response.body_iterator)
     assert await auth.camera_stream_access(token) is None
 
@@ -377,16 +384,20 @@ async def test_a_stream_whose_body_never_starts_leaves_the_camera_inactive(admin
     """The client went away before the first chunk: no finally runs, so the
     count must only go up once the stream really runs."""
     token = await auth.create_camera_stream_token(username="camadmin")
-    response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=await _opener(token))
+    response = await camera.camera_stream(printer, _request(), fps=5, opener=await _opener(token))
 
     await response.body_iterator.aclose()
 
     assert not await _status(printer)
 
 
-async def test_one_viewer_leaving_keeps_the_printers_frame_state_for_the_others(admin, printer):
+async def test_one_viewer_leaving_keeps_the_printers_frame_state_for_the_others(admin, printer, monkeypatch):
     """Without it /camera/status has no stream_uptime, so the remaining viewer can
-    never read the camera as stalled and would not reconnect if it stops."""
+    never read the camera as stalled and would not reconnect if it stops. The
+    state goes with the shared upstream, after its grace window."""
+    from backend.app.services import camera_fanout
+
+    monkeypatch.setattr(camera_fanout, "_GRACE_SECONDS", 0.05)
     token = await auth.create_camera_stream_token(username="camadmin")
     tile = await _open(printer, await _opener(token))
     viewer = await _open(printer, await _opener(token))
@@ -397,22 +408,9 @@ async def test_one_viewer_leaving_keeps_the_printers_frame_state_for_the_others(
     assert printer in camera._last_frames
 
     await viewer.aclose()
+    await asyncio.sleep(0.3)
     assert (await camera.camera_status(printer, None))["stream_uptime"] is None
     assert printer not in camera._last_frames
-
-
-async def test_an_external_stream_remembers_the_viewer_that_opened_it(admin, printer):
-    """So that viewer's /camera/stop ends it and leaves the others' running."""
-    token = await auth.create_camera_stream_token(username="camadmin")
-    response = await camera.camera_stream(printer, MagicMock(), fps=5, opener=await _opener(token), viewer="tile-a")
-    stream = response.body_iterator
-    await anext(stream)
-
-    owned = [sid for sid, viewer in camera._stream_viewers.items() if sid.startswith(f"{printer}-ext-")]
-    assert len(owned) == 1 and camera._stream_viewers[owned[0]] == "tile-a"
-
-    await stream.aclose()
-    assert owned[0] not in camera._stream_viewers
 
 
 async def test_a_viewer_id_is_a_short_token(async_client: AsyncClient, admin, printer):
