@@ -12,6 +12,7 @@ import re
 import shutil
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -756,9 +757,7 @@ async def save_3mf_bytes_to_library(
         # a triangle.
         try:
             if file_path.stat().st_size >= MIN_USABLE_STL_BYTES:
-                thumbnail_path = await asyncio.to_thread(
-                    generate_stl_thumbnail, file_path, get_library_thumbnails_dir()
-                )
+                thumbnail_path = await _render_stl_thumbnail(file_path, get_library_thumbnails_dir())
         except Exception as exc:  # noqa: BLE001 — a thumbnail must never fail the import
             logger.warning("Failed to render STL thumbnail for %s: %s", filename, exc)
 
@@ -933,6 +932,19 @@ MAX_CLIENT_THUMBNAIL_EDGE = 2048
 STORED_CLIENT_THUMBNAIL_EDGE = 512
 
 
+# STL thumbnails get their own single worker thread. They are made one at a
+# time anyway (stl_thumbnail._RENDER_LOCK), and in the shared default pool the
+# ones waiting their turn would hold threads that every other to_thread call in
+# the app needs: a burst of STL uploads would stall them all.
+_STL_THUMBNAIL_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stl-thumbnail")
+
+
+async def _render_stl_thumbnail(stl_path: Path, thumbnails_dir: Path) -> str | None:
+    """generate_stl_thumbnail, off the event loop: a large mesh takes seconds."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_STL_THUMBNAIL_EXECUTOR, generate_stl_thumbnail, stl_path, thumbnails_dir)
+
+
 async def _backfill_external_thumbnails(folder_ids: list[int]) -> None:
     """Generate STL and PDF thumbnails for an external folder tree in the background.
 
@@ -991,7 +1003,7 @@ async def _backfill_external_thumbnails(folder_ids: list[int]) -> None:
             except OSError:
                 continue
             try:
-                thumb_path = generate_stl_thumbnail(abs_path, thumbnails_dir)
+                thumb_path = await _render_stl_thumbnail(abs_path, thumbnails_dir)
             except Exception as exc:  # noqa: BLE001 — never let one bad STL kill the rest
                 logger.debug("STL thumbnail backfill skipped %s: %s", abs_path, exc)
                 continue
@@ -2554,7 +2566,7 @@ async def upload_file(
             if generate_stl_thumbnails:
                 try:
                     if file_path.stat().st_size >= MIN_USABLE_STL_BYTES:
-                        thumbnail_path = generate_stl_thumbnail(file_path, thumbnails_dir)
+                        thumbnail_path = await _render_stl_thumbnail(file_path, thumbnails_dir)
                 except OSError:
                     pass
 
@@ -2852,7 +2864,7 @@ async def extract_zip_file(
                         # stub STLs would otherwise log one debug line per
                         # file via the empty-mesh branch in trimesh.load.
                         if generate_stl_thumbnails and len(file_content) >= MIN_USABLE_STL_BYTES:
-                            thumbnail_path = generate_stl_thumbnail(file_path, thumbnails_dir)
+                            thumbnail_path = await _render_stl_thumbnail(file_path, thumbnails_dir)
 
                     # Create database entry (store relative paths for portability)
                     library_file = LibraryFile(
@@ -2999,7 +3011,7 @@ async def batch_generate_stl_thumbnails(
             if target_file.file_type == "pdf":
                 thumbnail_path = await asyncio.to_thread(generate_pdf_thumbnail, file_path, thumbnails_dir)
             else:
-                thumbnail_path = generate_stl_thumbnail(file_path, thumbnails_dir)
+                thumbnail_path = await _render_stl_thumbnail(file_path, thumbnails_dir)
 
             if thumbnail_path:
                 # Update database with relative path
