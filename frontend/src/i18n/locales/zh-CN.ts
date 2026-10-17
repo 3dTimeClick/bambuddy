@@ -3762,6 +3762,13 @@ export default {
       passwordManagedByAdvancedAuth: '密码由高级认证管理。使用"重置密码"通过邮件向用户发送设置新密码的链接。',
       resetPassword: '重置密码',
       resettingPassword: '重置密码中...',
+      twoFaTitle: '双重验证',
+      twoFaHint: '适用于无法使用验证器的用户：删除其验证器应用、邮件验证码和备用码，并使其在所有设备上退出登录。登录后可重新设置双重验证。',
+      twoFaDisable: '停用双重验证',
+      twoFaYourPassword: '您的密码',
+      twoFaRemoved: '已删除 {{username}} 的双重验证',
+      twoFaNoneToRemove: '{{username}} 没有可删除的双重验证',
+      twoFaPasswordNeeded: '您的账户设有密码。请输入密码以确认。',
     },
     deleteModal: {
       title: '删除用户',

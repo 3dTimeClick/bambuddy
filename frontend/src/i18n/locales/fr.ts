@@ -3763,6 +3763,13 @@ export default {
       passwordManagedByAdvancedAuth: 'Géré par Auth Avancée. Utilisez "Réinitialiser" pour envoyer par email un lien permettant de définir un nouveau mdp.',
       resetPassword: 'Réinitialiser le mot de passe',
       resettingPassword: 'Réinitialisation...',
+      twoFaTitle: 'Authentification à deux facteurs',
+      twoFaHint: 'Pour un utilisateur qui n\'a plus accès à son authentificateur : supprime son application d\'authentification, ses codes par e-mail et ses codes de secours, et le déconnecte partout. Il pourra reconfigurer la 2FA après s\'être connecté.',
+      twoFaDisable: 'Désactiver la 2FA',
+      twoFaYourPassword: 'Votre mot de passe',
+      twoFaRemoved: 'Authentification à deux facteurs supprimée pour {{username}}',
+      twoFaNoneToRemove: '{{username}} n\'avait pas d\'authentification à deux facteurs',
+      twoFaPasswordNeeded: 'Votre compte a un mot de passe. Saisissez-le pour confirmer.',
     },
     deleteModal: {
       title: 'Supprimer utilisateur',

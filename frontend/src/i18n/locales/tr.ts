@@ -3778,6 +3778,13 @@ export default {
       passwordManagedByAdvancedAuth: 'Parola Gelişmiş Kimlik Doğrulama tarafından yönetilir. Kullanıcıya e-posta yoluyla yeni bir parola belirleme bağlantısı göndermek için "Parolayı Sıfırla"yı kullanın.',
       resetPassword: 'Parolayı Sıfırla',
       resettingPassword: 'Parola Sıfırlanıyor...',
+      twoFaTitle: 'İki faktörlü kimlik doğrulama',
+      twoFaHint: 'Kimlik doğrulayıcısına erişimi kalmayan bir kullanıcı için: kimlik doğrulama uygulamasını, e-posta kodlarını ve yedek kodları kaldırır ve kullanıcının tüm oturumlarını kapatır. Giriş yaptıktan sonra 2FA yeniden kurulabilir.',
+      twoFaDisable: '2FA\'yı devre dışı bırak',
+      twoFaYourPassword: 'Parolanız',
+      twoFaRemoved: '{{username}} için iki faktörlü kimlik doğrulama kaldırıldı',
+      twoFaNoneToRemove: '{{username}} için kaldırılacak iki faktörlü kimlik doğrulama yoktu',
+      twoFaPasswordNeeded: 'Hesabınızın bir parolası var. Onaylamak için girin.',
     },
     deleteModal: {
       title: 'Kullanıcıyı Sil',

@@ -1301,6 +1301,10 @@ async def admin_disable_2fa(
     if target_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    # Reported back so the Edit user dialog can say whether anything was removed.
+    totp = (await db.execute(select(UserTOTP).where(UserTOTP.user_id == user_id))).scalar_one_or_none()
+    had_2fa = bool(totp is not None and totp.is_enabled) or await _get_email_2fa_enabled(db, user_id)
+
     # Delete TOTP record
     await db.execute(delete(UserTOTP).where(UserTOTP.user_id == user_id))
 
@@ -1330,7 +1334,7 @@ async def admin_disable_2fa(
     await ws_manager.close_user(user_id)
     actor = current_user.username if current_user else "anonymous"
     logger.info("Admin %s disabled all 2FA for user_id=%d", actor, user_id)
-    return {"message": "2FA disabled for user"}
+    return {"message": "2FA disabled for user", "had_2fa": had_2fa}
 
 
 # ===========================================================================

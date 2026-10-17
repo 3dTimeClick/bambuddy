@@ -3777,6 +3777,13 @@ export default {
       passwordManagedByAdvancedAuth: 'La contraseña la gestiona la autenticación avanzada. Use «Restablecer contraseña» para enviar al usuario por correo un enlace para establecer una contraseña nueva.',
       resetPassword: 'Restablecer contraseña',
       resettingPassword: 'Restableciendo la contraseña...',
+      twoFaTitle: 'Autenticación de dos factores',
+      twoFaHint: 'Para un usuario sin acceso a su autenticador: elimina su app de autenticación, los códigos por correo y los códigos de respaldo, y cierra todas sus sesiones. Podrá volver a configurar 2FA al iniciar sesión.',
+      twoFaDisable: 'Desactivar 2FA',
+      twoFaYourPassword: 'Su contraseña',
+      twoFaRemoved: 'Autenticación de dos factores eliminada para {{username}}',
+      twoFaNoneToRemove: '{{username}} no tenía autenticación de dos factores',
+      twoFaPasswordNeeded: 'Su cuenta tiene una contraseña. Introdúzcala para confirmar.',
     },
     deleteModal: {
       title: 'Eliminar usuario',

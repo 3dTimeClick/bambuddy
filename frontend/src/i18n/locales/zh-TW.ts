@@ -3762,6 +3762,13 @@ export default {
       passwordManagedByAdvancedAuth: '密碼由進階認證管理。使用"重設密碼"透過郵件向使用者傳送設定新密碼的連結。',
       resetPassword: '重設密碼',
       resettingPassword: '重設密碼中...',
+      twoFaTitle: '雙重驗證',
+      twoFaHint: '適用於無法使用驗證器的使用者：刪除其驗證器應用程式、電子郵件驗證碼和備用碼，並使其在所有裝置上登出。登入後可重新設定雙重驗證。',
+      twoFaDisable: '停用雙重驗證',
+      twoFaYourPassword: '您的密碼',
+      twoFaRemoved: '已刪除 {{username}} 的雙重驗證',
+      twoFaNoneToRemove: '{{username}} 沒有可刪除的雙重驗證',
+      twoFaPasswordNeeded: '您的帳戶設有密碼。請輸入密碼以確認。',
     },
     deleteModal: {
       title: '刪除使用者',

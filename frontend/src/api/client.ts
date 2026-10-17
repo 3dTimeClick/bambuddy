@@ -4963,8 +4963,13 @@ export const api = {
     }),
 
   // 2FA - admin
-  admin2FADisable: (userId: number) =>
-    request<{ message: string }>(`/auth/2fa/admin/${userId}`, { method: 'DELETE' }),
+  // adminPassword: the calling admin's own password; null for an admin
+  // without one (LDAP / OIDC accounts usually), whom the route does not ask.
+  admin2FADisable: (userId: number, adminPassword: string | null) =>
+    request<{ message: string; had_2fa: boolean }>(`/auth/2fa/admin/${userId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ admin_password: adminPassword }),
+    }),
 
   // OIDC providers (public list)
   getOIDCProviders: () => request<OIDCProviderPublic[]>('/auth/oidc/providers'),

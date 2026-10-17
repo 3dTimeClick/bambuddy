@@ -3804,6 +3804,13 @@ errors: {
       passwordManagedByAdvancedAuth: 'Lösenordet hanteras av avancerad autentisering. Använd "Återställ lösenord" för att via e-post skicka användaren en länk för att ange ett nytt lösenord.',
       resetPassword: 'Återställ lösenord',
       resettingPassword: 'Återställer lösenord...',
+      twoFaTitle: 'Tvåfaktorsautentisering',
+      twoFaHint: 'För en användare som inte längre kommer åt sin autentiserare: tar bort autentiseringsappen, e-postkoder och reservkoder och loggar ut användaren överallt. 2FA kan ställas in igen efter inloggning.',
+      twoFaDisable: 'Inaktivera 2FA',
+      twoFaYourPassword: 'Ditt lösenord',
+      twoFaRemoved: 'Tvåfaktorsautentisering borttagen för {{username}}',
+      twoFaNoneToRemove: '{{username}} hade ingen tvåfaktorsautentisering',
+      twoFaPasswordNeeded: 'Ditt konto har ett lösenord. Ange det för att bekräfta.',
     },
     deleteModal: {
       title: 'Ta bort användare',

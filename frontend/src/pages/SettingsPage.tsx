@@ -53,6 +53,7 @@ import { EmailSettings } from '../components/EmailSettings';
 import { LDAPSettings } from '../components/LDAPSettings';
 import { PrinterAccessSettings } from '../components/PrinterAccessSettings';
 import { TwoFactorSettings } from '../components/TwoFactorSettings';
+import { AdminDisableTwoFactor } from '../components/AdminDisableTwoFactor';
 import { OIDCProviderSettings } from '../components/OIDCProviderSettings';
 import { SecurityStatusCard } from '../components/SecurityStatusCard';
 import { APIBrowser } from '../components/APIBrowser';
@@ -7637,6 +7638,12 @@ export function SettingsPage() {
                     </Button>
                   </div>
                 )}
+
+                {/* Two-factor authentication: admin removal for a locked-out user */}
+                <AdminDisableTwoFactor
+                  userId={editingUserId}
+                  username={usersData.find(u => u.id === editingUserId)?.username ?? userFormData.username}
+                />
 
                 {/* Groups Field */}
                 <div>

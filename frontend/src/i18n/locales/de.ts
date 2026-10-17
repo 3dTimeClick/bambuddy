@@ -3775,6 +3775,13 @@ export default {
       passwordManagedByAdvancedAuth: 'Das Passwort wird durch erweiterte Authentifizierung verwaltet. Verwenden Sie "Passwort zurücksetzen", um dem Benutzer per E-Mail einen Link zum Festlegen eines neuen Passworts zu senden.',
       resetPassword: 'Passwort zurücksetzen',
       resettingPassword: 'Passwort wird zurückgesetzt...',
+      twoFaTitle: 'Zwei-Faktor-Authentifizierung',
+      twoFaHint: 'Für Benutzer, die keinen Zugriff mehr auf ihren Authenticator haben: entfernt Authenticator-App, E-Mail-Codes und Backup-Codes und meldet den Benutzer überall ab. Nach der Anmeldung kann 2FA neu eingerichtet werden.',
+      twoFaDisable: '2FA deaktivieren',
+      twoFaYourPassword: 'Ihr Passwort',
+      twoFaRemoved: 'Zwei-Faktor-Authentifizierung für {{username}} entfernt',
+      twoFaNoneToRemove: '{{username}} hatte keine Zwei-Faktor-Authentifizierung',
+      twoFaPasswordNeeded: 'Ihr Konto hat ein Passwort. Geben Sie es zur Bestätigung ein.',
     },
     deleteModal: {
       title: 'Benutzer löschen',

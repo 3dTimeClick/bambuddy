@@ -3807,6 +3807,13 @@ export default {
       passwordManagedByAdvancedAuth: 'Password is managed by Advanced Authentication. Use "Reset Password" to email the user a link to set a new password.',
       resetPassword: 'Reset Password',
       resettingPassword: 'Resetting Password...',
+      twoFaTitle: 'Two-factor authentication',
+      twoFaHint: 'For a user locked out of their authenticator: removes their authenticator app, email codes and backup codes, and signs them out everywhere. They can set 2FA up again after signing in.',
+      twoFaDisable: 'Disable 2FA',
+      twoFaYourPassword: 'Your password',
+      twoFaRemoved: 'Two-factor authentication removed for {{username}}',
+      twoFaNoneToRemove: '{{username}} had no two-factor authentication to remove',
+      twoFaPasswordNeeded: 'Your account has a password. Enter it to confirm.',
     },
     deleteModal: {
       title: 'Delete User',

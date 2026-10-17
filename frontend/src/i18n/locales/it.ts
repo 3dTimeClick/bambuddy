@@ -3762,6 +3762,13 @@ export default {
       passwordManagedByAdvancedAuth: 'La password è gestita dall\'autenticazione avanzata. Usa "Reimposta password" per inviare all\'utente via email un link per impostare una nuova password.',
       resetPassword: 'Reimposta password',
       resettingPassword: 'Reimpostazione password...',
+      twoFaTitle: 'Autenticazione a due fattori',
+      twoFaHint: 'Per un utente che non ha più accesso al proprio autenticatore: rimuove l\'app di autenticazione, i codici via e-mail e i codici di backup, e lo disconnette ovunque. Potrà configurare di nuovo la 2FA dopo l\'accesso.',
+      twoFaDisable: 'Disattiva 2FA',
+      twoFaYourPassword: 'La tua password',
+      twoFaRemoved: 'Autenticazione a due fattori rimossa per {{username}}',
+      twoFaNoneToRemove: '{{username}} non aveva l\'autenticazione a due fattori',
+      twoFaPasswordNeeded: 'Il tuo account ha una password. Inseriscila per confermare.',
     },
     deleteModal: {
       title: 'Elimina utente',

@@ -3775,6 +3775,13 @@ export default {
       passwordManagedByAdvancedAuth: 'パスワードは高度な認証によって管理されています。「パスワードのリセット」を使用して、新しいパスワードを設定するためのリンクをメールでユーザーに送信してください。',
       resetPassword: 'パスワードのリセット',
       resettingPassword: 'パスワードをリセット中...',
+      twoFaTitle: '2段階認証',
+      twoFaHint: '認証アプリを使えなくなったユーザー向け：認証アプリ、メールコード、バックアップコードを削除し、すべてのセッションからサインアウトさせます。サインイン後に2段階認証を再設定できます。',
+      twoFaDisable: '2FAを無効化',
+      twoFaYourPassword: 'あなたのパスワード',
+      twoFaRemoved: '{{username}} の2段階認証を削除しました',
+      twoFaNoneToRemove: '{{username}} には削除する2段階認証がありませんでした',
+      twoFaPasswordNeeded: 'あなたのアカウントにはパスワードがあります。確認のため入力してください。',
     },
     deleteModal: {
       title: 'ユーザーを削除',

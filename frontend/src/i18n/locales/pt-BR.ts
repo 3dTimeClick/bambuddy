@@ -3762,6 +3762,13 @@ export default {
       passwordManagedByAdvancedAuth: 'A senha é gerenciada pela Autenticação Avançada. Use "Redefinir Senha" para enviar ao usuário por e-mail um link para definir uma nova senha.',
       resetPassword: 'Redefinir Senha',
       resettingPassword: 'Redefinindo Senha...',
+      twoFaTitle: 'Autenticação de dois fatores',
+      twoFaHint: 'Para um usuário sem acesso ao autenticador: remove o app autenticador, os códigos por e-mail e os códigos de backup, e encerra todas as sessões. O usuário pode configurar o 2FA novamente após entrar.',
+      twoFaDisable: 'Desativar 2FA',
+      twoFaYourPassword: 'Sua senha',
+      twoFaRemoved: 'Autenticação de dois fatores removida para {{username}}',
+      twoFaNoneToRemove: '{{username}} não tinha autenticação de dois fatores',
+      twoFaPasswordNeeded: 'Sua conta tem uma senha. Digite-a para confirmar.',
     },
     deleteModal: {
       title: 'Excluir Usuário',

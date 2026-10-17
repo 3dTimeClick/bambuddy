@@ -3805,6 +3805,13 @@ export default {
       passwordManagedByAdvancedAuth: 'Wachtwoord wordt beheerd door Geavanceerde authenticatie. Gebruik "Wachtwoord resetten" om de gebruiker via e-mail een link te sturen om een nieuw wachtwoord in te stellen.',
       resetPassword: 'Wachtwoord resetten',
       resettingPassword: 'Wachtwoord resetten...',
+      twoFaTitle: 'Tweestapsverificatie',
+      twoFaHint: 'Voor een gebruiker die geen toegang meer heeft tot zijn authenticator: verwijdert de authenticator-app, e-mailcodes en back-upcodes, en meldt de gebruiker overal af. Na het inloggen kan 2FA opnieuw worden ingesteld.',
+      twoFaDisable: '2FA uitschakelen',
+      twoFaYourPassword: 'Je wachtwoord',
+      twoFaRemoved: 'Tweestapsverificatie verwijderd voor {{username}}',
+      twoFaNoneToRemove: '{{username}} had geen tweestapsverificatie',
+      twoFaPasswordNeeded: 'Je account heeft een wachtwoord. Voer het in om te bevestigen.',
     },
     deleteModal: {
       title: 'Gebruiker verwijderen',

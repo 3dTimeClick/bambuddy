@@ -654,6 +654,49 @@ class TestAdminDisable2FA:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_admin_disable_reports_a_user_without_2fa(self, async_client: AsyncClient):
+        """The Edit user dialog says so, rather than claiming it removed something."""
+        token = await _setup_and_login(async_client, "adminno2fa", "adminno2fa123")
+        created = await async_client.post(
+            "/api/v1/users",
+            json={"username": "plainuser2fa", "password": "Plainuser2fa1!"},
+            headers=_auth_header(token),
+        )
+        response = await async_client.request(
+            "DELETE",
+            f"/api/v1/auth/2fa/admin/{created.json()['id']}",
+            json={"admin_password": _norm_pw("adminno2fa123")},
+            headers=_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["had_2fa"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_admin_disable_reports_email_2fa(self, async_client: AsyncClient, db_session):
+        from backend.app.api.routes.settings import set_setting
+
+        token = await _setup_and_login(async_client, "adminmail2fa", "adminmail2fa123")
+        created = await async_client.post(
+            "/api/v1/users",
+            json={"username": "mailuser2fa", "password": "Mailuser2fa1!"},
+            headers=_auth_header(token),
+        )
+        user_id = created.json()["id"]
+        await set_setting(db_session, f"user_{user_id}_email_2fa_enabled", "true")
+        await db_session.commit()
+
+        response = await async_client.request(
+            "DELETE",
+            f"/api/v1/auth/2fa/admin/{user_id}",
+            json={"admin_password": _norm_pw("adminmail2fa123")},
+            headers=_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["had_2fa"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_admin_disable_unknown_user_is_404(self, async_client: AsyncClient):
         token = await _setup_and_login(async_client, "admincheck", "admincheck123")
         response = await async_client.request(
@@ -692,6 +735,7 @@ class TestAdminDisable2FA:
             headers=_auth_header(token),
         )
         assert response.status_code == 200
+        assert response.json()["had_2fa"] is True
 
         # I2: admin_disable_2fa bumps password_changed_at, invalidating the old token.
         # Re-login to get a fresh token before checking status.
