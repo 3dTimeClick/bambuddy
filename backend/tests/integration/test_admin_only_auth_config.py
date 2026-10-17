@@ -12,7 +12,7 @@ everything else.
 import pytest
 from httpx import AsyncClient
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+pytestmark = pytest.mark.integration
 
 # pragma: allowlist secret — test fixtures only, not real credentials
 ADMIN_PW = "AdminConf1!"  # noqa: S105

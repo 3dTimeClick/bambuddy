@@ -18,8 +18,6 @@ from backend.app.models.printer import Printer
 from backend.app.services.print_scheduler import MODEL_GATE_WAIT_REASON, PrintScheduler
 from backend.tests.unit.test_scheduler_busy_reasons_3018 import _scheduler
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture
 async def farm(tmp_path):
