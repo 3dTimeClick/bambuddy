@@ -2268,18 +2268,22 @@ def _is_our_usb_command(argv: list[bytes]) -> bool:
 
 
 def _is_bambuddy_ffmpeg(argv: list[bytes], ppid: int | None, own_pid: int) -> bool:
-    """Whether an ffmpeg process is one of ours.
+    """Whether an ffmpeg process is one of ours: our command, run by this
+    process or orphaned to init by an earlier run.
 
-    - Bambu RTSP: no other software connects to ``rtsp(s)://bblp:``.
-    - External USB (V4L2): our command shape, run by this process or orphaned
-      to init by an earlier run. Other software reads USB cameras with ffmpeg
-      too (motion, webcam servers on a bare-metal install), and a bare
-      ``v4l2`` match killed those.
+    - Bambu RTSP: ``rtsp(s)://bblp:``. Another Bambuddy on the same host (a
+      second install, a test server) runs the very same command, and matching
+      the command alone made each one's cleanup kill the other's live camera
+      every minute.
+    - External USB (V4L2): our command shape. Other software reads USB cameras
+      with ffmpeg too (motion, webcam servers on a bare-metal install).
     """
+    if ppid is None or ppid not in (own_pid, 1):
+        return False
     joined = b"\x00".join(argv)
     if b"rtsp://bblp:" in joined or b"rtsps://bblp:" in joined:
         return True
-    return _is_our_usb_command(argv) and ppid is not None and ppid in (own_pid, 1)
+    return _is_our_usb_command(argv)
 
 
 def _scan_bambu_ffmpeg_pids() -> list[int]:
@@ -2303,8 +2307,7 @@ def _scan_bambu_ffmpeg_pids() -> list[int]:
                 if b"ffmpeg" not in cmdline:
                     continue
                 argv = cmdline.rstrip(b"\x00").split(b"\x00")
-                ppid = _read_ppid(int(entry)) if b"v4l2" in cmdline else None
-                if _is_bambuddy_ffmpeg(argv, ppid, own_pid):
+                if _is_bambuddy_ffmpeg(argv, _read_ppid(int(entry)), own_pid):
                     pids.append(int(entry))
             except (OSError, PermissionError, ValueError):
                 continue
