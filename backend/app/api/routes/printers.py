@@ -3706,7 +3706,7 @@ async def resume_print(
 @router.post("/{printer_id}/print-speed")
 async def set_print_speed(
     printer_id: int,
-    mode: int = Query(..., description="Speed mode (1=silent, 2=standard, 3=sport, 4=ludicrous)"),
+    mode: int = Query(..., ge=1, le=4, description="Speed mode (1=silent, 2=standard, 3=sport, 4=ludicrous)"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
     db: AsyncSession = Depends(get_db),
 ):

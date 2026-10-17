@@ -60,6 +60,7 @@ from backend.app.services.print_storage import (
 from backend.app.services.printer_media import VIDEO_SUFFIXES, match_ipcam_chunks
 from backend.app.utils.archive_paths import archive_photos_dir, find_archive_photo
 from backend.app.utils.http import build_content_disposition, download_error_response, safe_download_filename
+from backend.app.utils.local_time import to_naive_utc
 from backend.app.utils.threemf_tools import (
     default_plate_gcode_name,
     expand_to_project_slots,
@@ -1175,13 +1176,18 @@ async def export_archives(
     date_to_dt = None
     if date_from:
         try:
-            date_from_dt = datetime.fromisoformat(date_from)
-        except ValueError:
+            date_from_dt = to_naive_utc(datetime.fromisoformat(date_from))
+        except (ValueError, OverflowError):
             raise HTTPException(400, "Invalid date_from format")
     if date_to:
         try:
-            date_to_dt = datetime.fromisoformat(date_to)
-        except ValueError:
+            # A date on its own ends with that day, as every other date filter
+            # here reads it; read as midnight it left out the whole day.
+            if len(date_to) == 10:
+                date_to_dt = datetime.combine(date.fromisoformat(date_to), time.max)
+            else:
+                date_to_dt = to_naive_utc(datetime.fromisoformat(date_to))
+        except (ValueError, OverflowError):
             raise HTTPException(400, "Invalid date_to format")
 
     service = ExportService(db)
