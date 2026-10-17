@@ -326,6 +326,76 @@ def event_loop():
     loop.close()
 
 
+# The test database's schema as built, per worker: built once and emptied
+# between tests. Rebuilding it for every test (DROP SCHEMA + create_all, a few
+# hundred DDL statements) was 90% of a PostgreSQL run, with 30 workers and the
+# server competing for the same cores.
+_pg_schema: dict[str, object] = {}
+
+# Everything a test could change about the schema: relations (tables, indexes,
+# sequences, views) with their columns, types, nullability and defaults, and
+# every constraint.
+_PG_SCHEMA_FINGERPRINT = """
+SELECT md5(coalesce(string_agg(item, ',' ORDER BY item), '')) FROM (
+    SELECT c.relname || ':' || c.relkind::text || ':' || coalesce(a.attname, '') || ':'
+        || coalesce(format_type(a.atttypid, a.atttypmod), '') || ':' || coalesce(a.attnotnull::text, '')
+        || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '') AS item
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE n.nspname = 'public'
+    UNION ALL
+    SELECT 'constraint:' || conname || ':' || pg_get_constraintdef(oid)
+    FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+) AS schema_items
+"""
+
+
+# Every row out and every id back to 1. DELETE rather than TRUNCATE: TRUNCATE
+# gives each table and index a new file, about three times the cost for the few
+# rows a test leaves. Foreign-key triggers are off for this transaction only
+# (the throwaway server's superuser), so the order does not matter.
+_PG_EMPTY_TABLES = """
+DO $$
+DECLARE r record;
+BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename LOOP
+        EXECUTE format('DELETE FROM public.%I', r.tablename);
+    END LOOP;
+    FOR r IN SELECT c.oid::regclass AS seq FROM pg_class c
+             WHERE c.relkind = 'S' AND c.relnamespace = 'public'::regnamespace LOOP
+        PERFORM setval(r.seq, 1, false);
+    END LOOP;
+END $$
+"""
+
+
+async def _reset_pg_test_schema(conn) -> None:
+    """An empty test database with the models' schema, as cheaply as possible.
+
+    Emptied (ids restart at 1) when the schema is still the one built for this
+    worker; a full rebuild the first time, after a test changed the schema (a
+    migration test adding a column), and when a model loaded since adds a table.
+    """
+    from sqlalchemy import text
+
+    from backend.app.core.database import load_all_models
+
+    load_all_models()
+    tables = set(Base.metadata.tables)
+    fingerprint = (await conn.execute(text(_PG_SCHEMA_FINGERPRINT))).scalar_one()
+    if _pg_schema.get("fingerprint") != fingerprint or _pg_schema.get("tables") != tables:
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+        await conn.run_sync(Base.metadata.create_all)
+        _pg_schema["fingerprint"] = (await conn.execute(text(_PG_SCHEMA_FINGERPRINT))).scalar_one()
+        _pg_schema["tables"] = tables
+        return
+    await conn.execute(text(_PG_EMPTY_TABLES))
+
+
 @pytest.fixture
 async def test_engine():
     """Create a test database engine."""
@@ -378,16 +448,12 @@ async def test_engine():
     if TEST_PG_URL is not None:
         # The same engine setup as the app's (UTC session, aware datetimes
         # made naive), on this worker's own database, emptied for each test.
-        from sqlalchemy import text
-
         from backend.app.core.database import _create_engine
 
         await engine.dispose()
         engine = _create_engine(TEST_PG_URL)
         async with engine.begin() as conn:
-            await conn.execute(text("DROP SCHEMA public CASCADE"))
-            await conn.execute(text("CREATE SCHEMA public"))
-            await conn.run_sync(Base.metadata.create_all)
+            await _reset_pg_test_schema(conn)
         yield engine
         await engine.dispose()
         return

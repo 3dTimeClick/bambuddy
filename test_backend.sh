@@ -79,7 +79,7 @@ else
 fi
 
 # The same tests on PostgreSQL, in a throwaway container (--full only: about
-# eight minutes). Tests of SQLite-only behaviour are skipped there.
+# three minutes). Tests of SQLite-only behaviour are skipped there.
 if [ "$1" != "--full" ]; then
 echo "Skipping the tests on PostgreSQL (run with --full)."
 elif ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
