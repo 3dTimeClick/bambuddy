@@ -102,6 +102,11 @@ export function CameraTile({
   // 'renewed': the current img is a renewal not yet showing a frame; 'retried':
   // it is the one retry of a renewal that failed.
   const renewalRef = useRef<'none' | 'renewed' | 'retried'>('none');
+  // A failed snapshot is retried once at the next refresh: the server answers
+  // 503 while a live view of this printer is still starting (it will not take
+  // the camera from that viewer). Not more: each failed camera img re-mints the
+  // page's stream token.
+  const snapshotRetriedRef = useRef(false);
   const renewalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstFrameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -123,6 +128,7 @@ export function CameraTile({
       }).catch(() => {});
     }
     setErrored(false);
+    snapshotRetriedRef.current = false;
     setBust((b) => b + 1);
   }, [mode, printerId, viewerId]);
 
@@ -275,10 +281,15 @@ export function CameraTile({
           onLoad={() => {
             clearFirstFrameTimer();
             renewalRef.current = 'none';
+            snapshotRetriedRef.current = false;
           }}
           onError={(e) => {
             // An img with an empty or missing src is closed, not failed.
             if (!e.currentTarget.getAttribute('src')) return;
+            if (mode === 'snapshot' && !snapshotRetriedRef.current) {
+              snapshotRetriedRef.current = true;
+              return;
+            }
             streamFailed();
           }}
         />

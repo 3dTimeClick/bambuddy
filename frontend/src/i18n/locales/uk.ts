@@ -2718,6 +2718,7 @@ export default {
       testFailed: "Тест не вдалося",
       cameraConnected: "Камера підключена{{resolution}}",
       cameraConnectedCoalesced: "Камера підключена{{resolution}} (спільно з уже виконуваним захопленням)",
+      cameraConnectedLiveView: "Камера працює{{resolution}} (кадр із перегляду наживо, який використовує камеру)",
     },
     testConnection: "Тестове підключення",
     catalog: {

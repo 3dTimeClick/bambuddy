@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1529,6 +1530,31 @@ async def _snapshot_response(printer_id: int, printer: Printer) -> Response:
     import tempfile
     from pathlib import Path
 
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Content-Disposition": f'inline; filename="snapshot_{printer_id}.jpg"',
+    }
+
+    # A viewer is watching: both camera kinds allow one reader (Bambu firmware
+    # one connection, a USB camera one V4L2 handle), so a capture of our own
+    # would fail or knock the viewer off. Answer with the live frame, and while
+    # the view is still starting, ask the caller to come back (#1348) — Home
+    # Assistant and the camera wall poll this. Not for an external camera with
+    # its own snapshot URL (#1177): that endpoint has no reader to compete with
+    # and gives the full-quality frame the live view does not.
+    has_snapshot_url = bool(
+        printer.external_camera_enabled and printer.external_camera_url and printer.external_camera_snapshot_url
+    )
+    defer, live_frame = (False, None) if has_snapshot_url else live_frame_for_capture(printer_id)
+    if defer:
+        if live_frame:
+            return Response(content=live_frame, media_type="image/jpeg", headers=headers)
+        raise HTTPException(
+            status_code=503,
+            detail="The camera is in use by the live view, which is still starting. Try again in a moment.",
+            headers={"Retry-After": "2"},
+        )
+
     # Check for external camera first
     if printer.external_camera_enabled and printer.external_camera_url:
         from backend.app.services.external_camera import capture_frame
@@ -1546,21 +1572,6 @@ async def _snapshot_response(printer_id: int, printer: Printer) -> Response:
             )
         return Response(
             content=frame_data,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Content-Disposition": f'inline; filename="snapshot_{printer_id}.jpg"',
-            },
-        )
-
-    # Reuse the fan-out broadcaster's buffered frame when a viewer is already
-    # watching — avoids opening a second concurrent RTSP socket on printers
-    # that allow only one camera connection (e.g. X2D firmware 01.01.00.00;
-    # see #1271). Buffered frame is <1s old while a viewer is connected.
-    buffered = try_get_active_buffered_frame(printer_id)
-    if buffered:
-        return Response(
-            content=buffered,
             media_type="image/jpeg",
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -1762,9 +1773,34 @@ async def test_external_camera(
         raise HTTPException(status_code=422, detail="url and camera_type are required")
 
     # Verify printer exists (for authorization)
-    await get_printer_or_404(printer_id, db)
+    printer = await get_printer_or_404(printer_id, db)
 
-    from backend.app.services.external_camera import test_connection
+    from backend.app.services.external_camera import jpeg_resolution, test_connection
+
+    # Testing the camera a viewer is watching: it allows one reader, so the
+    # test would only report a failure it caused. The live frame shows the
+    # camera works.
+    is_watched_camera = (
+        printer.external_camera_enabled
+        and target_url == printer.external_camera_url
+        and target_type == (printer.external_camera_type or "")
+    )
+    if is_watched_camera:
+        defer, live_frame = live_frame_for_capture(printer_id)
+        if defer:
+            if live_frame:
+                return {
+                    "success": True,
+                    "resolution": jpeg_resolution(live_frame),
+                    "coalesced": True,
+                    "live_view": True,
+                }
+            return {
+                "success": False,
+                "error": "The camera is in use by the live view, which is still starting. Try again in a moment.",
+                "coalesced": False,
+                "live_view": True,
+            }
 
     return await test_connection(target_url, target_type)
 
@@ -2162,19 +2198,53 @@ async def delete_reference(
     return {"success": True, "message": "Reference deleted"}
 
 
-def _scan_bambu_ffmpeg_pids() -> list[int]:
-    """Scan /proc for ffmpeg processes that are ours.
+_USB_DEVICE_ARG = re.compile(rb"^/dev/video\d{1,2}$")
 
-    Two shapes are matched, both unambiguously Bambuddy's:
+
+def _read_ppid(pid: int) -> int | None:
+    """The parent pid of ``pid`` from /proc, or None when it cannot be read."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            stat = f.read()
+        # The command name in field 2 may contain spaces; the fields after it don't.
+        return int(stat[stat.rindex(b")") + 1 :].split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _is_our_usb_command(argv: list[bytes]) -> bool:
+    """The shape of both USB camera commands in services/external_camera:
+    ``ffmpeg -f v4l2 ... -i /dev/videoN ... -`` (output to our pipe)."""
+    if len(argv) < 5 or argv[1:3] != [b"-f", b"v4l2"] or argv[-1] != b"-":
+        return False
+    return any(arg == b"-i" and _USB_DEVICE_ARG.match(argv[i + 1]) for i, arg in enumerate(argv[:-1]))
+
+
+def _is_bambuddy_ffmpeg(argv: list[bytes], ppid: int | None, own_pid: int) -> bool:
+    """Whether an ffmpeg process is one of ours.
+
     - Bambu RTSP: no other software connects to ``rtsp(s)://bblp:``.
-    - External USB (V4L2): an ffmpeg spawned with ``-f v4l2`` is our USB camera
-      stream (#2675). Only orphans are killed — the caller excludes PIDs still in
-      ``_active_streams``, so a live USB stream (now registered there) is spared.
+    - External USB (V4L2): our command shape, run by this process or orphaned
+      to init by an earlier run. Other software reads USB cameras with ffmpeg
+      too (motion, webcam servers on a bare-metal install), and a bare
+      ``v4l2`` match killed those.
+    """
+    joined = b"\x00".join(argv)
+    if b"rtsp://bblp:" in joined or b"rtsps://bblp:" in joined:
+        return True
+    return _is_our_usb_command(argv) and ppid is not None and ppid in (own_pid, 1)
 
-    This catches orphans that survive app restarts and are not in any tracking dict.
+
+def _scan_bambu_ffmpeg_pids() -> list[int]:
+    """Scan /proc for ffmpeg processes that are ours (see ``_is_bambuddy_ffmpeg``).
+
+    Only orphans are killed — the caller excludes PIDs still in
+    ``_active_streams`` and ``_active_capture_pids``. This catches orphans that
+    survive app restarts and are not in any tracking dict.
     """
     import os
 
+    own_pid = os.getpid()
     pids = []
     try:
         for entry in os.listdir("/proc"):
@@ -2185,9 +2255,9 @@ def _scan_bambu_ffmpeg_pids() -> list[int]:
                     cmdline = f.read()
                 if b"ffmpeg" not in cmdline:
                     continue
-                # Match both rtsp:// (via TLS proxy) and rtsps:// (direct), plus
-                # the `-f v4l2` input flag our USB camera command always carries.
-                if b"rtsp://bblp:" in cmdline or b"rtsps://bblp:" in cmdline or b"v4l2" in cmdline:
+                argv = cmdline.rstrip(b"\x00").split(b"\x00")
+                ppid = _read_ppid(int(entry)) if b"v4l2" in cmdline else None
+                if _is_bambuddy_ffmpeg(argv, ppid, own_pid):
                     pids.append(int(entry))
             except (OSError, PermissionError, ValueError):
                 continue

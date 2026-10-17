@@ -2704,6 +2704,7 @@ export default {
       testFailed: 'Test başarısız',
       cameraConnected: 'Kamera bağlandı{{resolution}}',
       cameraConnectedCoalesced: 'Kamera bağlandı{{resolution}} (hâlihazırda süren bir yakalamayla paylaşıldı)',
+      cameraConnectedLiveView: 'Kamera çalışıyor{{resolution}} (kamerayı kullanan canlı görüntüden kare)',
     },
     testConnection: 'Bağlantıyı Test Et',
     catalog: {

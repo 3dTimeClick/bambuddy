@@ -2701,6 +2701,7 @@ export default {
       testFailed: '测试失败',
       cameraConnected: '摄像头已连接{{resolution}}',
       cameraConnectedCoalesced: '摄像头已连接{{resolution}}（与正在进行的抓取共享）',
+      cameraConnectedLiveView: '摄像头工作正常{{resolution}}（画面来自正在使用摄像头的实时画面）',
     },
     testConnection: '测试连接',
     catalog: {

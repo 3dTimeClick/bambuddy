@@ -191,6 +191,7 @@ async def test_cleanup_janitor_reaps_stale_external_usb_stream(monkeypatch):
 def test_scan_matches_v4l2_ffmpeg(monkeypatch):
     cmdline = b"ffmpeg\x00-f\x00v4l2\x00-i\x00/dev/video0\x00-f\x00mjpeg\x00-\x00"
     monkeypatch.setattr("os.listdir", lambda _p: ["52020"])
+    monkeypatch.setattr(camera, "_read_ppid", lambda _pid: 1)
     with patch("builtins.open", mock_open(read_data=cmdline)):
         assert 52020 in camera._scan_bambu_ffmpeg_pids()
 
@@ -201,3 +202,41 @@ def test_scan_ignores_unrelated_ffmpeg(monkeypatch):
     monkeypatch.setattr("os.listdir", lambda _p: ["52021"])
     with patch("builtins.open", mock_open(read_data=cmdline)):
         assert camera._scan_bambu_ffmpeg_pids() == []
+
+
+# ---------------------------------------------------------------------------
+# 5. Only our own USB ffmpeg: another program's camera process is left alone
+# ---------------------------------------------------------------------------
+
+OWN_PID = 4242
+ONE_SHOT = [b"/usr/bin/ffmpeg", b"-f", b"v4l2", b"-i", b"/dev/video0", b"-frames:v", b"1", b"-f", b"image2pipe", b"-"]
+STREAM = [b"ffmpeg", b"-f", b"v4l2", b"-framerate", b"10", b"-i", b"/dev/video2", b"-f", b"mjpeg", b"-"]
+
+
+def test_our_one_shot_and_stream_commands_are_ours():
+    assert camera._is_bambuddy_ffmpeg(ONE_SHOT, OWN_PID, OWN_PID)
+    assert camera._is_bambuddy_ffmpeg(STREAM, OWN_PID, OWN_PID)
+
+
+def test_an_orphan_from_an_earlier_run_is_ours():
+    """Reparented to init once the Bambuddy that spawned it died."""
+    assert camera._is_bambuddy_ffmpeg(STREAM, 1, OWN_PID)
+
+
+def test_another_programs_usb_ffmpeg_is_not_ours():
+    """motion, an OctoPrint webcam or a recording on a bare-metal install."""
+    assert not camera._is_bambuddy_ffmpeg(STREAM, 777, OWN_PID)
+
+
+def test_a_different_v4l2_command_shape_is_not_ours():
+    recording = [b"ffmpeg", b"-f", b"v4l2", b"-input_format", b"h264", b"-i", b"/dev/video0", b"/srv/cam.mkv"]
+    assert not camera._is_bambuddy_ffmpeg(recording, OWN_PID, OWN_PID)
+
+
+def test_bambu_rtsp_is_ours_whatever_the_parent():
+    rtsp = [b"ffmpeg", b"-rtsp_transport", b"tcp", b"-i", b"rtsps://bblp:code@10.0.0.5:322/streaming/live/1", b"-"]
+    assert camera._is_bambuddy_ffmpeg(rtsp, 777, OWN_PID)
+
+
+def test_unknown_parent_is_not_ours_for_usb():
+    assert not camera._is_bambuddy_ffmpeg(STREAM, None, OWN_PID)

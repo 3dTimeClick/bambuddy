@@ -150,6 +150,57 @@ describe('CameraPage', () => {
       return document.querySelector('img') as HTMLImageElement;
     }
 
+    async function snapshotImg() {
+      const stream = await streamImg();
+      // The mode buttons stay disabled until the stream shows a frame.
+      await act(async () => {
+        stream.dispatchEvent(new Event('load'));
+      });
+      fireEvent.click(screen.getByText('Snapshot'));
+      await waitFor(() => {
+        expect(document.querySelector('img')?.getAttribute('src') || '').toContain('/camera/snapshot');
+      });
+      return document.querySelector('img') as HTMLImageElement;
+    }
+
+    it('retries a failed snapshot once, a moment later', async () => {
+      // The server answers 503 while the live view it is switching away from
+      // still holds the camera.
+      renderCameraPage(1);
+      const img = await snapshotImg();
+      const first = img.getAttribute('src');
+
+      await act(async () => {
+        img.dispatchEvent(new Event('error'));
+      });
+      expect(screen.queryByText('Camera unavailable')).toBeNull();
+
+      await waitFor(
+        () => {
+          const src = document.querySelector('img')?.getAttribute('src') || '';
+          expect(src).toContain('/camera/snapshot');
+          expect(src).not.toBe(first);
+        },
+        { timeout: 3500 },
+      );
+    });
+
+    it('shows the camera unavailable when the retry fails too', async () => {
+      renderCameraPage(1);
+      const img = await snapshotImg();
+      const first = img.getAttribute('src');
+      await act(async () => {
+        img.dispatchEvent(new Event('error'));
+      });
+      await waitFor(() => expect(document.querySelector('img')?.getAttribute('src')).not.toBe(first), { timeout: 3500 });
+
+      await act(async () => {
+        (document.querySelector('img') as HTMLImageElement).dispatchEvent(new Event('error'));
+      });
+
+      expect(screen.getByText('Camera unavailable')).toBeInTheDocument();
+    });
+
     it('closes the current stream on leaving after the stream was restarted', async () => {
       const { unmount } = renderCameraPage(1);
       const first = await streamImg();

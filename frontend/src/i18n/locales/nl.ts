@@ -2721,6 +2721,7 @@ export default {
       testFailed: 'Test mislukt',
       cameraConnected: 'Camera verbonden{{resolution}}',
       cameraConnectedCoalesced: 'Camera verbonden{{resolution}} (gedeeld met een opname die al draait)',
+      cameraConnectedLiveView: 'Camera werkt{{resolution}} (beeld uit de liveweergave, die de camera gebruikt)',
     },
     testConnection: 'Verbinding testen',
     catalog: {

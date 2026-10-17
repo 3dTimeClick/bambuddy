@@ -465,4 +465,58 @@ describe('CameraTile', () => {
 
     expect(screen.queryByAltText('X1C-Lab')).toBeNull();
   });
+
+  describe('a failed snapshot', () => {
+    // The server answers 503 while a live view of the printer is starting:
+    // it will not take the camera from that viewer. One failure is retried.
+    async function snapshotTile() {
+      render(
+        <CameraTile printerId={7} printerName="P1S-Garage" mode="snapshot" snapshotIntervalMs={2000} connected />,
+      );
+      await flushMicrotasks();
+    }
+    const fail = async () =>
+      act(async () => {
+        screen.getByAltText('P1S-Garage').dispatchEvent(new Event('error'));
+      });
+    const tick = async () =>
+      act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+    it('is tried again at the next refresh', async () => {
+      await snapshotTile();
+      const first = (screen.getByAltText('P1S-Garage') as HTMLImageElement).src;
+      await fail();
+      expect(screen.queryByText('No signal')).toBeNull();
+
+      await tick();
+
+      const retried = screen.getByAltText('P1S-Garage') as HTMLImageElement;
+      expect(retried.src).toContain('/api/v1/printers/7/camera/snapshot');
+      expect(retried.src).not.toBe(first);
+    });
+
+    it('shows no signal when the retry fails too', async () => {
+      await snapshotTile();
+      await fail();
+      await tick();
+      await fail();
+
+      expect(screen.getByText('No signal')).toBeInTheDocument();
+    });
+
+    it('gets a fresh retry after a snapshot loads', async () => {
+      await snapshotTile();
+      await fail();
+      await tick();
+      await act(async () => {
+        screen.getByAltText('P1S-Garage').dispatchEvent(new Event('load'));
+      });
+      await tick();
+      await fail();
+
+      expect(screen.queryByText('No signal')).toBeNull();
+    });
+  });
 });

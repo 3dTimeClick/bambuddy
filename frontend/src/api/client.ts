@@ -5137,9 +5137,11 @@ export const api = {
     // running (Obico polling, a snapshot) rather than a connection this test
     // opened — a single-reader camera is shared rather than opened twice, so
     // the result is real but says nothing about reaching the camera just now.
+    // `live_view` is true when the tested camera is the one a viewer is
+    // watching: the answer comes from the live frame, not a test of its own.
     // In the body: the URL may carry the camera login, and a query string
     // ends up in the server's access log.
-    request<{ success: boolean; error?: string; resolution?: string; coalesced?: boolean }>(
+    request<{ success: boolean; error?: string; resolution?: string; coalesced?: boolean; live_view?: boolean }>(
       `/printers/${printerId}/camera/external/test`,
       { method: 'POST', body: JSON.stringify({ url, camera_type: cameraType }) }
     ),

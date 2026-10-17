@@ -2720,6 +2720,7 @@ export default {
       testFailed: 'Test misslyckades',
       cameraConnected: 'Kamera ansluten{{resolution}}',
       cameraConnectedCoalesced: 'Kamera ansluten{{resolution}} (delad med en pågående inspelning)',
+      cameraConnectedLiveView: 'Kameran fungerar{{resolution}} (bild från livevyn, som använder kameran)',
     },
     testConnection: 'Testa anslutning',
     catalog: {

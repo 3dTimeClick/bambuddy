@@ -2703,6 +2703,7 @@ export default {
       testFailed: 'La prueba falló',
       cameraConnected: 'Cámara conectada{{resolution}}',
       cameraConnectedCoalesced: 'Cámara conectada{{resolution}} (compartida con una captura ya en curso)',
+      cameraConnectedLiveView: 'La cámara funciona{{resolution}} (imagen de la vista en directo, que está usando la cámara)',
     },
     testConnection: 'Probar conexión',
     catalog: {

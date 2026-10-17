@@ -511,6 +511,9 @@ async def _capture_usb_frame(device: str, timeout: int) -> bytes | None:
         "-",
     ]
 
+    from backend.app.services.camera import _active_capture_pids
+
+    process = None
     try:
         logger.debug("Running USB capture: %s", " ".join(cmd))
         process = await asyncio.create_subprocess_exec(
@@ -518,6 +521,9 @@ async def _capture_usb_frame(device: str, timeout: int) -> bytes | None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # Registered like the Bambu one-shot capture, or the orphan janitor
+        # (routes/camera.cleanup_orphaned_streams) kills it mid-capture.
+        _active_capture_pids.add(process.pid)
 
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
 
@@ -535,10 +541,14 @@ async def _capture_usb_frame(device: str, timeout: int) -> bytes | None:
         logger.warning("USB frame capture timed out after %ss", timeout)
         if process:
             process.kill()
+            await process.wait()
         return None
     except OSError as e:
         logger.error("USB frame capture failed: %s", e)
         return None
+    finally:
+        if process is not None:
+            _active_capture_pids.discard(process.pid)
 
 
 # Redirects a camera URL may take before the fetch gives up.
@@ -880,6 +890,20 @@ async def _capture_snapshot(url: str, timeout: int) -> bytes | None:
     return None
 
 
+def jpeg_resolution(frame: bytes) -> str | None:
+    """``"WIDTHxHEIGHT"`` from a JPEG's SOF marker, or None when there is none.
+
+    The SOF marker (FF C0/C1/C2) is followed by length, precision, height, width.
+    """
+    for marker in (b"\xff\xc0", b"\xff\xc1", b"\xff\xc2"):
+        idx = frame.find(marker)
+        if idx != -1 and idx + 9 <= len(frame):
+            height = (frame[idx + 5] << 8) | frame[idx + 6]
+            width = (frame[idx + 7] << 8) | frame[idx + 8]
+            return f"{width}x{height}"
+    return None
+
+
 async def test_connection(url: str, camera_type: str) -> dict:
     """Test camera connection.
 
@@ -906,23 +930,7 @@ async def test_connection(url: str, camera_type: str) -> dict:
         logger.info("Capture result: %s bytes%s", len(frame) if frame else 0, " (coalesced)" if coalesced else "")
 
         if frame:
-            # Try to get resolution from JPEG header
-            resolution = None
-            try:
-                # Simple JPEG dimension extraction
-                # SOF0 marker is FF C0, followed by length, precision, height, width
-                sof_markers = [b"\xff\xc0", b"\xff\xc1", b"\xff\xc2"]
-                for marker in sof_markers:
-                    idx = frame.find(marker)
-                    if idx != -1 and idx + 9 <= len(frame):
-                        height = (frame[idx + 5] << 8) | frame[idx + 6]
-                        width = (frame[idx + 7] << 8) | frame[idx + 8]
-                        resolution = f"{width}x{height}"
-                        break
-            except (IndexError, ValueError):
-                pass  # Resolution detection is optional; fall back to default
-
-            return {"success": True, "resolution": resolution, "coalesced": coalesced}
+            return {"success": True, "resolution": jpeg_resolution(frame), "coalesced": coalesced}
         else:
             return {"success": False, "error": "Failed to capture frame from camera", "coalesced": coalesced}
 

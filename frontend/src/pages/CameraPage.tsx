@@ -14,6 +14,8 @@ import { useStreamImgRef } from '../hooks/useStreamImgRef';
 import { useCameraViewerId } from '../hooks/useCameraViewerId';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+// The server's Retry-After for a snapshot while a live view starts.
+const SNAPSHOT_RETRY_MS = 2000;
 const INITIAL_RECONNECT_DELAY = 2000; // 2 seconds
 const MAX_RECONNECT_DELAY = 30000; // 30 seconds
 const STALL_CHECK_INTERVAL = 5000; // Check every 5 seconds
@@ -74,6 +76,11 @@ export function CameraPage() {
   // that's about to deliver frames — the churn that stranded the P1S camera
   // black for ~20 min (#2521).
   const stallStrikesRef = useRef(0);
+  // A failed snapshot is retried once, a moment later: the server answers 503
+  // while a live view of this printer still holds the camera, e.g. the one
+  // this page just switched away from.
+  const snapshotRetriedRef = useRef(false);
+  const snapshotRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch printer info for the title
   const { data: printer } = useQuery({
@@ -230,6 +237,9 @@ export function CameraPage() {
       if (stallCheckIntervalRef.current) {
         clearInterval(stallCheckIntervalRef.current);
       }
+      if (snapshotRetryTimerRef.current) {
+        clearTimeout(snapshotRetryTimerRef.current);
+      }
     };
   }, []);
 
@@ -336,12 +346,20 @@ export function CameraPage() {
     // Only auto-reconnect for live stream mode
     if (streamMode === 'stream' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       attemptReconnect();
+    } else if (streamMode === 'snapshot' && !snapshotRetriedRef.current) {
+      snapshotRetriedRef.current = true;
+      if (snapshotRetryTimerRef.current) clearTimeout(snapshotRetryTimerRef.current);
+      snapshotRetryTimerRef.current = setTimeout(() => {
+        snapshotRetryTimerRef.current = null;
+        setImageKey(Date.now());
+      }, SNAPSHOT_RETRY_MS);
     } else {
       setStreamError(true);
     }
   };
 
   const handleStreamLoad = () => {
+    snapshotRetriedRef.current = false;
     setStreamLoading(false);
     setStreamError(false);
     // Reset reconnect attempts on successful connection
@@ -399,6 +417,7 @@ export function CameraPage() {
     setStreamError(false);
     // Reset reconnect state on mode switch
     setReconnectAttempts(0);
+    snapshotRetriedRef.current = false;
     setIsReconnecting(false);
     // Reset zoom on mode switch
     setZoomLevel(1);
@@ -428,6 +447,7 @@ export function CameraPage() {
 
   const refresh = () => {
     if (transitioning) return;
+    snapshotRetriedRef.current = false;
     setTransitioning(true);
     setStreamLoading(true);
     setStreamError(false);

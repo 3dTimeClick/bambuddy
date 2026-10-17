@@ -2701,6 +2701,7 @@ export default {
       testFailed: '測試失敗',
       cameraConnected: '攝影機已連線{{resolution}}',
       cameraConnectedCoalesced: '攝影機已連線{{resolution}}（與進行中的擷取共用）',
+      cameraConnectedLiveView: '攝影機運作正常{{resolution}}（畫面來自正在使用攝影機的即時畫面）',
     },
     testConnection: '測試連線',
     catalog: {

@@ -2654,8 +2654,9 @@ export default {
       passwordChanged: 'Mot de passe modifié',
       connectionFailed: 'Échec connexion',
       testFailed: 'Échec test',
-      cameraConnected: 'Caméra connectée {{resolution}}',
-      cameraConnectedCoalesced: 'Caméra connectée {{resolution}} (partagée avec une capture déjà en cours)',
+      cameraConnected: 'Caméra connectée{{resolution}}',
+      cameraConnectedCoalesced: 'Caméra connectée{{resolution}} (partagée avec une capture déjà en cours)',
+      cameraConnectedLiveView: 'La caméra fonctionne{{resolution}} (image de la vue en direct, qui utilise la caméra)',
     },
     testConnection: 'Tester la connexion',
     catalog: {
