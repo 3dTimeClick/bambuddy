@@ -118,3 +118,48 @@ async def test_an_automatic_timelapse_attach_survives_a_deadline():
 
     assert result is False
     download.assert_awaited_once()
+
+
+async def test_the_plate_picker_downloads_the_file_once(async_client: AsyncClient, printer_factory):
+    """The plate list and every plate thumbnail share one download (TO-C2)."""
+    import io
+    import zipfile
+
+    printer = await printer_factory()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for n in (1, 2, 3):
+            zf.writestr(f"Metadata/plate_{n}.gcode", "; gcode")
+            zf.writestr(f"Metadata/plate_{n}.png", b"\x89PNG fake")
+    download = AsyncMock(return_value=buf.getvalue())
+    params = {"path": "/cache/multi.3mf"}
+
+    with patch("backend.app.api.routes.printers.download_file_bytes_async", download):
+        plates = await async_client.get(f"/api/v1/printers/{printer.id}/files/plates", params=params)
+        thumbs = [
+            await async_client.get(f"/api/v1/printers/{printer.id}/files/plate-thumbnail/{n}", params=params)
+            for n in (1, 2, 3)
+        ]
+
+    assert plates.status_code == 200, plates.text
+    assert [t.status_code for t in thumbs] == [200, 200, 200]
+    assert download.await_count == 1
+
+
+async def test_a_deleted_printer_file_is_downloaded_again(async_client: AsyncClient, printer_factory):
+    from backend.app.services.bambu_ftp import DeleteResult
+
+    printer = await printer_factory()
+    download = AsyncMock(return_value=b"; gcode")
+    params = {"path": "/cache/part.gcode"}
+
+    with (
+        patch("backend.app.api.routes.printers.download_file_bytes_async", download),
+        patch("backend.app.api.routes.printers.delete_file_async", AsyncMock(return_value=DeleteResult.DELETED)),
+    ):
+        await async_client.get(f"/api/v1/printers/{printer.id}/files/gcode", params=params)
+        deleted = await async_client.delete(f"/api/v1/printers/{printer.id}/files", params=params)
+        await async_client.get(f"/api/v1/printers/{printer.id}/files/gcode", params=params)
+
+    assert deleted.status_code == 200, deleted.text
+    assert download.await_count == 2

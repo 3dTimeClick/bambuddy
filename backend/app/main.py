@@ -1081,6 +1081,7 @@ async def forget_printer(printer_id: int) -> None:
     )
     from backend.app.services.notify_live_activities import notify_live_activities
     from backend.app.services.obico_detection import obico_detection_service
+    from backend.app.services.printer_file_cache import printer_file_cache
 
     # Keyed (printer_id, filename). The archive-keyed maps of those prints go too.
     archive_ids = set()
@@ -1135,6 +1136,7 @@ async def forget_printer(printer_id: int) -> None:
         marked.discard(printer_id)
 
     printer_manager.forget_printer(printer_id)
+    printer_file_cache.forget_printer(printer_id)
     print_dispatch_context.clear(printer_id)
     kprofile_drift.forget_printer(printer_id, deleted=True)
     layer_timelapse.cancel_session(printer_id)

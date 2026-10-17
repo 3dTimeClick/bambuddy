@@ -214,6 +214,19 @@ def mfa_encryption_isolation(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def reset_printer_file_cache():
+    """A fresh file-browser preview cache per test.
+
+    Test databases start their printer ids at 1 again, so a preview kept by one
+    test would be served to the next one's printer 1."""
+    from backend.app.services.printer_file_cache import printer_file_cache
+
+    printer_file_cache.clear()
+    yield
+    printer_file_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_spoolman_location_sync_cache():
     """Drop the per-URL Spoolman location-sync TTL cache between tests.
 

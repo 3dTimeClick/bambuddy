@@ -8825,6 +8825,12 @@ class PrintScheduler:
         # meanwhile gets no more toasts, and neither does whoever has their id.
         toast_uid = await self._queue_owner_id(db, item)
 
+        # The printer's copy at this path was replaced (or deleted above): the
+        # file browser's previews must not show the old one.
+        from backend.app.services.printer_file_cache import printer_file_cache
+
+        printer_file_cache.forget(printer.id, remote_path)
+
         if not uploaded:
             # This used to be one string for every upload failure, telling
             # everyone to check the SD card. The client knows which of seven

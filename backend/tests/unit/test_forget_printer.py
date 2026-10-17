@@ -175,6 +175,9 @@ async def test_forget_printer_clears_the_services():
 
     printers._cover_cache[GONE] = {("Cube", "front"): b"png"}
     printers._cover_404_cache[GONE] = {}
+    from backend.app.services.printer_file_cache import printer_file_cache
+
+    printer_file_cache._keep((GONE, "/cache/a.3mf"), b"3mf")
 
     await main.forget_printer(GONE)
 
@@ -195,6 +198,7 @@ async def test_forget_printer_clears_the_services():
     assert GONE not in camera._active_external_streams
     assert GONE not in printers._cover_cache
     assert GONE not in printers._cover_404_cache
+    assert not [key for key in printer_file_cache._entries if key[0] == GONE]
 
 
 async def test_the_plate_references_of_a_printer_go(tmp_path, monkeypatch):

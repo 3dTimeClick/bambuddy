@@ -67,6 +67,7 @@ from backend.app.services.bambu_ftp import (
 from backend.app.services.hms_actions import HMSAction
 from backend.app.services.print_storage import ftp_probe_paths, print_file_reachable_over_ftp
 from backend.app.services.printer_diagnostic import run_connection_diagnostic
+from backend.app.services.printer_file_cache import printer_file_cache
 from backend.app.services.printer_manager import (
     ams_units_to_dicts,
     display_temperatures,
@@ -1712,27 +1713,33 @@ async def _download_printer_file_bytes(printer, path: str) -> bytes:
     """Download a printer file for a preview: 404 missing, 502 failed, 504 too slow.
 
     A failed download used to be reported as 404 "File not found" for a file the
-    browser had just listed. One FTP session, no listing first: the plate
-    picker asks once per plate, and printers limit their FTPS handshakes.
+    browser had just listed. One FTP session, no listing first, and shared: the
+    plate picker asks once per plate, all at once, and each request downloaded
+    the whole 3MF again (see services/printer_file_cache).
     """
-    try:
-        data = await download_file_bytes_async(
-            printer.ip_address,
-            printer.access_code,
-            path,
-            printer_model=printer.model,
-            report_missing=True,
-            # The size the printer reports buys a slow link its time, up to the
-            # file browser's budget: print start's 300 s ceiling would add none.
-            max_total_timeout=MAX_PRINTER_ZIP_PREPARE_SECONDS,
-        )
-    except FileNotOnPrinterError as exc:
-        raise HTTPException(404, f"File not found: {path}") from exc
-    except DownloadDeadlineExceeded as exc:
-        raise HTTPException(504, f"Downloading {path} from the printer took longer than its size allows") from exc
-    if data is None:
-        raise HTTPException(502, f"Could not download {path} from the printer")
-    return data
+
+    async def fetch() -> bytes:
+        try:
+            data = await download_file_bytes_async(
+                printer.ip_address,
+                printer.access_code,
+                path,
+                printer_model=printer.model,
+                report_missing=True,
+                # The size the printer reports buys a slow link its time, up to
+                # the file browser's budget: print start's 300 s ceiling would
+                # add none.
+                max_total_timeout=MAX_PRINTER_ZIP_PREPARE_SECONDS,
+            )
+        except FileNotOnPrinterError as exc:
+            raise HTTPException(404, f"File not found: {path}") from exc
+        except DownloadDeadlineExceeded as exc:
+            raise HTTPException(504, f"Downloading {path} from the printer took longer than its size allows") from exc
+        if data is None:
+            raise HTTPException(502, f"Could not download {path} from the printer")
+        return data
+
+    return await printer_file_cache.get(printer.id, path, fetch)
 
 
 @router.get("/{printer_id}/files/gcode")
@@ -2175,6 +2182,9 @@ async def delete_printer_file(
     from backend.app.services.bambu_ftp import DeleteResult
 
     result = await delete_file_async(printer.ip_address, printer.access_code, path, printer_model=printer.model)
+    if result != DeleteResult.FAILED:
+        # Gone from the printer: a preview must not be served from the old copy.
+        printer_file_cache.forget(printer_id, path)
     if result == DeleteResult.NOT_FOUND:
         raise HTTPException(404, f"File not found on printer: {path}")
     if result == DeleteResult.FAILED:
