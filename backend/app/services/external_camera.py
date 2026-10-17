@@ -15,6 +15,8 @@ import logging
 import re
 import shutil
 import socket
+import time
+import zlib
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -1036,8 +1038,11 @@ async def generate_mjpeg_stream(
 
     elif camera_type == "rtsp":
         # Use ffmpeg to convert RTSP to MJPEG, reconnecting after routine drops.
+        # One freeze watch for the whole stream: the still-scene rule compares a
+        # new session's first frame with the one the last session froze on.
+        freeze = _FreezeWatch()
         async with contextlib.aclosing(
-            _reconnecting(lambda: _stream_rtsp(url, fps, on_process=on_process), "RTSP")
+            _reconnecting(lambda: _stream_rtsp(url, fps, on_process=on_process, freeze=freeze), "RTSP")
         ) as frames:
             async for frame in frames:
                 yield _publish(frame)
@@ -1128,6 +1133,75 @@ async def _stream_mjpeg(url: str) -> AsyncGenerator[bytes, None]:
         logger.error("MJPEG stream error: %s", e)
 
 
+# How long an external RTSP stream may emit byte-identical frames before its
+# ffmpeg is restarted, and the longer re-check for a picture that really does
+# not change: the same rule as the printer's own RTSP stream (#3218, see
+# routes/camera._RTSP_FROZEN_SECONDS). ffmpeg's ``-r fps`` repeats its last
+# frame after the camera stops sending, so counting frames sees a live stream.
+_EXTERNAL_RTSP_FROZEN_SECONDS = 20.0
+_EXTERNAL_RTSP_STILL_RECHECK_SECONDS = 300.0
+
+
+class _FreezeWatch:
+    """Notices an RTSP picture that has stopped changing, across sessions.
+
+    A live camera rarely repeats a frame byte for byte (sensor noise), so a run
+    of identical frames usually means ffmpeg is repeating a frozen one. When the
+    first frame after the restart is that same picture again, the camera really
+    shows it (a dark, idle scene), and it is only re-checked at the longer
+    interval until it changes.
+
+    Unlike a Bambu camera, an external one can legitimately repeat frames for a
+    while: a source slower than ffmpeg's ``-r`` rate, or a surveillance camera's
+    smart codec on a static scene. So the limit is three times the longest gap
+    seen between real changes (a "freeze" after which the camera showed a new
+    picture counts as one), never below the 20 s of the printer's camera and
+    never above the still-scene interval.
+    """
+
+    def __init__(self) -> None:
+        self.frozen_crc: int | None = None
+        self.still_scene = False
+        self.unchanged_for = 0.0
+        self._last_crc: int | None = None
+        self._since = 0.0
+        self._longest_gap = 0.0
+
+    def start_session(self) -> None:
+        self._last_crc = None
+
+    def _limit(self) -> float:
+        if self.still_scene:
+            return _EXTERNAL_RTSP_STILL_RECHECK_SECONDS
+        return min(
+            max(_EXTERNAL_RTSP_FROZEN_SECONDS, 3 * self._longest_gap),
+            _EXTERNAL_RTSP_STILL_RECHECK_SECONDS,
+        )
+
+    def frozen(self, frame: bytes, now: float) -> bool:
+        crc = zlib.crc32(frame)
+        if self._last_crc is None:
+            if self.frozen_crc is not None and crc != self.frozen_crc:
+                # The picture had not frozen: the camera is just slow to change.
+                self._longest_gap = max(self._longest_gap, self.unchanged_for)
+            self.still_scene = self.frozen_crc is not None and crc == self.frozen_crc
+            self._last_crc = crc
+            self._since = now
+            return False
+        if crc != self._last_crc:
+            self._longest_gap = max(self._longest_gap, now - self._since)
+            self._last_crc = crc
+            self._since = now
+            self.still_scene = False
+            self.frozen_crc = None
+            return False
+        self.unchanged_for = now - self._since
+        if self.unchanged_for > self._limit():
+            self.frozen_crc = crc
+            return True
+        return False
+
+
 async def _end_stream_ffmpeg(process: asyncio.subprocess.Process) -> None:
     """Stop a streaming ffmpeg, bounded.
 
@@ -1147,6 +1221,7 @@ async def _stream_rtsp(
     fps: int,
     *,
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
+    freeze: _FreezeWatch | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """Stream frames from RTSP URL via ffmpeg.
 
@@ -1274,6 +1349,8 @@ async def _stream_rtsp(
         if state != "open":
             return
         log_watch = asyncio.create_task(watch_ffmpeg_log(process))
+        if freeze is not None:
+            freeze.start_session()
 
         buffer = b""
         jpeg_start = b"\xff\xd8"
@@ -1305,6 +1382,16 @@ async def _stream_rtsp(
                     frame = buffer[: end_idx + 2]
                     buffer = buffer[end_idx + 2 :]
                     yield frame
+                    if freeze is not None and freeze.frozen(frame, time.monotonic()):
+                        # Ending the session restarts ffmpeg (_reconnecting).
+                        if freeze.still_scene:
+                            logger.info("External RTSP still-scene re-check, restarting ffmpeg")
+                        else:
+                            logger.warning(
+                                "External RTSP picture frozen for %.0fs, restarting ffmpeg",
+                                freeze.unchanged_for,
+                            )
+                        return
 
             except TimeoutError:
                 logger.warning("RTSP stream read timeout")
