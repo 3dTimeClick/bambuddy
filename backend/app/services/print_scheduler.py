@@ -65,6 +65,7 @@ from backend.app.services.printer_manager import (
     supports_drying_while_printing,
 )
 from backend.app.services.queue_item_printer import drop_printer_resolved
+from backend.app.services.slot_nozzle import reports_two_nozzles
 from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
     _global_tray_from_assignment,
@@ -4370,37 +4371,10 @@ class PrintScheduler:
         # Get ams_extruder_map for dual-nozzle printers (H2D, H2D Pro)
         ams_extruder_map = status.raw_data.get("ams_extruder_map", {})
 
-        # Dual-nozzle detection, used below to route external spools to an
-        # extruder (#2771). Mirrors `buildLoadedFilaments` in the frontend,
-        # which was corrected for #1257 while this copy kept the old signal.
-        #
-        # `ams_extruder_map` is derived from AMS info bits, so a dual-nozzle
-        # printer with zero AMS units reports an empty map — and every external
-        # spool then got `extruder_id=None`, which the nozzle-aware filter in
-        # `_match_filaments_to_slots` rejects outright because `None` equals
-        # neither 0 nor 1. On an X2D feeding from external spools only that left
-        # nothing to match, the mapping came back all -1, and the print went out
-        # with `use_ams: true` and no mapping table at all — firmware 0700_8012,
-        # "Failed to get AMS mapping table".
-        #
-        # `nozzles` is always a two-entry list (the state seeds it with two empty
-        # NozzleInfo stubs), so its length proves nothing; only a populated
-        # diameter on the second entry means real hardware. The other two signals
-        # are fallbacks for firmware revisions that surface one but not the
-        # other: a populated `ams_extruder_map` is dual-nozzle by construction,
-        # and so is more than one `vt_tray` entry, since single-nozzle printers
-        # expose exactly one external feed.
-        nozzles = getattr(status, "nozzles", None) or []
+        # Routes external spools to an extruder (#2771). Mirrors
+        # `buildLoadedFilaments` in the frontend.
         vt_trays = status.raw_data.get("vt_tray") or []
-        is_dual_nozzle = bool(
-            (len(nozzles) > 1 and getattr(nozzles[1], "nozzle_diameter", ""))
-            or ams_extruder_map
-            # isinstance, because a dict here would count its ~30 keys as trays.
-            # bambu_mqtt normalises vt_tray to a list before it reaches raw_data,
-            # so this is unreachable — but the loop below would raise on a dict
-            # and that is the pre-existing behaviour to keep, not to paper over.
-            or (isinstance(vt_trays, list) and len(vt_trays) > 1)
-        )
+        is_dual_nozzle = reports_two_nozzles(status)
 
         # Parse AMS units from raw_data
         ams_data = status.raw_data.get("ams", [])

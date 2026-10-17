@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import re
 import traceback
 from collections.abc import Callable
@@ -1362,6 +1363,209 @@ def resolve_expected_tray(
     return None
 
 
+def _ams_temp(raw: object) -> float | None:
+    """The AMS unit temperature as a number, or None when it is not one."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # NaN or infinity would put a token in the WebSocket frame that the
+    # browser's JSON.parse rejects, dropping the whole status push.
+    return value if math.isfinite(value) else None
+
+
+def ams_units_to_dicts(
+    ams_list: list,
+    resolve_slot_k: Callable,
+    drying_targets: dict[int, dict] | None = None,
+) -> list[dict]:
+    """The AMS units of a printer's ``raw_data["ams"]``, as the printer card reads them.
+
+    The one serialiser for both the WebSocket push and the REST status
+    (routes/printers.py). The card is seeded from REST and shallow-merged with
+    every push, so any field one of them lacks reads as missing on the page:
+    ``exists`` (#2670), the stalled-countdown flag and the drying status were
+    each lost that way while the two were separate copies.
+    """
+    ams_units: list[dict] = []
+    for ams_data in ams_list:
+        # Skip if ams_data is not a dict (defensive check)
+        if not isinstance(ams_data, dict):
+            continue
+        trays = []
+        for tray in ams_data.get("tray", []):
+            tag_uid = tray.get("tag_uid")
+            if tag_uid in ("", "0000000000000000"):
+                tag_uid = None
+            tray_uuid = tray.get("tray_uuid")
+            if tray_uuid in ("", "00000000000000000000000000000000"):
+                tray_uuid = None
+
+            # Get K value: first try tray's k field, then lookup from K-profiles
+            k_value = tray.get("k")
+            cali_idx = tray.get("cali_idx")
+            if k_value is None:
+                k_value = resolve_slot_k(cali_idx, int(ams_data.get("id", 0)), int(tray.get("id", 0)))
+
+            # P1S / A1 Mini physically-empty-slot signal (#1322 follow-up by
+            # @RosdasHH): for a truly empty slot the firmware sends only
+            # {"id": N} — no state, no tray_type, no anything else. Treat
+            # that as the firmware's "no spool" indicator (state=9) so the
+            # assign-spool path in inventory.py can short-circuit a MQTT
+            # publish the firmware would silently drop anyway. The
+            # post-"Reset Slot" A1 Mini BMCU case sends a populated payload
+            # (state=3, tray_type="") — different shape, doesn't match this
+            # guard, still attempts the MQTT push per the #1322 fix.
+            state_val = tray.get("state")
+            if state_val is None and len(tray) == 1 and "id" in tray:
+                state_val = 9
+
+            trays.append(
+                {
+                    "id": int(tray.get("id", 0)),
+                    "tray_color": tray.get("tray_color"),
+                    "tray_type": tray.get("tray_type"),
+                    "tray_sub_brands": tray.get("tray_sub_brands"),
+                    "tray_id_name": tray.get("tray_id_name"),
+                    "tray_info_idx": tray.get("tray_info_idx"),
+                    "remain": tray.get("remain", 0),
+                    "k": k_value,
+                    "cali_idx": cali_idx,
+                    "tag_uid": tag_uid,
+                    "tray_uuid": tray_uuid,
+                    "nozzle_temp_min": tray.get("nozzle_temp_min"),
+                    "nozzle_temp_max": tray.get("nozzle_temp_max"),
+                    "drying_temp": tray.get("drying_temp"),
+                    "drying_time": tray.get("drying_time"),
+                    "state": state_val,
+                    # Firmware's authoritative presence bit (tray_exist_bits),
+                    # set by apply_tray_exist_bits. Without it getEmptySlotKind
+                    # falls back to the firmware-variant state 9/10 heuristic,
+                    # wrong for AMS-HT in both directions (#2670).
+                    "exists": tray.get("exists"),
+                }
+            )
+        # Percentage only — the 1-5 index is inverted and must never stand
+        # in for one (#3140). See utils/ams_humidity.
+        humidity_pct = ams_humidity_percent(ams_data)
+        humidity_value = int(round(humidity_pct)) if humidity_pct is not None else None
+
+        # AMS-HT has 1 tray, regular AMS has 4 trays
+        is_ams_ht = len(trays) == 1
+
+        # Active-cycle filament + target temperature for the badge.
+        # Bambu does not echo the cycle's chosen filament/temp on the
+        # per-tick AMS push, so prefer the cached target from the last
+        # ``send_drying_command``. When we have no record (drying
+        # started in a previous backend lifetime, or the cache was
+        # never seeded), the loaded trays can still name the filament
+        # if they agree — but never the temperature, which only the
+        # cache knows. See uniform_tray_filament_hint.
+        ams_id_int = int(ams_data.get("id", 0))
+        target = (drying_targets or {}).get(ams_id_int)
+        dry_target_temp: int | None = None
+        dry_filament: str | None = None
+        if target:
+            temp_val = target.get("temp")
+            fil_val = target.get("filament") or ""
+            if temp_val is not None:
+                try:
+                    dry_target_temp = int(temp_val)
+                except (TypeError, ValueError):
+                    dry_target_temp = None
+            if fil_val:
+                dry_filament = str(fil_val)
+        if not dry_filament:
+            dry_filament = uniform_tray_filament_hint([tray.get("tray_type") or "" for tray in trays])
+
+        ams_units.append(
+            {
+                "id": ams_id_int,
+                "humidity": humidity_value,
+                # A number, as the REST schema has always coerced it: the
+                # firmware sends a string, and the card showed "24°C" after a
+                # page load but "24.0°C" after the first push.
+                "temp": _ams_temp(ams_data.get("temp")),
+                "is_ams_ht": is_ams_ht,
+                "tray": trays,
+                # Serial number: Bambu MQTT uses "sn" key on AMS unit objects
+                "serial_number": str(ams_data.get("sn") or ams_data.get("serial_number") or ""),
+                # Firmware version: populated by _handle_version_info from get_version
+                "sw_ver": str(ams_data.get("sw_ver") or ""),
+                # Drying: dry_time > 0 means drying is active (minutes remaining)
+                "dry_time": int(ams_data.get("dry_time") or 0),
+                # Stall flag stamped onto raw_data by the MQTT layer: the
+                # firmware set the countdown but it never ticked. Without it
+                # the card falls back to the amber "active cycle" badge, so
+                # the neutral "Drying not started" state is unreachable.
+                "dry_countdown_stalled": bool(ams_data.get("dry_countdown_stalled") or False),
+                # Drying status from info hex bits (0=Off, 1=Checking, 2=Drying, 3=Cooling, etc.)
+                "dry_status": int(ams_data.get("dry_status") or 0),
+                "dry_sub_status": int(ams_data.get("dry_sub_status") or 0),
+                # Cannot-dry reasons from firmware (e.g. 1=InsufficientPower, 8=NeedPluginPower)
+                "dry_sf_reason": list(ams_data.get("dry_sf_reason") or []),
+                # Active-cycle filament name + target temperature
+                "dry_target_temp": dry_target_temp,
+                "dry_filament": dry_filament,
+                # Module type: "ams", "n3f", "n3s" (from get_version)
+                "module_type": str(ams_data.get("module_type") or ""),
+            }
+        )
+    return ams_units
+
+
+def vt_trays_to_dicts(raw: object, resolve_slot_k: Callable) -> list[dict]:
+    """The external spools of a printer's ``raw_data["vt_tray"]``.
+
+    Shared by the WebSocket push and the REST status, like ``ams_units_to_dicts``.
+    """
+    vt_tray: list[dict] = []
+    vt_tray_raw = raw
+    # Defensive: MQTT sends vt_tray as a dict; normalize to list
+    if isinstance(vt_tray_raw, dict):
+        vt_tray_raw = [vt_tray_raw]
+    elif not isinstance(vt_tray_raw, list):
+        vt_tray_raw = []
+    for vt_data in vt_tray_raw:
+        vt_tag_uid = vt_data.get("tag_uid")
+        if vt_tag_uid in ("", "0000000000000000"):
+            vt_tag_uid = None
+        vt_tray_uuid = vt_data.get("tray_uuid")
+        if vt_tray_uuid in ("", "00000000000000000000000000000000"):
+            vt_tray_uuid = None
+
+        # Get K value for vt_tray
+        vt_k_value = vt_data.get("k")
+        vt_cali_idx = vt_data.get("cali_idx")
+        if vt_k_value is None:
+            # External holder: id 254 is Ext-L, 255 is Ext-R. The resolver
+            # takes the 0/1 tray index, so normalise before asking.
+            vt_id = int(vt_data.get("id", 254))
+            vt_k_value = resolve_slot_k(vt_cali_idx, 255, vt_id - 254 if vt_id >= 254 else vt_id)
+
+        tray_id = int(vt_data.get("id", 254))
+        vt_tray.append(
+            {
+                "id": tray_id,
+                "tray_color": vt_data.get("tray_color"),
+                "tray_type": vt_data.get("tray_type"),
+                "tray_sub_brands": vt_data.get("tray_sub_brands"),
+                "tray_id_name": vt_data.get("tray_id_name"),
+                "tray_info_idx": vt_data.get("tray_info_idx"),
+                "remain": vt_data.get("remain", 0),
+                "k": vt_k_value,
+                "cali_idx": vt_cali_idx,
+                "tag_uid": vt_tag_uid,
+                "tray_uuid": vt_tray_uuid,
+                "nozzle_temp_min": vt_data.get("nozzle_temp_min"),
+                "nozzle_temp_max": vt_data.get("nozzle_temp_max"),
+            }
+        )
+    return vt_tray
+
+
 def printer_state_to_dict(
     state: PrinterState,
     printer_id: int | None = None,
@@ -1390,173 +1594,11 @@ def printer_state_to_dict(
     resolve_slot_k = build_slot_k_resolver(state)
 
     if "ams" in raw_data and isinstance(raw_data["ams"], list):
-        for ams_data in raw_data["ams"]:
-            trays = []
-            for tray in ams_data.get("tray", []):
-                tag_uid = tray.get("tag_uid")
-                if tag_uid in ("", "0000000000000000"):
-                    tag_uid = None
-                tray_uuid = tray.get("tray_uuid")
-                if tray_uuid in ("", "00000000000000000000000000000000"):
-                    tray_uuid = None
-
-                # Get K value: first try tray's k field, then lookup from K-profiles
-                k_value = tray.get("k")
-                cali_idx = tray.get("cali_idx")
-                if k_value is None:
-                    k_value = resolve_slot_k(cali_idx, int(ams_data.get("id", 0)), int(tray.get("id", 0)))
-
-                # P1S / A1 Mini physically-empty-slot signal (#1322 follow-up by
-                # @RosdasHH): for a truly empty slot the firmware sends only
-                # {"id": N} — no state, no tray_type, no anything else. Treat
-                # that as the firmware's "no spool" indicator (state=9) so the
-                # assign-spool path in inventory.py can short-circuit a MQTT
-                # publish the firmware would silently drop anyway. The
-                # post-"Reset Slot" A1 Mini BMCU case sends a populated payload
-                # (state=3, tray_type="") — different shape, doesn't match this
-                # guard, still attempts the MQTT push per the #1322 fix.
-                state_val = tray.get("state")
-                if state_val is None and len(tray) == 1 and "id" in tray:
-                    state_val = 9
-
-                trays.append(
-                    {
-                        "id": int(tray.get("id", 0)),
-                        "tray_color": tray.get("tray_color"),
-                        "tray_type": tray.get("tray_type"),
-                        "tray_sub_brands": tray.get("tray_sub_brands"),
-                        "tray_id_name": tray.get("tray_id_name"),
-                        "tray_info_idx": tray.get("tray_info_idx"),
-                        "remain": tray.get("remain", 0),
-                        "k": k_value,
-                        "cali_idx": cali_idx,
-                        "tag_uid": tag_uid,
-                        "tray_uuid": tray_uuid,
-                        "nozzle_temp_min": tray.get("nozzle_temp_min"),
-                        "nozzle_temp_max": tray.get("nozzle_temp_max"),
-                        "drying_temp": tray.get("drying_temp"),
-                        "drying_time": tray.get("drying_time"),
-                        "state": state_val,
-                        # Firmware's authoritative presence bit (tray_exist_bits),
-                        # set by apply_tray_exist_bits. The REST serializer already
-                        # emits it (routes/printers.py); without it here the WS
-                        # shallow-merge drops `exists` after the first frame and
-                        # getEmptySlotKind falls back to the firmware-variant state
-                        # 9/10 heuristic — wrong for AMS-HT in both directions (#2670).
-                        "exists": tray.get("exists"),
-                    }
-                )
-            # Percentage only — the 1-5 index is inverted and must never stand
-            # in for one (#3140). See utils/ams_humidity.
-            humidity_pct = ams_humidity_percent(ams_data)
-            humidity_value = int(round(humidity_pct)) if humidity_pct is not None else None
-
-            # AMS-HT has 1 tray, regular AMS has 4 trays
-            is_ams_ht = len(trays) == 1
-
-            # Active-cycle filament + target temperature for the badge.
-            # Bambu does not echo the cycle's chosen filament/temp on the
-            # per-tick AMS push, so prefer the cached target from the last
-            # ``send_drying_command``. When we have no record (drying
-            # started in a previous backend lifetime, or the cache was
-            # never seeded), the loaded trays can still name the filament
-            # if they agree — but never the temperature, which only the
-            # cache knows. See uniform_tray_filament_hint.
-            ams_id_int = int(ams_data.get("id", 0))
-            target = (drying_targets or {}).get(ams_id_int)
-            dry_target_temp: int | None = None
-            dry_filament: str | None = None
-            if target:
-                temp_val = target.get("temp")
-                fil_val = target.get("filament") or ""
-                if temp_val is not None:
-                    try:
-                        dry_target_temp = int(temp_val)
-                    except (TypeError, ValueError):
-                        dry_target_temp = None
-                if fil_val:
-                    dry_filament = str(fil_val)
-            if not dry_filament:
-                dry_filament = uniform_tray_filament_hint([tray.get("tray_type") or "" for tray in trays])
-
-            ams_units.append(
-                {
-                    "id": ams_id_int,
-                    "humidity": humidity_value,
-                    "temp": ams_data.get("temp"),
-                    "is_ams_ht": is_ams_ht,
-                    "tray": trays,
-                    # Serial number: Bambu MQTT uses "sn" key on AMS unit objects
-                    "serial_number": str(ams_data.get("sn") or ams_data.get("serial_number") or ""),
-                    # Firmware version: populated by _handle_version_info from get_version
-                    "sw_ver": str(ams_data.get("sw_ver") or ""),
-                    # Drying: dry_time > 0 means drying is active (minutes remaining)
-                    "dry_time": int(ams_data.get("dry_time") or 0),
-                    # Stall flag stamped onto raw_data by the MQTT layer: the
-                    # firmware set the countdown but it never ticked. The REST
-                    # serializer already emits it (routes/printers.py); without
-                    # it here the WS shallow-merge replaces the REST-seeded ams
-                    # object a second later, the field reads undefined, and the
-                    # card falls back to the amber "active cycle" badge — so the
-                    # neutral "Drying not started" state would never be reachable
-                    # in the live UI. Same failure mode as `exists` in #2670.
-                    "dry_countdown_stalled": bool(ams_data.get("dry_countdown_stalled") or False),
-                    # Drying status from info hex bits (0=Off, 1=Checking, 2=Drying, 3=Cooling, etc.)
-                    "dry_status": int(ams_data.get("dry_status") or 0),
-                    "dry_sub_status": int(ams_data.get("dry_sub_status") or 0),
-                    # Cannot-dry reasons from firmware (e.g. 1=InsufficientPower, 8=NeedPluginPower)
-                    "dry_sf_reason": list(ams_data.get("dry_sf_reason") or []),
-                    # Active-cycle filament name + target temperature
-                    "dry_target_temp": dry_target_temp,
-                    "dry_filament": dry_filament,
-                    # Module type: "ams", "n3f", "n3s" (from get_version)
-                    "module_type": str(ams_data.get("module_type") or ""),
-                }
-            )
+        ams_units = ams_units_to_dicts(raw_data["ams"], resolve_slot_k, drying_targets)
 
     # Parse virtual tray (external spool) — now a list
     if "vt_tray" in raw_data:
-        vt_tray_raw = raw_data["vt_tray"]
-        # Defensive: MQTT sends vt_tray as a dict; normalize to list
-        if isinstance(vt_tray_raw, dict):
-            vt_tray_raw = [vt_tray_raw]
-        elif not isinstance(vt_tray_raw, list):
-            vt_tray_raw = []
-        for vt_data in vt_tray_raw:
-            vt_tag_uid = vt_data.get("tag_uid")
-            if vt_tag_uid in ("", "0000000000000000"):
-                vt_tag_uid = None
-            vt_tray_uuid = vt_data.get("tray_uuid")
-            if vt_tray_uuid in ("", "00000000000000000000000000000000"):
-                vt_tray_uuid = None
-
-            # Get K value for vt_tray
-            vt_k_value = vt_data.get("k")
-            vt_cali_idx = vt_data.get("cali_idx")
-            if vt_k_value is None:
-                # External holder: id 254 is Ext-L, 255 is Ext-R. The resolver
-                # takes the 0/1 tray index, so normalise before asking.
-                vt_id = int(vt_data.get("id", 254))
-                vt_k_value = resolve_slot_k(vt_cali_idx, 255, vt_id - 254 if vt_id >= 254 else vt_id)
-
-            tray_id = int(vt_data.get("id", 254))
-            vt_tray.append(
-                {
-                    "id": tray_id,
-                    "tray_color": vt_data.get("tray_color"),
-                    "tray_type": vt_data.get("tray_type"),
-                    "tray_sub_brands": vt_data.get("tray_sub_brands"),
-                    "tray_id_name": vt_data.get("tray_id_name"),
-                    "tray_info_idx": vt_data.get("tray_info_idx"),
-                    "remain": vt_data.get("remain", 0),
-                    "k": vt_k_value,
-                    "cali_idx": vt_cali_idx,
-                    "tag_uid": vt_tag_uid,
-                    "tray_uuid": vt_tray_uuid,
-                    "nozzle_temp_min": vt_data.get("nozzle_temp_min"),
-                    "nozzle_temp_max": vt_data.get("nozzle_temp_max"),
-                }
-            )
+        vt_tray = vt_trays_to_dicts(raw_data["vt_tray"], resolve_slot_k)
 
     # Get ams_extruder_map from raw_data (populated by MQTT handler from AMS info field)
     ams_extruder_map = raw_data.get("ams_extruder_map", {})
