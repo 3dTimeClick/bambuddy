@@ -82,17 +82,21 @@ _DOWNLOAD_FLOOR_BYTES_PER_SEC = 25 * 1024
 _DOWNLOAD_MAX_TIMEOUT = 300.0
 
 
-def _download_extension(size: int | None, base_timeout: float) -> float:
+def _download_extension(size: int | None, base_timeout: float, ceiling: float = _DOWNLOAD_MAX_TIMEOUT) -> float:
     """Extra seconds to allow a download the printer says is this big.
 
     Zero when the size is unknown -- no SIZE reply means no transfer got under
     way, so the base deadline stands and a printer that is not answering still
     fails on schedule. Zero, too, once the base deadline is already the more
     generous of the two: this only ever lengthens a deadline.
+
+    ``ceiling`` caps the whole deadline. It defaults to the 300 s print start
+    can afford while it holds a database session; a caller that holds none and
+    has its own budget (the printer file browser) passes that instead.
     """
     if not size or size <= 0:
         return 0.0
-    return max(0.0, min(size / _DOWNLOAD_FLOOR_BYTES_PER_SEC, _DOWNLOAD_MAX_TIMEOUT) - base_timeout)
+    return max(0.0, min(size / _DOWNLOAD_FLOOR_BYTES_PER_SEC, ceiling) - base_timeout)
 
 
 # How long a download will wait for another one on the same printer to finish
@@ -889,7 +893,14 @@ class BambuFTPClient:
 
         return files
 
-    def download_file(self, remote_path: str, expected_size: int | None = None) -> bytes | None:
+    def download_file(
+        self,
+        remote_path: str,
+        expected_size: int | None = None,
+        cancel_event: threading.Event | None = None,
+        size_callback: Callable[[int], None] | None = None,
+        report_missing: bool = False,
+    ) -> bytes | None:
         """Download a file from the printer.
 
         ``expected_size`` is the byte count the directory listing reported for
@@ -902,14 +913,45 @@ class BambuFTPClient:
 
         A zero-byte result is always treated as a failure, matching
         :meth:`download_to_file` — no caller has a use for an empty file.
+
+        ``size_callback`` is handed the size the printer reports (SIZE) before
+        the transfer starts, for a caller that sets its deadline from it.
+        ``report_missing`` raises :class:`FileNotOnPrinterError` when RETR is
+        answered 550, as :meth:`download_to_file` does, instead of returning
+        None: every other caller reads a failed download as None.
         """
         if not self._ftp:
             return None
 
+        if size_callback is not None:
+            # Only a hint for the deadline: a SIZE refusal (missing command, a
+            # file still being written) is left to RETR to judge.
+            try:
+                server_size = self._ftp.size(remote_path)
+            except (OSError, ftplib.Error):
+                server_size = None
+            if server_size is not None and server_size > 0:
+                size_callback(server_size)
+
+        buffer = BytesIO()
+
+        def _write(block: bytes) -> None:
+            # Checked as data arrives: ``download_file_bytes_async`` sets it at
+            # its deadline, so the transfer stops instead of running on in its
+            # worker thread beside whatever the caller does next.
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled(remote_path)
+            buffer.write(block)
+
         try:
-            buffer = BytesIO()
-            self._ftp.retrbinary(f"RETR {remote_path}", buffer.write)
+            self._ftp.retrbinary(f"RETR {remote_path}", _write)
             data = buffer.getvalue()
+        except DownloadCancelled:
+            raise
+        except ftplib.error_perm as exc:
+            if report_missing and str(exc).startswith("550"):
+                raise FileNotOnPrinterError(f"{remote_path}: {exc}") from exc
+            return None
         except (OSError, ftplib.Error):
             return None
 
@@ -1616,6 +1658,7 @@ async def download_file_async(
     cancel_event: threading.Event | None = None,
     min_free_bytes: int | None = None,
     serialize: bool = True,
+    max_total_timeout: float = _DOWNLOAD_MAX_TIMEOUT,
 ) -> bool:
     """Async wrapper for downloading a file with timeout.
 
@@ -1637,6 +1680,9 @@ async def download_file_async(
         timeout: Overall operation timeout (asyncio)
         socket_timeout: FTP socket timeout for slow connections (e.g., A1 printers)
         printer_model: Printer model for A1-specific workarounds
+        max_total_timeout: the most the size-based extension may stretch the
+            deadline to (see ``_download_extension``). The default suits print
+            start; the printer file browser passes its own job budget.
         serialize: take this printer's download gate for the transfer (#2957).
             Pass False from a path that must neither queue behind another
             download nor make one queue behind it -- the printer file browser
@@ -1720,7 +1766,7 @@ async def download_file_async(
                 # the printer has told us, so give a transfer that is genuinely
                 # under way the time that size needs (#2957). Re-raises into the
                 # handler below when the size is unknown or already covered.
-                extension = _download_extension(completion.get("size"), timeout)
+                extension = _download_extension(completion.get("size"), timeout, max_total_timeout)
                 if extension <= 0:
                     raise
                 logger.info(
@@ -2273,6 +2319,8 @@ async def download_file_bytes_async(
     printer_model: str | None = None,
     timeout: float = 300.0,
     expected_size: int | None = None,
+    report_missing: bool = False,
+    max_total_timeout: float = _DOWNLOAD_MAX_TIMEOUT,
 ) -> bytes | None:
     """Async wrapper for downloading file as bytes.
 
@@ -2288,6 +2336,17 @@ async def download_file_bytes_async(
         expected_size: size from the directory listing; a mismatch fails the
             download instead of returning a truncated file. See
             :meth:`BambuFTPClient.download_file`.
+        report_missing: raise :class:`FileNotOnPrinterError` for a path the
+            printer says is not there, so a caller can answer 404 for that
+            and 502 for a download that failed.
+        max_total_timeout: without ``expected_size``, the size the printer
+            reports when the transfer starts stretches the deadline up to this
+            (see ``_download_extension``).
+
+    At the deadline the transfer is stopped and its thread waited for (bounded
+    by the socket timeout), so a retry never opens a second session beside it.
+    A deadline that fitted the file's size raises
+    :class:`DownloadDeadlineExceeded`, which ``with_ftp_retry`` does not retry.
     """
     # Unlike ``_download_extension`` there is no 300 s ceiling here: that one
     # exists because ``on_print_start`` holds a DB session across its 3MF hunt.
@@ -2295,26 +2354,77 @@ async def download_file_bytes_async(
     if expected_size and expected_size > 0:
         timeout = max(timeout, expected_size / _DOWNLOAD_FLOOR_BYTES_PER_SEC)
     loop = asyncio.get_event_loop()
+    cancel = threading.Event()
+    reported: dict[str, int] = {}
+    sized = bool(expected_size and expected_size > 0)
 
     def _download():
+        if cancel.is_set():
+            return None
         client = BambuFTPClient(ip_address, access_code, timeout=socket_timeout, printer_model=printer_model)
         if client.connect():
             try:
-                return client.download_file(remote_path, expected_size=expected_size)
+                return client.download_file(
+                    remote_path,
+                    expected_size=expected_size,
+                    cancel_event=cancel,
+                    size_callback=None if sized else (lambda n: reported.__setitem__("size", n)),
+                    report_missing=report_missing,
+                )
             finally:
                 client.disconnect()
         return None
 
+    async def _stop(worker) -> bytes | None:
+        """Tell the transfer to stop and wait for its thread to end.
+
+        Waited for unconditionally, like ``download_file_async``: a thread left
+        running would hold its FTP session while a retry opens another. The
+        wait is bounded by the socket timeout (a blocked read, then the QUIT).
+        A result that arrives meanwhile is kept; anything it raises is not the
+        caller's concern any more.
+        """
+        cancel.set()
+        try:
+            return await asyncio.shield(worker)
+        except Exception:
+            return None
+
+    worker = loop.run_in_executor(_ftp_executor, _download)
+    allowed = timeout
     try:
-        return await asyncio.wait_for(loop.run_in_executor(_ftp_executor, _download), timeout=timeout)
+        try:
+            return await asyncio.wait_for(asyncio.shield(worker), timeout=timeout)
+        except TimeoutError:
+            # No listing size: the size the printer reported when the transfer
+            # started buys a slow link its time, as in download_file_async.
+            extension = 0.0 if sized else _download_extension(reported.get("size"), timeout, max_total_timeout)
+            if extension <= 0:
+                raise
+            allowed = timeout + extension
+            sized = True
+            return await asyncio.wait_for(asyncio.shield(worker), timeout=extension)
+    except asyncio.CancelledError:
+        await asyncio.shield(_stop(worker))
+        raise
+    except DownloadCancelled:
+        return None
     except TimeoutError:
+        data = await _stop(worker)
+        if data:
+            # Finished inside the grace period: keep it.
+            return data
         logger.warning(
             "FTP download of %s (%s bytes) exceeded its %.0fs cap for %s",
             remote_path,
-            expected_size if expected_size else "unknown",
-            timeout,
+            expected_size or reported.get("size") or "unknown",
+            allowed,
             ip_address,
         )
+        if sized:
+            # The deadline already fitted the file at a floor rate no working
+            # link falls below: another attempt would reach the same end.
+            raise DownloadDeadlineExceeded(remote_path) from None
         return None
 
 

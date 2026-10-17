@@ -130,7 +130,7 @@ class TestASlowTransferSurvivesItsDeadline:
 
         with (
             patch.object(ftp_mod, "BambuFTPClient", _Client),
-            patch.object(ftp_mod, "_download_extension", lambda size, base: 0.2 if size else 0.0),
+            patch.object(ftp_mod, "_download_extension", lambda size, base, ceiling=300.0: 0.2 if size else 0.0),
             pytest.raises(ftp_mod.DownloadDeadlineExceeded),
         ):
             await ftp_mod.with_ftp_retry(

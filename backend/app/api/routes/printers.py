@@ -53,6 +53,8 @@ from backend.app.schemas.printer import (
 )
 from backend.app.services import camera_light as camera_light_service, drying_preflight, kprofile_drift
 from backend.app.services.bambu_ftp import (
+    DownloadDeadlineExceeded,
+    FileNotOnPrinterError,
     cache_3mf_download,
     delete_file_async,
     download_file_bytes_async,
@@ -81,6 +83,7 @@ from backend.app.services.printer_manager import (
 )
 from backend.app.services.printer_media import (
     MAX_PRINTER_ZIP_PREPARE_SECONDS,
+    PrinterFileDownloadError,
     PrinterFilesZipInsufficientSpaceError,
     PrinterFilesZipTooLargeError,
     build_printer_file,
@@ -1672,10 +1675,12 @@ async def download_printer_file(
         raise HTTPException(413, str(exc)) from exc
     except PrinterFilesZipInsufficientSpaceError as exc:
         raise HTTPException(507, str(exc)) from exc
+    except PrinterFileDownloadError as exc:
+        raise HTTPException(502, f"Could not download {path} from the printer") from exc
     except FileNotFoundError:
         raise HTTPException(404, f"File not found: {path}")
     except TimeoutError as exc:
-        raise HTTPException(504, "Printer download exceeded the 30-minute limit") from exc
+        raise HTTPException(504, str(exc) or "Printer download exceeded the 30-minute limit") from exc
 
     # Determine content type based on extension
     filename = path.split("/")[-1]
@@ -1703,6 +1708,33 @@ async def download_printer_file(
     )
 
 
+async def _download_printer_file_bytes(printer, path: str) -> bytes:
+    """Download a printer file for a preview: 404 missing, 502 failed, 504 too slow.
+
+    A failed download used to be reported as 404 "File not found" for a file the
+    browser had just listed. One FTP session, no listing first: the plate
+    picker asks once per plate, and printers limit their FTPS handshakes.
+    """
+    try:
+        data = await download_file_bytes_async(
+            printer.ip_address,
+            printer.access_code,
+            path,
+            printer_model=printer.model,
+            report_missing=True,
+            # The size the printer reports buys a slow link its time, up to the
+            # file browser's budget: print start's 300 s ceiling would add none.
+            max_total_timeout=MAX_PRINTER_ZIP_PREPARE_SECONDS,
+        )
+    except FileNotOnPrinterError as exc:
+        raise HTTPException(404, f"File not found: {path}") from exc
+    except DownloadDeadlineExceeded as exc:
+        raise HTTPException(504, f"Downloading {path} from the printer took longer than its size allows") from exc
+    if data is None:
+        raise HTTPException(502, f"Could not download {path} from the printer")
+    return data
+
+
 @router.get("/{printer_id}/files/gcode")
 async def get_printer_file_gcode(
     printer_id: int,
@@ -1714,9 +1746,7 @@ async def get_printer_file_gcode(
 
     printer = await _load_printer_or_404(printer_id)
 
-    data = await download_file_bytes_async(printer.ip_address, printer.access_code, path, printer_model=printer.model)
-    if data is None:
-        raise HTTPException(404, f"File not found: {path}")
+    data = await _download_printer_file_bytes(printer, path)
 
     filename = path.split("/")[-1]
     lower = filename.lower()
@@ -1761,9 +1791,7 @@ async def get_printer_file_plates(
             "is_multi_plate": False,
         }
 
-    data = await download_file_bytes_async(printer.ip_address, printer.access_code, path, printer_model=printer.model)
-    if data is None:
-        raise HTTPException(404, f"File not found: {path}")
+    data = await _download_printer_file_bytes(printer, path)
 
     plates = []
 
@@ -1988,9 +2016,7 @@ async def get_printer_file_plate_thumbnail(
 
     printer = await _load_printer_or_404(printer_id)
 
-    data = await download_file_bytes_async(printer.ip_address, printer.access_code, path, printer_model=printer.model)
-    if data is None:
-        raise HTTPException(404, f"File not found: {path}")
+    data = await _download_printer_file_bytes(printer, path)
 
     try:
         with zipfile.ZipFile(io.BytesIO(data), "r") as zf:

@@ -6321,6 +6321,7 @@ async def _attach_first_unclaimed_timelapse(
     rounds where something changed are worth an INFO line.
     """
     from backend.app.services.bambu_ftp import (
+        DownloadDeadlineExceeded,
         delete_archived_timelapse,
         download_file_bytes_async,
         remote_file_settled,
@@ -6378,13 +6379,17 @@ async def _attach_first_unclaimed_timelapse(
     # depend on a size we actually had, not on one we hoped was there.
     expected_size = target.get("size")
 
-    timelapse_data = await download_file_bytes_async(
-        printer.ip_address,
-        printer.access_code,
-        remote_path,
-        printer_model=printer.model,
-        expected_size=expected_size,
-    )
+    try:
+        timelapse_data = await download_file_bytes_async(
+            printer.ip_address,
+            printer.access_code,
+            remote_path,
+            printer_model=printer.model,
+            expected_size=expected_size,
+        )
+    except DownloadDeadlineExceeded:
+        # Too slow for its size this round; the printer keeps its copy.
+        timelapse_data = None
     if not timelapse_data:
         # Short or failed transfer. The printer keeps its copy, so the next
         # round can try again — which is exactly why the delete below is

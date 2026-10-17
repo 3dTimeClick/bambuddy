@@ -2950,6 +2950,7 @@ async def scan_timelapse(
     from backend.app.core.database import async_session
     from backend.app.models.printer import Printer
     from backend.app.services.bambu_ftp import (
+        DownloadDeadlineExceeded,
         delete_archived_timelapse,
         download_file_bytes_async,
         ftps_handshake_blocked,
@@ -3138,32 +3139,36 @@ async def scan_timelapse(
     # Get FTP retry settings
     ftp_retry_enabled, ftp_retry_count, ftp_retry_delay, ftp_timeout = await get_ftp_retry_settings()
 
-    if ftp_retry_enabled:
-        timelapse_data = await with_ftp_retry(
-            download_file_bytes_async,
-            printer.ip_address,
-            printer.access_code,
-            remote_path,
-            socket_timeout=ftp_timeout,
-            printer_model=printer.model,
-            expected_size=matching_file.get("size"),
-            max_retries=ftp_retry_count,
-            retry_delay=ftp_retry_delay,
-            operation_name=f"Download timelapse {matching_file['name']}",
-            cooloff_ip=printer.ip_address,
-        )
-    else:
-        timelapse_data = await download_file_bytes_async(
-            printer.ip_address,
-            printer.access_code,
-            remote_path,
-            socket_timeout=ftp_timeout,
-            printer_model=printer.model,
-            expected_size=matching_file.get("size"),
-        )
+    try:
+        if ftp_retry_enabled:
+            timelapse_data = await with_ftp_retry(
+                download_file_bytes_async,
+                printer.ip_address,
+                printer.access_code,
+                remote_path,
+                socket_timeout=ftp_timeout,
+                printer_model=printer.model,
+                expected_size=matching_file.get("size"),
+                max_retries=ftp_retry_count,
+                retry_delay=ftp_retry_delay,
+                operation_name=f"Download timelapse {matching_file['name']}",
+                cooloff_ip=printer.ip_address,
+            )
+        else:
+            timelapse_data = await download_file_bytes_async(
+                printer.ip_address,
+                printer.access_code,
+                remote_path,
+                socket_timeout=ftp_timeout,
+                printer_model=printer.model,
+                expected_size=matching_file.get("size"),
+            )
+    except DownloadDeadlineExceeded as exc:
+        # Not retried: the deadline already fitted the file's size.
+        raise HTTPException(504, "The timelapse download took longer than its size allows") from exc
 
     if not timelapse_data:
-        raise HTTPException(500, "Failed to download timelapse")
+        raise HTTPException(502, "Could not download the timelapse from the printer")
 
     # Confirm the printer has finished writing before we commit to this file and
     # delete the original: matching the listing's size proves we got what it
@@ -3213,6 +3218,7 @@ async def select_timelapse(
     from backend.app.core.database import async_session
     from backend.app.models.printer import Printer
     from backend.app.services.bambu_ftp import (
+        DownloadDeadlineExceeded,
         delete_archived_timelapse,
         download_file_bytes_async,
         get_ftp_retry_settings,
@@ -3263,32 +3269,36 @@ async def select_timelapse(
     # Download and attach
     ftp_retry_enabled, ftp_retry_count, ftp_retry_delay, ftp_timeout = await get_ftp_retry_settings()
 
-    if ftp_retry_enabled:
-        timelapse_data = await with_ftp_retry(
-            download_file_bytes_async,
-            printer.ip_address,
-            printer.access_code,
-            remote_path,
-            socket_timeout=ftp_timeout,
-            printer_model=printer.model,
-            expected_size=expected_size,
-            max_retries=ftp_retry_count,
-            retry_delay=ftp_retry_delay,
-            operation_name=f"Download timelapse {filename}",
-            cooloff_ip=printer.ip_address,
-        )
-    else:
-        timelapse_data = await download_file_bytes_async(
-            printer.ip_address,
-            printer.access_code,
-            remote_path,
-            socket_timeout=ftp_timeout,
-            printer_model=printer.model,
-            expected_size=expected_size,
-        )
+    try:
+        if ftp_retry_enabled:
+            timelapse_data = await with_ftp_retry(
+                download_file_bytes_async,
+                printer.ip_address,
+                printer.access_code,
+                remote_path,
+                socket_timeout=ftp_timeout,
+                printer_model=printer.model,
+                expected_size=expected_size,
+                max_retries=ftp_retry_count,
+                retry_delay=ftp_retry_delay,
+                operation_name=f"Download timelapse {filename}",
+                cooloff_ip=printer.ip_address,
+            )
+        else:
+            timelapse_data = await download_file_bytes_async(
+                printer.ip_address,
+                printer.access_code,
+                remote_path,
+                socket_timeout=ftp_timeout,
+                printer_model=printer.model,
+                expected_size=expected_size,
+            )
+    except DownloadDeadlineExceeded as exc:
+        # Not retried: the deadline already fitted the file's size.
+        raise HTTPException(504, "The timelapse download took longer than its size allows") from exc
 
     if not timelapse_data:
-        raise HTTPException(500, "Failed to download timelapse")
+        raise HTTPException(502, "Could not download the timelapse from the printer")
 
     # Confirm the printer has finished writing before we commit to this file and
     # delete the original: matching the listing's size proves we got what it
