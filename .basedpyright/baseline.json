@@ -3002,16 +3002,6 @@
                 }
             }
         ],
-        "./backend/app/services/layer_timelapse.py": [
-            {
-                "code": "reportPossiblyUnboundVariable",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 22,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./backend/app/services/library_folder_access.py": [
             {
                 "code": "reportArgumentType",

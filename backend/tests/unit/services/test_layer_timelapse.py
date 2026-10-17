@@ -554,7 +554,7 @@ class TestCleanupOrphanedTimelapseSessions:
 
             # Exactly the state on_print_complete is in while ffmpeg runs.
             _active_sessions.pop(1, None)
-            _finalizing_sessions[1] = session.session_id
+            _finalizing_sessions[1] = {session.session_id}
 
             removed = cleanup_orphaned_timelapse_sessions(min_age_seconds=300)
 

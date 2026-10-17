@@ -9198,11 +9198,14 @@ async def on_print_complete(printer_id: int, data: dict):
                 )
         except Exception as e:
             logger.warning("[LAYER-TL] Failed: %s", e)
-            # Try to cancel session on error
-            try:
-                cancel_session(printer_id)
-            except Exception:
-                pass  # Best-effort timelapse session cancellation on error
+            # A completed print's session left _active_sessions when its stitch
+            # began: the one there now belongs to the next print, which may have
+            # started during the stitch, and must not lose its frames.
+            if print_status != "completed":
+                try:
+                    cancel_session(printer_id)
+                except Exception:
+                    pass  # Best-effort timelapse session cancellation on error
 
     spawn_background_task(_background_layer_timelapse(), name="background-layer-timelapse")
 
@@ -10105,17 +10108,32 @@ _camera_cleanup_task: asyncio.Task | None = None
 CAMERA_CLEANUP_INTERVAL = 60
 
 
-async def _camera_cleanup_loop():
-    """Periodically clean up orphaned ffmpeg processes."""
-    from backend.app.api.routes.camera import cleanup_orphaned_streams
+# Every this many camera cleanups (about an hour), the timelapse janitor too:
+# kept frames of a failed stitch go after a day, not at the next restart.
+TIMELAPSE_CLEANUP_EVERY = 60
 
+
+async def _camera_cleanup_loop():
+    """Periodically clean up orphaned ffmpeg processes and timelapse leftovers."""
+    from backend.app.api.routes.camera import cleanup_orphaned_streams
+    from backend.app.services.layer_timelapse import cleanup_orphaned_timelapse_sessions
+
+    rounds = 0
     while True:
         try:
+            rounds += 1
             await cleanup_orphaned_streams()
         except asyncio.CancelledError:
             break
         except Exception as e:
             logging.getLogger(__name__).warning("Camera stream cleanup failed: %s", e)
+        try:
+            if rounds % TIMELAPSE_CLEANUP_EVERY == 0:
+                await asyncio.to_thread(cleanup_orphaned_timelapse_sessions)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logging.getLogger(__name__).warning("Timelapse frames cleanup failed: %s", e)
         await asyncio.sleep(CAMERA_CLEANUP_INTERVAL)
 
 
