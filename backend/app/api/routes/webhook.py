@@ -24,8 +24,11 @@ from backend.app.models.printer import Printer
 from backend.app.schemas.printer import HMSErrorResponse, hms_error_responses
 from backend.app.services.print_confirmation import confirm_outcome_for_new_queue_item
 from backend.app.services.print_control import stop_print_by_user
+from backend.app.services.print_defaults import default_print_options
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.queue_position import next_queue_position
+from backend.app.utils.local_time import to_naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +143,9 @@ async def webhook_add_to_queue(
         from datetime import datetime
 
         try:
-            scheduled_time = datetime.fromisoformat(data.scheduled_time.replace("Z", "+00:00"))
-        except ValueError:
+            # Stored as naive UTC: an offset is converted, not dropped.
+            scheduled_time = to_naive_utc(datetime.fromisoformat(data.scheduled_time.replace("Z", "+00:00")))
+        except (ValueError, OverflowError):
             raise HTTPException(status_code=400, detail="Invalid scheduled_time format")
 
     # Create queue item
@@ -162,10 +166,13 @@ async def webhook_add_to_queue(
         created_by_id=api_key.user_id,
         # Waits for someone to start it unless the owner may print without review (#1620)
         manual_start=await is_auth_enabled(db) and queue_review_required_for(await resolve_apikey_owner(db, api_key)),
+        # No print options in the request: the install's defaults.
+        **await default_print_options(db),
     )
     db.add(queue_item)
-    await db.flush()
+    await db.commit()
     await db.refresh(queue_item)
+    await announce_queue_jobs_added(db, [queue_item.id])
 
     return QueueAddResponse(
         id=queue_item.id,

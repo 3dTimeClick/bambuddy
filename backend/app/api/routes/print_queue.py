@@ -55,7 +55,6 @@ from backend.app.schemas.print_queue import (
 from backend.app.services.filament_deficit import compute_deficit_for_queue_item
 from backend.app.services.filament_requirements import overrides_for_plate
 from backend.app.services.finance_budget import release_budget_reservation, validate_print_budget
-from backend.app.services.notification_service import notification_service
 from backend.app.services.print_batch import (
     BatchDispatchError,
     dispatch_remaining,
@@ -65,6 +64,7 @@ from backend.app.services.print_batch import (
     refresh_batches_after,
 )
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
+from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
 from backend.app.services.queue_position import lock_queue_positions, max_queue_position
 from backend.app.utils.printer_models import (
@@ -1258,43 +1258,7 @@ async def add_to_queue(
     qty_desc = f" (×{quantity})" if quantity > 1 else ""
     logger.info("Added %s to queue for %s%s", source_name, target_desc, qty_desc)
 
-    # MQTT relay - publish queue job added
-    try:
-        from backend.app.services.mqtt_relay import mqtt_relay
-
-        await mqtt_relay.on_queue_job_added(
-            job_id=item.id,
-            filename=item.archive.filename if item.archive else "",
-            printer_id=item.printer_id,
-            printer_name=item.printer.name if item.printer else None,
-        )
-    except Exception:
-        pass  # Don't fail queue add if MQTT fails
-
-    # Send notification for job added
-    try:
-        job_name = (
-            item.archive.filename
-            if item.archive
-            else item.library_file.filename
-            if item.library_file
-            else f"Job #{item.id}"
-        )
-        job_name = job_name.replace(".gcode.3mf", "").replace(".3mf", "")
-        if quantity > 1:
-            job_name = f"{job_name} ×{quantity}"
-        target = (
-            item.printer.name if item.printer else (f"Any {item.target_model}" if target_model_norm else "Unassigned")
-        )
-        await notification_service.on_queue_job_added(
-            job_name=job_name,
-            target=target,
-            db=db,
-            printer_id=item.printer_id,
-            printer_name=item.printer.name if item.printer else None,
-        )
-    except Exception:
-        pass  # Don't fail queue add if notification fails
+    await announce_queue_jobs_added(db, [i.id for i in items])
 
     return _enrich_response(item)
 
@@ -1690,6 +1654,35 @@ async def update_batch(
     return await _build_batch_response(db, batch)
 
 
+async def _validate_copies_budget(
+    db: AsyncSession, copies: list[PrintQueueItem], actor: User | ApiKeyActor | None
+) -> None:
+    """An order's copies are billed to their template's cost centre: the
+    dispatcher must be allowed to print with it, and its budget must hold
+    every copy, as POST /queue/ checks for a quantity. Only with billing on;
+    then a copy without a cost centre is refused as POST /queue/ refuses it."""
+    by_center: dict[int | None, list[PrintQueueItem]] = {}
+    for copy in copies:
+        by_center.setdefault(copy.cost_center_id, []).append(copy)
+    for cost_center_id, center_copies in by_center.items():
+        estimates = [
+            await _trusted_item_estimated_cost(
+                db, copy, printer_id=copy.printer_id, plate_id=copy.plate_id, ams_mapping=copy.ams_mapping
+            )
+            for copy in center_copies
+        ]
+        await validate_print_budget(
+            db,
+            cost_center_id=cost_center_id,
+            estimated_cost=None if any(e is None for e in estimates) else sum(e for e in estimates if e is not None),
+            current_user=actor,
+        )
+        # Set after the check: a pending copy's estimate counts as held, and
+        # the copies must not be counted against themselves.
+        for copy, estimate in zip(center_copies, estimates, strict=True):
+            copy.estimated_cost = estimate
+
+
 @router.post("/batches/{batch_id}/dispatch", response_model=PrintBatchResponse)
 async def dispatch_batch(
     batch_id: int,
@@ -1733,6 +1726,7 @@ async def dispatch_batch(
             printer_scope.ensure(item.printer_id)
             if item.printer_id is None:
                 ensure_model_target_allowed(current_user, printer_scope)
+        await _validate_copies_budget(db, created, actor)
     except HTTPException:
         await db.rollback()
         raise
@@ -1743,6 +1737,7 @@ async def dispatch_batch(
             item.manual_start = True
 
     await db.commit()
+    await announce_queue_jobs_added(db, [item.id for item in created])
     await db.refresh(batch)
 
     logger.info("Batch %s dispatched %d item(s)", batch.id, len(created))

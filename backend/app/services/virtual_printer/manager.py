@@ -918,32 +918,18 @@ class VirtualPrinterInstance:
             from backend.app.services.archive import ArchiveService
             from backend.app.services.filament_requirements import extract_filament_requirements
             from backend.app.services.print_confirmation import confirm_outcome_for_new_queue_item
+            from backend.app.services.print_defaults import default_print_options
 
             async with self._session_factory() as db:
                 name_source = await get_setting(db, "virtual_printer_archive_name_source")
                 prefer_filename = name_source == "filename"
 
-                # Read workflow defaults from settings. Without this the
+                # Workflow defaults from settings. Without this the
                 # PrintQueueItem below would fall back to the column-level
                 # defaults and ignore the user's workflow preferences (#1235).
-                # Fallbacks match AppSettings defaults in schemas/settings.py.
                 # The slicer-side options captured above (if any) take
                 # precedence per-field over these defaults.
-                def _bool_setting(value: str | None, default: bool) -> bool:
-                    return value.lower() == "true" if value is not None else default
-
-                def _tristate_setting(value: str | None, default: str) -> str:
-                    """Tri-state workflow default, coercing legacy true/false rows."""
-                    if value is None:
-                        return default
-                    low = value.strip().lower()
-                    if low in ("on", "off", "auto"):
-                        return low
-                    if low in ("true", "1"):
-                        return "on"
-                    if low in ("false", "0"):
-                        return "off"
-                    return default
+                defaults = await default_print_options(db)
 
                 def _slicer_or(field_mqtt: str, settings_default: bool) -> bool:
                     """Slicer's MQTT value if present, else the settings default.
@@ -970,25 +956,21 @@ class VirtualPrinterInstance:
                 bed_levelling = _slicer_tristate(
                     "bed_leveling",
                     "auto_bed_leveling",
-                    _tristate_setting(await get_setting(db, "default_bed_levelling"), "auto"),
+                    defaults["bed_levelling"],
                 )
                 flow_cali = _slicer_tristate(
                     "flow_cali",
                     "extrude_cali_flag",
-                    _tristate_setting(await get_setting(db, "default_flow_cali"), "auto"),
+                    defaults["flow_cali"],
                 )
                 nozzle_offset_cali = _slicer_tristate(
                     None,
                     "nozzle_offset_cali",
-                    _tristate_setting(await get_setting(db, "default_nozzle_offset_cali"), "auto"),
+                    defaults["nozzle_offset_cali"],
                 )
-                vibration_cali = _slicer_or(
-                    "vibration_cali", _bool_setting(await get_setting(db, "default_vibration_cali"), True)
-                )
-                layer_inspect = _slicer_or(
-                    "layer_inspect", _bool_setting(await get_setting(db, "default_layer_inspect"), False)
-                )
-                timelapse = _slicer_or("timelapse", _bool_setting(await get_setting(db, "default_timelapse"), False))
+                vibration_cali = _slicer_or("vibration_cali", defaults["vibration_cali"])
+                layer_inspect = _slicer_or("layer_inspect", defaults["layer_inspect"])
+                timelapse = _slicer_or("timelapse", defaults["timelapse"])
                 # No setting for it: the column default (on) when the slicer is silent.
                 use_ams = _slicer_or("use_ams", True)
 
@@ -1300,6 +1282,9 @@ class VirtualPrinterInstance:
                             queue_item_ids,
                         )
                     await self._broadcast_archive_created(archive)
+                    from backend.app.services.queue_announcements import announce_queue_jobs_added
+
+                    await announce_queue_jobs_added(db, queue_item_ids)
                 else:
                     logger.error("Failed to archive file: %s", file_path.name)
         except Exception as e:

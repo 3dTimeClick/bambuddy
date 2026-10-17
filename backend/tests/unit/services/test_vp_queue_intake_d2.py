@@ -42,7 +42,7 @@ def _vp(tmp_path, factory, **kwargs):
     )
 
 
-async def _enqueue(inst, tmp_path, slicer_opts: dict | None, settings: dict | None = None):
+async def _enqueue(inst, tmp_path, slicer_opts: dict | None, settings: dict | None = None, announce=None):
     file_path = tmp_path / "test.3mf"
     file_path.write_bytes(b"fake3mf")
     if slicer_opts is not None:
@@ -59,6 +59,8 @@ async def _enqueue(inst, tmp_path, slicer_opts: dict | None, settings: dict | No
             "backend.app.services.archive.ArchiveService.archive_print", new_callable=AsyncMock, return_value=archive
         ),
         patch("backend.app.services.virtual_printer.manager._SLICER_OPTIONS_WAIT_TIMEOUT", 0.05),
+        # Its own query would take a result the session mock holds for the test.
+        patch("backend.app.services.queue_announcements.announce_queue_jobs_added", announce or AsyncMock()),
     ):
         await inst._add_to_print_queue(file_path, "192.168.1.100")
     return file_path

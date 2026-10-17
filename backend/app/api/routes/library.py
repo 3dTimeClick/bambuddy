@@ -98,7 +98,9 @@ from backend.app.services.library_folder_access import (
 from backend.app.services.pdf_thumbnail import generate_pdf_thumbnail
 from backend.app.services.plate_thumbnail import inject_plate_thumbnails_if_missing
 from backend.app.services.print_confirmation import confirm_outcome_for_new_queue_item
+from backend.app.services.print_defaults import default_print_options
 from backend.app.services.process_overrides import apply_process_overrides
+from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.slice_output_check import (
     missing_start_gcode_message,
     start_gcode_is_missing,
@@ -3244,6 +3246,9 @@ async def add_files_to_queue(
     # There is no per-job ask-for-outcome toggle on a bulk add, so the rows take
     # the same default the print dialog seeds itself from (#1898).
     confirm_outcome = await confirm_outcome_for_new_queue_item(db)
+    # No print options on a bulk add either: the install's defaults, as the
+    # print dialog would have offered them.
+    print_options = await default_print_options(db)
 
     for file_id in request.file_ids:
         lib_file = files.get(file_id)
@@ -3345,6 +3350,7 @@ async def add_files_to_queue(
                 created_by_id=actor.id if actor else None,
                 # Waits for someone to start it unless they may print without review (#1620)
                 manual_start=review_required,
+                **print_options,
             )
             db.add(queue_item)
 
@@ -3377,6 +3383,7 @@ async def add_files_to_queue(
         )
 
     await db.commit()
+    await announce_queue_jobs_added(db, [a.queue_item_id for a in added])
 
     return AddToQueueResponse(added=added, errors=errors)
 

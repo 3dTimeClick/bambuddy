@@ -162,10 +162,11 @@ def _create_engine(url: str | None = None):
     if is_sqlite():
         event.listen(eng.sync_engine, "connect", _set_sqlite_pragmas)
     else:
-        # Strip timezone info from aware datetimes before they reach asyncpg.
+        # Make aware datetimes naive UTC before they reach asyncpg.
         # asyncpg rejects timezone-aware values for TIMESTAMP WITHOUT TIME ZONE columns.
-        # The codebase uses datetime.now(timezone.utc) in many places — this makes
-        # Postgres behave like SQLite which ignores timezone info entirely.
+        # The codebase uses datetime.now(timezone.utc) in many places. A value
+        # with another offset is converted, not stripped; SQLite drops offsets,
+        # so request schemas convert on the way in (NaiveUTCDatetime).
         @event.listens_for(eng.sync_engine, "before_cursor_execute", retval=True)
         def _strip_tz_from_params(conn, cursor, statement, parameters, context, executemany):
             import datetime
@@ -181,7 +182,8 @@ def _create_engine(url: str | None = None):
             # correct answer is "strip datetimes at any depth".
             def _strip(val):
                 if isinstance(val, datetime.datetime) and val.tzinfo is not None:
-                    return val.replace(tzinfo=None)
+                    # Naive columns hold UTC: convert, so an offset is not lost.
+                    return val.astimezone(datetime.timezone.utc).replace(tzinfo=None)
                 if isinstance(val, dict):
                     return {k: _strip(v) for k, v in val.items()}
                 if isinstance(val, list):

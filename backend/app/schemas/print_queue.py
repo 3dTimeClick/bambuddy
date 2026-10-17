@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, PlainSerializer, model_validator
 
 from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
+from backend.app.utils.local_time import to_naive_utc
 from backend.app.utils.printer_models import MAX_CHAMBER_TEMP_C
 
 
@@ -16,6 +17,19 @@ def serialize_utc_datetime(dt: datetime | None) -> str | None:
 
 
 UTCDatetime = Annotated[datetime | None, PlainSerializer(serialize_utc_datetime)]
+
+
+def _naive_utc(value: datetime | None) -> datetime | None:
+    try:
+        return to_naive_utc(value)
+    except OverflowError:
+        # At the edge of the date range: a 422, not a 500.
+        raise ValueError("date is out of range") from None
+
+
+# Coerces any client-sent UTC offset to the naive UTC the DB stores. Without
+# it the offset was dropped, not converted: 10:00+02:00 was stored as 10:00 UTC.
+NaiveUTCDatetime = Annotated[datetime | None, AfterValidator(_naive_utc)]
 
 
 def _coerce_tristate(v: object) -> object:
@@ -77,7 +91,7 @@ class PrintQueueItemCreate(BaseModel):
     # Either archive_id OR library_file_id must be provided
     archive_id: int | None = None
     library_file_id: int | None = None
-    scheduled_time: datetime | None = None  # None = ASAP (next when idle)
+    scheduled_time: NaiveUTCDatetime = None  # None = ASAP (next when idle)
     require_previous_success: bool = False
     auto_off_after: bool = False  # Power off printer after print completes
     manual_start: bool = False  # Requires manual trigger to start (staged)
@@ -145,7 +159,7 @@ class PrintQueueItemUpdate(IgnoresNullForRequiredColumns):
     target_location: str | None = None  # Target location filter (only used with target_model)
     filament_overrides: list[dict] | None = None  # Filament overrides for model-based assignment
     position: int | None = None
-    scheduled_time: datetime | None = None
+    scheduled_time: NaiveUTCDatetime = None
     require_previous_success: bool | None = None
     auto_off_after: bool | None = None
     manual_start: bool | None = None
@@ -338,7 +352,7 @@ class PrintQueueBulkUpdate(IgnoresNullForRequiredColumns):
     item_ids: list[int]
     # Fields to update (all optional - only set fields are applied)
     printer_id: int | None = None
-    scheduled_time: datetime | None = None
+    scheduled_time: NaiveUTCDatetime = None
     require_previous_success: bool | None = None
     auto_off_after: bool | None = None
     manual_start: bool | None = None

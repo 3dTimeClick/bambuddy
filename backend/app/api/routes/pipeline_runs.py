@@ -70,6 +70,8 @@ from backend.app.services.pipeline_eligibility import (
     check_pipeline_eligibility,
 )
 from backend.app.services.print_confirmation import confirm_outcome_for_new_queue_item
+from backend.app.services.print_defaults import default_print_options
+from backend.app.services.queue_announcements import announce_queue_jobs_added
 
 logger = logging.getLogger(__name__)
 
@@ -592,6 +594,8 @@ def _make_orchestration_callable(
 
             # No per-job ask-for-outcome toggle on a pipeline run either (#1898).
             confirm_outcome = await confirm_outcome_for_new_queue_item(session)
+            # Nor print options: the install's defaults.
+            print_options = await default_print_options(session)
 
             for job, (printer_id, target_model) in zip(jobs, assignments, strict=False):
                 queue_item = PrintQueueItem(
@@ -615,6 +619,7 @@ def _make_orchestration_callable(
                         and printer_id is None
                         and not printer_scope.is_unrestricted
                     ),
+                    **print_options,
                 )
                 session.add(queue_item)
                 await session.flush()
@@ -658,6 +663,7 @@ def _make_orchestration_callable(
                 job.status = "queued"
             run.status = "dispatching"
             await session.commit()
+            await announce_queue_jobs_added(session, [job.queue_entry_id for job in jobs if job.queue_entry_id])
             await _publish_run_event(session, run)
 
             return slice_response.model_dump()

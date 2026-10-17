@@ -41,6 +41,12 @@ def _write_3mf_with_filaments(file_path: Path, filaments: list[dict], plate_inde
 class TestVirtualPrinterInstance:
     """Tests for VirtualPrinterInstance class."""
 
+    @pytest.fixture(autouse=True)
+    def _no_queue_announcement(self):
+        """Its own query would take a result the session mocks hold for the test."""
+        with patch("backend.app.services.queue_announcements.announce_queue_jobs_added", AsyncMock()):
+            yield
+
     @pytest.fixture
     def instance(self, tmp_path):
         """Create a VirtualPrinterInstance with test defaults."""

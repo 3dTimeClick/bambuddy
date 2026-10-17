@@ -78,6 +78,9 @@ CLONED_SETTING_COLUMNS = (
     "preheat_override",
     "preheat_chamber_target_override",
     "skip_filament_check",
+    # The scheduler bills and budget-checks from it; dispatch_batch checks the
+    # dispatcher may use it.
+    "cost_center_id",
 )
 
 CLONED_VARIANT_COLUMNS = (
