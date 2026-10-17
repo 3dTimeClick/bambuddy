@@ -267,6 +267,42 @@ class WriteRequestsOnlyFilter(logging.Filter):
         return any(token in message for token in self._WRITE_VERB_TOKENS)
 
 
+class ShutdownCancelledRequestFilter(logging.Filter):
+    """One INFO line for a request uvicorn cancels at the end of a shutdown.
+
+    The service caps the graceful shutdown (``--timeout-graceful-shutdown``)
+    because an MJPEG camera stream never ends by itself. When the cap is
+    reached uvicorn logs "Cancel N running task(s)" and then, for each
+    cancelled request, "Exception in ASGI application" with the full
+    ``CancelledError`` traceback, both at ERROR. That happens on every restart
+    with a camera view open and is not an error. Only that cancellation is
+    rewritten, recognised by uvicorn's own cancel message; any other failure,
+    and any other cancellation, keeps its level and traceback.
+
+    Attach to ``logging.getLogger("uvicorn.error")`` before any filter that
+    renders the traceback.
+    """
+
+    _CANCEL_MESSAGE = "timeout graceful shutdown exceeded"
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003 — stdlib API name
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, asyncio.CancelledError) and self._CANCEL_MESSAGE in str(exc):
+            record.msg = "Request closed at shutdown, still open after the grace period (a camera stream, for example)"
+            record.args = None
+            record.exc_info = None
+            record.exc_text = None
+            self._as_info(record)
+        elif exc is None and isinstance(record.msg, str) and record.msg.endswith(self._CANCEL_MESSAGE):
+            self._as_info(record)
+        return True
+
+    @staticmethod
+    def _as_info(record: logging.LogRecord) -> None:
+        record.levelno = logging.INFO
+        record.levelname = logging.getLevelName(logging.INFO)
+
+
 class CancelledPoolNoiseFilter(logging.Filter):
     """Drop SQLAlchemy connection-pool log records driven by request cancellation.
 

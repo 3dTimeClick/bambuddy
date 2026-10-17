@@ -344,7 +344,8 @@ root_logger.addHandler(console_handler)
 def _attach_file_handler_to_uvicorn(handler: logging.Handler) -> None:
     """Send uvicorn's own loggers to bambuddy.log as well.
 
-    Both ship with propagate=False, so the root handler never sees them.
+    Neither reaches the root handler: uvicorn.access has propagate=False, and
+    uvicorn.error propagates only to "uvicorn", which has propagate=False.
     uvicorn.access is the record of which endpoint changed server state;
     uvicorn.error is where an unhandled route error is logged with its
     traceback ("Exception in ASGI application").
@@ -399,8 +400,14 @@ if app_settings.log_to_file:
 
 # Query-string tokens out of uvicorn's request and WebSocket lines, on every
 # handler (console included), whether or not file logging is on.
-from backend.app.core.logging_filters import QueryTokenRedactFilter  # noqa: E402
+from backend.app.core.logging_filters import (  # noqa: E402
+    QueryTokenRedactFilter,
+    ShutdownCancelledRequestFilter,
+)
 
+# First, so the traceback of a stream cancelled at shutdown is dropped before
+# the filters below render it.
+logging.getLogger("uvicorn.error").addFilter(ShutdownCancelledRequestFilter())
 for _uvicorn_logger in ("uvicorn.access", "uvicorn.error"):
     logging.getLogger(_uvicorn_logger).addFilter(QueryTokenRedactFilter())
     logging.getLogger(_uvicorn_logger).addFilter(_refused_header_filter)
