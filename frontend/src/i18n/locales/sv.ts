@@ -2949,6 +2949,7 @@ export default {
     externalUrlDescription: 'Den externa URL:en där Bambuddy kan nås. Används för notisbilder och externa integrationer.',
     bambuddyUrl: 'Bambuddy-URL',
     externalUrlHint: 'Inkludera protokoll och port (t.ex. http://192.168.1.100:8000)',
+    adminOnlySetting: 'Endast en administratör kan ändra detta.',
     ftpRetry: 'FTP-omförsök',
     ftpRetryDescription: 'Försök igen med FTP-operationer när skrivarens WiFi är opålitlig. Gäller för 3MF-nedladdningar, utskriftsuppladdningar, timelapse-nedladdningar och firmwareuppdateringar.',
     autoRetryDescription: 'Försök automatiskt igen med misslyckade FTP-operationer',

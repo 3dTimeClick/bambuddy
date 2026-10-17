@@ -451,7 +451,7 @@ async def list_commits(
 async def preview_restore(
     ref: str = Query(default="HEAD", pattern=REF_PATTERN),
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.GITHUB_RESTORE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.GITHUB_RESTORE),
 ):
     """Report which categories a given backup commit contains."""
     result = await db.execute(select(GitHubBackupConfig).limit(1))
@@ -460,7 +460,9 @@ async def preview_restore(
     if not config:
         raise HTTPException(status_code=404, detail="No configuration found. Configure backup first.")
 
-    preview = await github_restore_service.preview(db, config, ref=ref)
+    preview = await github_restore_service.preview(
+        db, config, ref=ref, as_admin=current_user is None or current_user.is_admin
+    )
     return GitHubRestorePreview(**preview)
 
 
@@ -513,6 +515,8 @@ async def restore_backup(
         ref=request.ref,
         categories=request.categories,
         overwrite_existing=request.overwrite_existing,
+        # A non-admin's restore keeps the sign-in and mail settings as they are.
+        as_admin=current_user is None or current_user.is_admin,
     )
     return GitHubRestoreResponse(**restore_result)
 

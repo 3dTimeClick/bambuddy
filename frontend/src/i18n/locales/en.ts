@@ -2952,6 +2952,7 @@ export default {
     externalUrlDescription: 'The external URL where Bambuddy is accessible. Used for notification images and external integrations.',
     bambuddyUrl: 'Bambuddy URL',
     externalUrlHint: 'Include protocol and port (e.g., http://192.168.1.100:8000)',
+    adminOnlySetting: 'Only an administrator can change this.',
     ftpRetry: 'FTP Retry',
     ftpRetryDescription: 'Retry FTP operations when printer WiFi is unreliable. Applies to 3MF downloads, print uploads, timelapse downloads, and firmware updates.',
     autoRetryDescription: 'Automatically retry failed FTP operations',

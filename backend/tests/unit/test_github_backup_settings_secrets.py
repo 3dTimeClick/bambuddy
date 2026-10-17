@@ -143,3 +143,41 @@ async def test_a_retired_setting_in_an_old_backup_is_dropped_quietly(db_session)
 
     assert plan.unknown == ()
     assert "library_archive_mode" not in plan.stored
+
+
+class TestANonAdminRestoreKeepsTheSignInSettings:
+    """Through the settings page only an admin may change these, and only an
+    admin may set the mail server: a GitHub restore by a non-admin holding
+    github:restore and settings:update keeps them as they are here."""
+
+    PAYLOAD = {
+        "session_max_hours": 720,
+        "smtp_username": "relay@example.com",
+        "smtp_from_name": "Bambuddy",
+        "prometheus_enabled": True,
+        "external_url": "https://attacker.example",
+        "currency": "EUR",
+    }
+
+    @pytest.mark.asyncio
+    async def test_a_non_admin_restore_leaves_them(self, db_session):
+        from backend.app.services import github_restore
+
+        token = github_restore._restoring_as_admin.set(False)
+        try:
+            plan = await GitHubRestoreService()._plan_settings(db_session, dict(self.PAYLOAD))
+        finally:
+            github_restore._restoring_as_admin.reset(token)
+
+        assert {"session_max_hours", "smtp_username", "smtp_from_name", "prometheus_enabled", "external_url"} <= set(
+            plan.protected
+        )
+        assert plan.stored == {"currency": "EUR"}
+
+    @pytest.mark.asyncio
+    async def test_an_admin_restore_still_writes_them(self, db_session):
+        plan = await GitHubRestoreService()._plan_settings(db_session, dict(self.PAYLOAD))
+
+        assert "session_max_hours" not in plan.protected
+        assert plan.stored["session_max_hours"] == "720"
+        assert plan.stored["smtp_username"] == "relay@example.com"

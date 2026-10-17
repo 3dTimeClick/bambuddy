@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import (
     RequestPrinterScope,
+    RequireAdminIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     ScopedCaller,
     caller_is_api_key,
@@ -27,7 +28,7 @@ from backend.app.core.permissions import Permission
 from backend.app.core.printer_scope import PrinterScope
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
-from backend.app.schemas.settings import AppSettings, AppSettingsUpdate
+from backend.app.schemas.settings import ADMIN_ONLY_SETTING_KEYS, AppSettings, AppSettingsUpdate
 from backend.app.services import camera_light
 from backend.app.services.secret_fields import SETTINGS_SECRETS, SecretConfigError, mask_fields, merge_partial
 
@@ -337,6 +338,20 @@ async def get_settings(
     return await _build_settings_response(db, is_api_key=_is_api_key)
 
 
+def _as_stored_setting(value: object) -> str:
+    """The text the settings writer below stores for ``value``."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "None"
+    return str(value)
+
+
+def _same_setting_value(new: object, old: object) -> bool:
+    """Whether saving ``new`` stores exactly what ``old`` is stored as."""
+    return _as_stored_setting(new) == _as_stored_setting(old)
+
+
 @router.put("/", response_model=AppSettings)
 async def update_settings(
     settings_update: AppSettingsUpdate,
@@ -368,6 +383,21 @@ async def update_settings(
     )
     if null_keys:
         raise HTTPException(status_code=422, detail=f"These settings cannot be null: {', '.join(null_keys)}")
+
+    # Settings that decide who can sign in are admin-only, like the user routes.
+    # Only a real change counts: the settings page sends every field on each
+    # save, so an unchanged value from a non-admin must pass.
+    if current_user is not None and not current_user.is_admin:
+        changed = sorted(
+            key
+            for key in update_data
+            if key in ADMIN_ONLY_SETTING_KEYS and not _same_setting_value(update_data[key], stored.get(key))
+        )
+        if changed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Only an administrator can change these settings: {', '.join(changed)}",
+            )
 
     # Like an API key's or a provider's printers: a page still open from before
     # a printer delete would save the deleted id, which SQLite gives to the next
@@ -434,13 +464,7 @@ async def update_settings(
 
     for key, value in update_data.items():
         # Convert value to string for storage
-        if isinstance(value, bool):
-            str_value = "true" if value else "false"
-        elif value is None:
-            str_value = "None"
-        else:
-            str_value = str(value)
-        await set_setting(db, key, str_value)
+        await set_setting(db, key, _as_stored_setting(value))
 
     await db.commit()
     # Expire all objects to ensure fresh reads after commit
@@ -530,6 +554,7 @@ async def update_electricity_price(
 @router.post("/reset", response_model=AppSettings)
 async def reset_settings(
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Reset all settings to defaults."""
@@ -1006,6 +1031,7 @@ async def create_backup_zip(output_path: Path | None = None) -> tuple[Path, str]
 @router.get("/backup")
 async def create_backup(
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_BACKUP),
 ):
     """Create a complete backup (database + all files) as a ZIP download."""
@@ -1442,6 +1468,7 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
 async def restore_backup(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_RESTORE),
 ):
     """Restore from a complete backup ZIP.

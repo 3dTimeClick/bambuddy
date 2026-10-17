@@ -1376,6 +1376,7 @@ async def list_all_oidc_providers(
 @router.post("/oidc/providers", response_model=OIDCProviderResponse, status_code=status.HTTP_201_CREATED)
 async def create_oidc_provider(
     body: OIDCProviderCreate,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> OIDCProviderResponse:
@@ -1476,6 +1477,7 @@ async def _missing_group_names(db: AsyncSession, names: set[str]) -> set[str]:
 async def update_oidc_provider(
     provider_id: int,
     body: OIDCProviderUpdate,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> OIDCProviderResponse:
@@ -1575,6 +1577,7 @@ async def update_oidc_provider(
 @router.delete("/oidc/providers/{provider_id}")
 async def delete_oidc_provider(
     provider_id: int,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -1637,6 +1640,7 @@ async def get_oidc_provider_icon(
 @router.delete("/oidc/providers/{provider_id}/icon", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_oidc_provider_icon(
     provider_id: int,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -1666,6 +1670,7 @@ async def delete_oidc_provider_icon(
 @router.post("/oidc/providers/{provider_id}/icon/refresh", response_model=OIDCProviderResponse)
 async def refresh_oidc_provider_icon(
     provider_id: int,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> OIDCProviderResponse:

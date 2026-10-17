@@ -2929,6 +2929,7 @@ export default {
     externalUrlDescription: 'Bambuddyがアクセス可能な外部URL。通知画像や外部連携に使用されます。',
     bambuddyUrl: 'BambuddyのURL',
     externalUrlHint: 'プロトコルとポートを含めてください（例: http://192.168.1.100:8000）',
+    adminOnlySetting: 'これを変更できるのは管理者のみです。',
     ftpRetry: 'FTPリトライ',
     ftpRetryDescription: 'プリンターのWi-Fiが不安定な場合にFTP操作をリトライ。3MFダウンロード、印刷アップロード、タイムラプスダウンロード、ファームウェア更新に適用。',
     autoRetryDescription: '失敗したFTP操作を自動的にリトライ',

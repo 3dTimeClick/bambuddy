@@ -38,6 +38,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import (
+    RequireAdminIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     get_current_user,
     get_password_hash,
@@ -131,6 +132,7 @@ async def list_connected_apps(
 async def create_connected_app(
     data: ConnectedAppCreate,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Register an app. The client secret is in this response and nowhere else."""
@@ -159,6 +161,7 @@ async def update_connected_app(
     app_id: int,
     data: ConnectedAppUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     app = await _get_app_or_404(db, app_id)
@@ -177,6 +180,7 @@ async def update_connected_app(
 async def rotate_connected_app_secret(
     app_id: int,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Replace the client secret. The old one stops working immediately."""
@@ -193,6 +197,7 @@ async def rotate_connected_app_secret(
 async def delete_connected_app(
     app_id: int,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     app = await _get_app_or_404(db, app_id)

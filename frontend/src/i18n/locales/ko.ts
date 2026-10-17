@@ -2788,6 +2788,7 @@ export default {
     externalUrlDescription: 'Bambuddy에 접근할 수 있는 외부 URL. 알림 이미지 및 외부 통합에 사용됩니다.',
     bambuddyUrl: 'Bambuddy URL',
     externalUrlHint: '프로토콜과 포트를 포함하세요 (예: http://192.168.1.100:8000)',
+    adminOnlySetting: '관리자만 변경할 수 있습니다.',
     ftpRetry: 'FTP 재시도',
     ftpRetryDescription: '프린터 WiFi가 불안정할 때 FTP 작업을 재시도합니다.',
     autoRetryDescription: '실패한 FTP 작업 자동 재시도',

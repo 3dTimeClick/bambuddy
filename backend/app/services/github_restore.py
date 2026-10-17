@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field as dataclasses_field
 from datetime import datetime, timezone
 
@@ -57,7 +58,7 @@ from backend.app.models.spool_usage_history import SpoolUsageHistory
 from backend.app.models.user import User
 from backend.app.schemas.auth import SMTPSettings
 from backend.app.schemas.github_backup import RestoreCategory
-from backend.app.schemas.settings import AppSettings, AppSettingsUpdate
+from backend.app.schemas.settings import ADMIN_ONLY_SETTING_KEYS, AppSettings, AppSettingsUpdate
 from backend.app.services.git_providers.factory import get_provider_backend
 from backend.app.services.model_providers.manyfold.config import normalize_url
 from backend.app.services.printer_manager import printer_manager
@@ -141,6 +142,18 @@ _PROTECTED_SETTING_KEYS = {
 # credential is exactly what an attacker authoring this file would do — they own
 # the directory being pointed at, so they need no bind credential from us.
 _PROTECTED_SETTING_PREFIXES = ("ldap_",)
+
+# Restoring as a non-admin: the settings only an admin may change through the
+# settings page (ADMIN_ONLY_SETTING_KEYS) and the mail server's, which only an
+# admin may set (routes/auth.update_smtp_settings), are kept as they are here.
+# A restore is otherwise a way around those checks. Set by preview() and
+# run_restore() for the call; an admin's restore is unchanged.
+_restoring_as_admin: ContextVar[bool] = ContextVar("restoring_as_admin", default=True)
+
+
+def _admin_only_for_restore(key: str) -> bool:
+    return key in ADMIN_ONLY_SETTING_KEYS or key in _EXTRA_RESTORABLE_KEYS
+
 
 # Nozzle diameters the backup collector iterates. A path outside this set means
 # the backup was written by a newer version, so accept it rather than dropping
@@ -655,7 +668,7 @@ class GitHubRestoreService:
             if _is_blocked_setting_key(key):
                 blocked.append(key)
                 continue
-            if _is_protected_setting_key(key):
+            if _is_protected_setting_key(key) or (not _restoring_as_admin.get() and _admin_only_for_restore(key)):
                 protected.append(key)
                 continue
             if _TWO_FACTOR_KEY.match(key):
@@ -807,12 +820,22 @@ class GitHubRestoreService:
             stored=stored,
         )
 
-    async def preview(self, db: AsyncSession, config: GitHubBackupConfig, ref: str = "HEAD") -> dict:
+    async def preview(
+        self, db: AsyncSession, config: GitHubBackupConfig, ref: str = "HEAD", *, as_admin: bool = True
+    ) -> dict:
         """Report which categories a commit contains, and how much is in each.
 
         Takes a session because the settings count depends on local state — see
         ``_plan_settings``. ``ref`` stays keyword-friendly for callers.
+        ``as_admin`` False counts as a non-admin's restore would write.
         """
+        token = _restoring_as_admin.set(as_admin)
+        try:
+            return await self._preview(db, config, ref)
+        finally:
+            _restoring_as_admin.reset(token)
+
+    async def _preview(self, db: AsyncSession, config: GitHubBackupConfig, ref: str) -> dict:
         resolved, error, commit_info = await self._resolve_ref(config, ref)
         if resolved is None:
             return {"success": False, "message": error, "ref": ref, "categories": []}
@@ -1008,8 +1031,27 @@ class GitHubRestoreService:
         ref: str,
         categories: list[RestoreCategory],
         overwrite_existing: bool = False,
+        *,
+        as_admin: bool = True,
     ) -> dict:
-        """Apply selected categories from one backup commit."""
+        """Apply selected categories from one backup commit.
+
+        ``as_admin`` False keeps the admin-only settings as they are here
+        (see ``_restoring_as_admin``).
+        """
+        token = _restoring_as_admin.set(as_admin)
+        try:
+            return await self._run_restore(config_id, ref, categories, overwrite_existing)
+        finally:
+            _restoring_as_admin.reset(token)
+
+    async def _run_restore(
+        self,
+        config_id: int,
+        ref: str,
+        categories: list[RestoreCategory],
+        overwrite_existing: bool,
+    ) -> dict:
         # Import locally to avoid a module-level cycle: the backup service takes
         # the mirror-image lock against us.
         from backend.app.services.github_backup import github_backup_service

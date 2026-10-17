@@ -2933,6 +2933,7 @@ export default {
     externalUrlDescription: 'Bambuddy\'nin erişilebildiği harici URL. Bildirim görüntüleri ve harici entegrasyonlar için kullanılır.',
     bambuddyUrl: 'Bambuddy URL',
     externalUrlHint: 'Protokol ve port dahil edin (örn., http://192.168.1.100:8000)',
+    adminOnlySetting: 'Bunu yalnızca bir yönetici değiştirebilir.',
     ftpRetry: 'FTP Yeniden Dene',
     ftpRetryDescription: 'Yazıcı WiFi güvenilmez olduğunda FTP işlemlerini yeniden dene. 3MF indirmelerine, baskı yüklemelerine, zaman atlamalı video indirmelerine ve firmware güncellemelerine uygulanır.',
     autoRetryDescription: 'Başarısız FTP işlemlerini otomatik olarak yeniden dene',

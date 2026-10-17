@@ -1094,3 +1094,23 @@ class AppSettingsUpdate(BaseModel):
         if not isinstance(order, list) or not all(isinstance(item, str) for item in order):
             raise ValueError("sidebar order must be an array of strings")
         return v
+
+
+# Settings that decide who can sign in or where credential material goes: a
+# directory server that hands out groups, local sign-in, the session length,
+# the address password-reset and welcome links point at, the metrics
+# endpoint's token, and the folder full backups (every password hash) are
+# written to. Admin-only to change (routes/settings.update_settings, and a
+# GitHub restore by a non-admin skips them); the settings permissions keep
+# everything else.
+ADMIN_ONLY_SETTING_KEYS = frozenset(
+    {key for key in AppSettingsUpdate.model_fields if key.startswith("ldap_")}
+    | {
+        "local_login_enabled",
+        "session_max_hours",
+        "external_url",
+        "prometheus_enabled",
+        "prometheus_token",
+        "local_backup_path",
+    }
+)

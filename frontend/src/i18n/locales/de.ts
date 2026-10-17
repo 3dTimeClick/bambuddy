@@ -2930,6 +2930,7 @@ export default {
     externalUrlDescription: 'Die externe URL, unter der Bambuddy erreichbar ist. Wird für Benachrichtigungsbilder und externe Integrationen verwendet.',
     bambuddyUrl: 'Bambuddy-URL',
     externalUrlHint: 'Protokoll und Port angeben (z.B. http://192.168.1.100:8000)',
+    adminOnlySetting: 'Nur ein Administrator kann dies ändern.',
     ftpRetry: 'FTP-Wiederholung',
     ftpRetryDescription: 'FTP-Operationen bei unzuverlässigem Drucker-WLAN wiederholen. Gilt für 3MF-Downloads, Druck-Uploads, Zeitraffer-Downloads und Firmware-Updates.',
     autoRetryDescription: 'Fehlgeschlagene FTP-Operationen automatisch wiederholen',

@@ -146,7 +146,7 @@ export function GitHubBackupSettings() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { t } = useTranslation();
-  const { hasPermission } = useAuth();
+  const { hasPermission, isAdmin } = useAuth();
 
   // All three restore endpoints are gated on GITHUB_RESTORE server-side, so a
   // user without it gets a 403 the moment the modal opens its preview. Hide the
@@ -1105,11 +1105,13 @@ export function GitHubBackupSettings() {
                 <p className="text-sm text-bambu-gray">
                   {t('backup.completeBackupZip')}
                 </p>
+                {/* A full backup holds every password hash and 2FA secret. */}
+                {!isAdmin && <p className="text-xs text-bambu-gray mt-1">{t('settings.adminOnlySetting')}</p>}
               </div>
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={isExporting || isRestoring}
+                disabled={isExporting || isRestoring || !isAdmin}
                 onClick={async () => {
                   setIsExporting(true);
                   setOperationStatus(t('backup.preparingBackup'));
@@ -1165,7 +1167,8 @@ export function GitHubBackupSettings() {
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={isRestoring || isExporting}
+                disabled={isRestoring || isExporting || !isAdmin}
+                title={!isAdmin ? t('settings.adminOnlySetting') : undefined}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="w-4 h-4" />
@@ -1316,8 +1319,11 @@ export function GitHubBackupSettings() {
                     type="text"
                     value={localBackupPath}
                     onChange={(e) => setLocalBackupPath(e.target.value)}
-                    className="w-full h-10 px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                    disabled={!isAdmin}
+                    title={!isAdmin ? t('settings.adminOnlySetting') : undefined}
+                    className="w-full h-10 px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none disabled:opacity-50"
                     onBlur={async () => {
+                      if (!isAdmin) return;
                       try {
                         await api.updateSettings({ local_backup_path: localBackupPath });
                         showToast(t('backup.settingsSaved'));
@@ -1437,6 +1443,8 @@ export function GitHubBackupSettings() {
                             </span>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
+                            {isAdmin && (
+                            <>
                             <button
                               className="text-bambu-gray hover:text-bambu-green p-1"
                               title={t('backup.download')}
@@ -1463,6 +1471,8 @@ export function GitHubBackupSettings() {
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
                             </button>
+                            </>
+                            )}
                             <button
                               className="text-bambu-gray hover:text-red-600 dark:hover:text-red-400 p-1"
                               onClick={() => setDeleteConfirmFile(file.filename)}

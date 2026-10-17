@@ -2921,6 +2921,7 @@ export default {
     externalUrlDescription: 'Bambuddy可存取的外部URL。用於通知影像和外部整合。',
     bambuddyUrl: 'Bambuddy URL',
     externalUrlHint: '包含協定和連接埠（例如：http://192.168.1.100:8000）',
+    adminOnlySetting: '只有管理員可以變更此項。',
     ftpRetry: 'FTP重試',
     ftpRetryDescription: '當印表機Wi-Fi 不穩定時重試FTP操作。適用於3MF下載、列印上傳、縮時攝影下載和韌體更新。',
     autoRetryDescription: '自動重試失敗的FTP操作',

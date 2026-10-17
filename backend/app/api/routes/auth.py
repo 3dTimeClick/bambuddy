@@ -849,6 +849,7 @@ async def logout(
 @router.post("/smtp/test", response_model=TestSMTPResponse)
 async def test_smtp_connection(
     test_request: TestSMTPRequest,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
@@ -894,6 +895,7 @@ async def get_smtp_config(
 @router.post("/smtp", response_model=dict)
 async def save_smtp_config(
     smtp_settings: SMTPSettings,
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1543,6 +1545,7 @@ async def _sync_ldap_user(db: AsyncSession, user: User, ldap_user, ldap_config) 
 
 @router.post("/ldap/test")
 async def test_ldap(
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
