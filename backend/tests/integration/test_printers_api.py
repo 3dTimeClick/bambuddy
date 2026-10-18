@@ -1383,6 +1383,38 @@ class TestAMSLoadUnloadAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    @pytest.mark.parametrize("tray_id", [128, 135])
+    async def test_load_an_ams_ht_slot(self, async_client: AsyncClient, printer_factory, tray_id):
+        """An AMS-HT tray is its unit id; refusing it made Load impossible there."""
+        printer = await printer_factory(name="H2C")
+        client = MagicMock()
+        client.ams_load_filament.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = client
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/ams/load?tray_id={tray_id}")
+
+        assert response.status_code == 200, response.text
+        client.ams_load_filament.assert_called_once_with(tray_id, extruder_id=None)
+        assert response.json()["message"] == f"Loading filament from AMS HT-{'A' if tray_id == 128 else 'H'}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    @pytest.mark.parametrize("tray_id", [127, 136, 512])
+    async def test_load_refuses_ids_next_to_the_ams_ht_range(self, async_client: AsyncClient, printer_factory, tray_id):
+        printer = await printer_factory(name="H2C")
+        client = MagicMock()
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = client
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/ams/load?tray_id={tray_id}")
+
+        assert response.status_code == 400
+        assert "128..135 (AMS-HT)" in response.json()["detail"]
+        client.ams_load_filament.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_load_not_found(self, async_client: AsyncClient):
         response = await async_client.post("/api/v1/printers/99999/ams/load?tray_id=0")
         assert response.status_code == 404

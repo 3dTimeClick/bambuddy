@@ -2949,6 +2949,17 @@ class TestTrayNowDualNozzleH2DSnow(_H2DFixtureMixin):
         h2d_client._process_message(_ams_payload(2))
         assert h2d_client.state.tray_now == 2
 
+    @pytest.mark.parametrize("unit", [128, 129, 131, 135])
+    def test_a_load_from_an_ams_ht_resolves_to_that_unit(self, h2d_client, unit):
+        """An AMS-HT reports its one tray as tray_now '0'; slot 0 is what the
+        pending load expects, not unit % 4 (which put 129 on AMS 0 slot 1)."""
+        h2d_client.state.pending_tray_target = unit
+
+        h2d_client._process_message(_ams_payload(0))
+
+        assert h2d_client.state.tray_now == unit
+        assert h2d_client.state.pending_tray_target is None
+
     def test_snow_disambiguates_ams_ht_to_128(self, h2d_client):
         """snow ext[1]=AMS HT (128), left active, tray_now='0' → global 128."""
         # Snow: extruder 1 → AMS 128 slot 0

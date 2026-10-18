@@ -4641,19 +4641,26 @@ async def _apply_pa_after_refresh(printer_id: int, ams_id: int, slot_id: int):
 
 
 # 24-27 are the A2L AMS-Lite slots (normalised unit 6 = 6*4+slot); see
-# a2l-am-unit-16. They are valid global tray ids alongside the regular 0-15.
-_LOAD_TRAY_ID_ERROR = "tray_id must be 0..15 (AMS slot), 24..27 (A2L AMS-Lite), 254 (external / Ext-L), or 255 (Ext-R)"
+# a2l-am-unit-16. An AMS-HT holds one tray, numbered by its unit id 128-135, as
+# the printer's tray_now reports it. All are valid alongside the regular 0-15.
+_LOAD_TRAY_ID_ERROR = (
+    "tray_id must be 0..15 (AMS slot), 24..27 (A2L AMS-Lite), 128..135 (AMS-HT), 254 (external / Ext-L), or 255 (Ext-R)"
+)
 
 
 def _is_valid_load_tray_id(tray_id: int) -> bool:
     """Whether ``tray_id`` names a slot the load/unload commands can address."""
-    return tray_id in range(16) or tray_id in range(24, 28) or tray_id in (254, 255)
+    return tray_id in range(16) or tray_id in range(24, 28) or tray_id in range(128, 136) or tray_id in (254, 255)
 
 
 @router.post("/{printer_id}/ams/load")
 async def ams_load(
     printer_id: int,
-    tray_id: int = Query(..., description="Tray ID: 0-15 for AMS slots (ams_id*4+slot_id), 254 for external spool"),
+    tray_id: int = Query(
+        ...,
+        description="Tray ID: 0-15 for AMS slots (ams_id*4+slot_id), 128-135 for an AMS-HT (its unit id), "
+        "254 for external spool",
+    ),
     extruder_id: int | None = Query(
         None,
         ge=0,
@@ -4673,6 +4680,7 @@ async def ams_load(
 
     Tray ID encoding (matches Bambu firmware convention):
     - 0..15: AMS slot, computed as ams_id * 4 + slot_id
+    - 128..135: AMS-HT, the unit id (one tray per unit)
     - 254: external spool (single-external printers, or Ext-L on dual-nozzle H2D)
     - 255: Ext-R on dual-nozzle H2D
     """
@@ -4696,6 +4704,8 @@ async def ams_load(
         target = "external spool"
     elif tray_id == 255:
         target = "Ext-R"
+    elif tray_id >= 128:
+        target = f"AMS HT-{chr(ord('A') + tray_id - 128)}"
     else:
         target = f"AMS {tray_id // 4} slot {tray_id % 4 + 1}"
     return {"success": True, "message": f"Loading filament from {target}"}

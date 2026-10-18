@@ -5319,7 +5319,8 @@ export const api = {
       { method: 'POST' }
     ),
 
-  // Load filament from a tray. trayId: 0-15 for AMS (amsId*4+slotId), 254 for external spool.
+  // Load filament from a tray. trayId: 0-15 for AMS (amsId*4+slotId), 128-135 for an
+  // AMS-HT (its unit id), 254 for external spool.
   // extruderId (0 = right, 1 = left) names the hotend to feed. Pass it only on a
   // printer with a Filament Track Switch — there the AMS is bound to a switch
   // inlet rather than a hotend, so the firmware cannot work the target out and

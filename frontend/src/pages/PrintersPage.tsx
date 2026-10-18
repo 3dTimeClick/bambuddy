@@ -3241,12 +3241,9 @@ function PrinterCard({
     // outright (254 = Ext-L, 255 = Ext-R). A switch cannot be fitted alongside
     // it anyway — Bambu's own guidance is to remove the switch to print from an
     // external spool, because it would occupy an extruder channel permanently.
-    //
-    // An AMS-HT slot skips the question for a blunter reason: the id this menu
-    // carries does not address an HT unit, so the load is refused whatever the
-    // answer. Asking first would only put a dialog in front of the same error.
+    // An AMS-HT behind the switch is asked like any AMS, as BambuStudio does.
     const isExternal = amsId === 255;
-    if (!ftsNeedsFeedDirection || isExternal || amsId >= 128) {
+    if (!ftsNeedsFeedDirection || isExternal) {
       loadAmsTrayMutation.mutate({ trayId });
       return;
     }
@@ -3655,13 +3652,6 @@ function PrinterCard({
     includeRfid?: boolean;
   }) => {
     const printerBusy = status?.state === 'RUNNING';
-    // An AMS-HT unit is addressed by its unit id alone (128-135), not by
-    // ams*4+slot, so the id this menu carries does not name it to the load and
-    // unload endpoints — they reject it. Sending no slot falls back to the
-    // printer-wide unload, which is what this menu did for every slot before
-    // the per-slot form existed. Load has never worked on an HT slot for the
-    // same addressing reason; fixing that is a separate change.
-    const unloadTrayId = amsId >= 128 && amsId !== 255 ? undefined : loadTrayId;
 
     return (
       <>
@@ -3710,7 +3700,7 @@ function PrinterCard({
           onClick={(e) => {
             e.stopPropagation();
             if (printerBusy || !hasPermission('printers:control')) return;
-            unloadAmsMutation.mutate({ trayId: unloadTrayId });
+            unloadAmsMutation.mutate({ trayId: loadTrayId });
           }}
           disabled={printerBusy || !hasPermission('printers:control')}
           title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:control') ? t('printers.permission.noControl') : undefined}
@@ -6117,7 +6107,8 @@ function PrinterCard({
                                     actions={renderAmsSlotActions({
                                       amsId: ams.id,
                                       slotId: htSlotId,
-                                      loadTrayId: ams.id * 4 + htSlotId,
+                                      // An AMS-HT holds one tray, numbered by its unit id (as tray_now).
+                                      loadTrayId: ams.id,
                                       isRefreshing: isHtRefreshing,
                                     })}
                                     spoolman={{
@@ -6233,7 +6224,8 @@ function PrinterCard({
                                     actions={renderAmsSlotActions({
                                       amsId: ams.id,
                                       slotId: htSlotId,
-                                      loadTrayId: ams.id * 4 + htSlotId,
+                                      // An AMS-HT holds one tray, numbered by its unit id (as tray_now).
+                                      loadTrayId: ams.id,
                                       isRefreshing: isHtRefreshing,
                                     })}
                                     configureSlot={{
