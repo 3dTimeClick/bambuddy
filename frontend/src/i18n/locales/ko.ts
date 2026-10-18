@@ -5463,6 +5463,8 @@ export default {
         noData: '이 백업에는 이런 종류의 데이터가 없습니다',
         archivesPrinterMissing: '일부 아카이브가 더 이상 존재하지 않는 프린터를 참조했습니다 - 연결을 해제했습니다',
         archivesProjectMissing: '일부 아카이브가 더 이상 존재하지 않는 프로젝트를 참조했습니다 - 연결을 해제했습니다',
+        archivesNumbersDropped: '일부 아카이브의 그램, 비용, 에너지 또는 출력 시간이 유효한 숫자가 아닙니다 - 비워 두었습니다',
+        usageNumbersDropped: '일부 사용 기록의 무게 또는 비용이 유효한 숫자가 아닙니다 - 비워 두었습니다',
         archivesOwnerCleared: '일부 아카이브가 더 이상 존재하지 않는 사용자를 참조했습니다 - 소유자를 비웠으므로 관리자가 다시 지정하기 전까지 archives:read_all 권한이 있는 사용자에게만 보입니다',
         archivesOwnerUnmatched: '일부 아카이브가 이 인스턴스에 없는 소유자를 가리킵니다 - 백업의 사용자 ID로 추측하지 않고 소유자를 비웠으므로 관리자가 다시 지정하기 전까지 archives:read_all 권한이 있는 사용자에게만 보입니다',
         archivesOwnerUnknown: '일부 아카이브가 소유자 없이 복원되었습니다 - 이 백업에 소유자가 기록되어 있지 않으므로 관리자가 지정하기 전까지 archives:read_all 권한이 있는 사용자에게만 보입니다',

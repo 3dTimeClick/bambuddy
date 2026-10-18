@@ -5750,6 +5750,8 @@ export default {
         noData: 'Geen gegevens van dit type in deze back-up',
         archivesPrinterMissing: 'Sommige archieven verwezen naar printers die niet meer bestaan - koppeling gewist',
         archivesProjectMissing: 'Sommige archieven verwezen naar projecten die niet meer bestaan - koppeling gewist',
+        archivesNumbersDropped: 'Sommige archieven hadden grammen, kosten, energie of printtijden die geen geldige getallen zijn - leeg gelaten',
+        usageNumbersDropped: 'Sommige verbruiksregels hadden gewichten of kosten die geen geldige getallen zijn - leeg gelaten',
         archivesOwnerCleared: 'Sommige archieven verwezen naar gebruikers die niet meer bestaan - eigenaar gewist, waardoor ze alleen zichtbaar zijn voor gebruikers met de machtiging archives:read_all totdat een beheerder ze opnieuw toewijst',
         archivesOwnerUnmatched: 'Sommige archieven noemen een eigenaar die deze instantie niet heeft - eigenaar gewist in plaats van te gokken op basis van het gebruikers-ID uit de back-up, waardoor ze alleen zichtbaar zijn voor gebruikers met de machtiging archives:read_all totdat een beheerder ze opnieuw toewijst',
         archivesOwnerUnknown: 'Sommige archieven zijn zonder eigenaar hersteld - deze back-up registreert er geen, waardoor ze alleen zichtbaar zijn voor gebruikers met de machtiging archives:read_all totdat een beheerder ze opnieuw toewijst',

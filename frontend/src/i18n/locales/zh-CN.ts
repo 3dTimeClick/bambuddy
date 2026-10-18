@@ -5686,6 +5686,8 @@ export default {
         noData: '此备份中没有这类数据',
         archivesPrinterMissing: '部分归档引用了已不存在的打印机 - 已清除关联',
         archivesProjectMissing: '部分归档引用了已不存在的项目 - 已清除关联',
+        archivesNumbersDropped: '部分归档的克数、成本、能耗或打印时间不是有效数字 - 已留空',
+        usageNumbersDropped: '部分用量记录的重量或成本不是有效数字 - 已留空',
         archivesOwnerCleared: '部分归档引用了已不存在的用户 - 已清除归属，因此在管理员重新指派之前，只有拥有 archives:read_all 权限的用户才能看到它们',
         archivesOwnerUnmatched: '部分归档指向本实例没有的用户 - 已清除归属，而不是根据备份中的用户 ID 猜测，因此在管理员重新指派之前，只有拥有 archives:read_all 权限的用户才能看到它们',
         archivesOwnerUnknown: '部分归档在恢复时没有归属 - 此备份未记录归属，因此在管理员指派之前，只有拥有 archives:read_all 权限的用户才能看到它们',

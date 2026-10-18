@@ -5700,6 +5700,8 @@ export default {
         noData: 'この種類のデータはこのバックアップに含まれていません',
         archivesPrinterMissing: '一部のアーカイブが存在しないプリンターを参照していました - リンクを解除しました',
         archivesProjectMissing: '一部のアーカイブが存在しないプロジェクトを参照していました - リンクを解除しました',
+        archivesNumbersDropped: '一部のアーカイブのグラム・コスト・電力・印刷時間が有効な数値ではありません - 空欄にしました',
+        usageNumbersDropped: '一部の使用履歴の重量またはコストが有効な数値ではありません - 空欄にしました',
         archivesOwnerCleared: '一部のアーカイブが存在しないユーザーを参照していました - 所有者を解除したため、管理者が割り当て直すまで archives:read_all 権限を持つユーザーにしか表示されません',
         archivesOwnerUnmatched: '一部のアーカイブはこのインスタンスに存在しない所有者を指しています - バックアップのユーザー ID から推測せずに所有者を解除したため、管理者が割り当て直すまで archives:read_all 権限を持つユーザーにしか表示されません',
         archivesOwnerUnknown: '一部のアーカイブは所有者なしで復元されました - このバックアップに所有者が記録されていないため、管理者が割り当てるまで archives:read_all 権限を持つユーザーにしか表示されません',

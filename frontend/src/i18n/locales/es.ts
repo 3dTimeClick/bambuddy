@@ -5707,6 +5707,8 @@ export default {
         noData: 'No hay datos de este tipo en esta copia de seguridad',
         archivesPrinterMissing: 'Algunos archivos hacían referencia a impresoras que ya no existen - enlace eliminado',
         archivesProjectMissing: 'Algunos archivos hacían referencia a proyectos que ya no existen - enlace eliminado',
+        archivesNumbersDropped: 'Algunos archivos tenían gramos, costes, energía o tiempos de impresión que no son números válidos - se dejaron vacíos',
+        usageNumbersDropped: 'Algunas entradas de uso tenían pesos o costes que no son números válidos - se dejaron vacíos',
         archivesOwnerCleared: 'Algunos archivos hacían referencia a usuarios que ya no existen - se ha borrado el propietario, por lo que solo son visibles para usuarios con el permiso archives:read_all hasta que un administrador los reasigne',
         archivesOwnerUnmatched: 'Algunos archivos indican un propietario que no existe en esta instancia - se ha borrado el propietario en lugar de deducirlo del id de usuario de la copia de seguridad, por lo que solo son visibles para usuarios con el permiso archives:read_all hasta que un administrador los reasigne',
         archivesOwnerUnknown: 'Algunos archivos se restauraron sin propietario - esta copia de seguridad no registra ninguno, por lo que solo son visibles para usuarios con el permiso archives:read_all hasta que un administrador los reasigne',

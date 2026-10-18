@@ -2424,6 +2424,20 @@ class PrintScheduler:
                                 printer_id,
                             )
                             item.ams_mapping = None
+                        # On a nozzle-rack printer its own nozzle mapping likewise
+                        # (set through the API or an order's plate spec): it names
+                        # rack positions, and the dispatch sends a stored one as-is
+                        # instead of resolving this printer's rack. Elsewhere it
+                        # holds extruder indices, the same on every printer of the
+                        # model (an H2D VP keeps the slicer's for that reason), and
+                        # one that came with the chosen variant belongs to that
+                        # variant's file: both stay.
+                        if (
+                            (chosen is None or chosen.variant is None)
+                            and printer is not None
+                            and is_nozzle_rack_model(printer.model)
+                        ):
+                            item.nozzle_mapping = None
 
                         # Resolve the AMS mapping for the assigned printer. It is
                         # always missing here, so this computes it, and it also

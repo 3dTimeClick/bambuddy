@@ -875,6 +875,26 @@ def _is_bambuddy_authorized_print_in_memory(printer_id: int, state: PrinterState
     )
 
 
+def _bind_active_print(
+    printer_id: int,
+    archive_id: int,
+    archive_filename: str | None,
+    filename: str | None = None,
+    subtask_name: str | None = None,
+) -> None:
+    """Track a running print under every name its completion may report.
+
+    One set for every path that binds a print (new archive, expected print,
+    restart resume, fallback): the archive's file name, the name the printer
+    reported, and the subtask with and without ``.3mf``. Paths that registered
+    fewer names lost the bound archive at completion, and with it the plate
+    restore's height (#3240), whenever MQTT reported a name they had left out.
+    """
+    for name in {archive_filename, filename, f"{subtask_name}.3mf" if subtask_name else None, subtask_name}:
+        if name:
+            _active_prints[(printer_id, name)] = archive_id
+
+
 def _mark_owned_if_dispatched(archive) -> None:
     """Remember a running print's archive as Bambuddy's when it carries a
     dispatch marker Bambuddy writes itself: ``billing_run_id`` (minted per
@@ -4766,9 +4786,10 @@ async def on_print_start(printer_id: int, data: dict):
                 # was deleted once it attached (#3275). That one is left in the
                 # archive directory, which goes with the archive. A video whose
                 # plate is not on record (attached by hand, or before the
-                # column existed) is kept too: nothing tells it apart from
-                # another plate's, and keeping costs one file where deleting
-                # can cost the only copy.
+                # column existed) is kept too where the 3MF has other plates,
+                # or cannot be read: nothing tells it apart from another plate's,
+                # and keeping costs one file where deleting can cost the only
+                # copy. On an archive with exactly one plate it is that plate's.
                 archive.timelapse_baseline = None
                 stale_timelapse_relpath = archive.timelapse_path
                 stale_timelapse_plate_id = archive.timelapse_plate_id
@@ -4776,7 +4797,16 @@ async def on_print_start(printer_id: int, data: dict):
                 if stale_timelapse_relpath:
                     archive.timelapse_path = None
                     archive.timelapse_plate_id = None
-                if stale_timelapse_relpath and stale_timelapse_plate_id != starting_plate_id:
+                stale_is_this_plates = stale_timelapse_plate_id == starting_plate_id
+                if stale_timelapse_relpath and stale_timelapse_plate_id is None and archive.file_path:
+                    from backend.app.services.archive import plate_indexes_in_3mf
+
+                    plates = await asyncio.to_thread(
+                        plate_indexes_in_3mf,
+                        app_settings.base_dir / archive.file_path,  # SEC-PATH-OK: stored relative archive path
+                    )
+                    stale_is_this_plates = len(plates) == 1
+                if stale_timelapse_relpath and not stale_is_this_plates:
                     logger.info(
                         "Kept timelapse %s of plate %s on archive %s: plate %s is starting",
                         stale_timelapse_relpath,
@@ -4785,7 +4815,7 @@ async def on_print_start(printer_id: int, data: dict):
                         starting_plate_id,
                     )
                 # The video is deleted once the adoption stands (below).
-                delete_stale_video = bool(stale_timelapse_relpath) and stale_timelapse_plate_id == starting_plate_id
+                delete_stale_video = bool(stale_timelapse_relpath) and stale_is_this_plates
                 # Persist a restart-stable id so a later restart resumes this
                 # archive by subtask_id instead of name-matching + duplicating
                 # it (#1485). The printer often hasn't echoed subtask_id back
@@ -4879,9 +4909,7 @@ async def on_print_start(printer_id: int, data: dict):
                         )
 
                 # Track as active print
-                _active_prints[(printer_id, archive.filename)] = archive.id
-                if subtask_name:
-                    _active_prints[(printer_id, f"{subtask_name}.3mf")] = archive.id
+                _bind_active_print(printer_id, archive.id, archive.filename, filename, subtask_name)
 
                 # Start timelapse session if external camera is enabled (#1353).
                 # Queue / VP-dispatched prints land here in the expected-archive
@@ -5042,7 +5070,7 @@ async def on_print_start(printer_id: int, data: dict):
 
             if subtask_match:
                 logger.info("Resuming archive %s on subtask_id match (%s)", existing_archive.id, subtask_id)
-                _active_prints[(printer_id, existing_archive.filename)] = existing_archive.id
+                _bind_active_print(printer_id, existing_archive.id, existing_archive.filename, filename, subtask_name)
                 _mark_owned_if_dispatched(existing_archive)
                 if existing_archive.energy_start_kwh is None:
                     await _record_energy_start(existing_archive, printer_id, db, context="subtask-resume")
@@ -5126,7 +5154,7 @@ async def on_print_start(printer_id: int, data: dict):
                     f"Skipping duplicate - already have printing archive {existing_archive.id} for {check_name}"
                 )
                 # Track this as the active print
-                _active_prints[(printer_id, existing_archive.filename)] = existing_archive.id
+                _bind_active_print(printer_id, existing_archive.id, existing_archive.filename, filename, subtask_name)
                 _mark_owned_if_dispatched(existing_archive)
                 # Attach subtask_id retroactively so future restarts can resume.
                 # Compare for inequality (not "is empty") to also pick up reprint
@@ -5717,12 +5745,7 @@ async def on_print_start(printer_id: int, data: dict):
                 _maybe_start_layer_timelapse(printer, printer_id, fallback_archive.id)
 
                 # Track as active print
-                _active_prints[(printer_id, fallback_archive.filename)] = fallback_archive.id
-                if filename:
-                    _active_prints[(printer_id, filename)] = fallback_archive.id
-                if subtask_name:
-                    _active_prints[(printer_id, f"{subtask_name}.3mf")] = fallback_archive.id
-                    _active_prints[(printer_id, subtask_name)] = fallback_archive.id
+                _bind_active_print(printer_id, fallback_archive.id, fallback_archive.filename, filename, subtask_name)
 
                 # Record starting energy if smart plug available (#941: persisted column)
                 await _record_energy_start(fallback_archive, printer_id, db, context="fallback")
@@ -5867,11 +5890,7 @@ async def on_print_start(printer_id: int, data: dict):
                     return
 
                 # Track this active print (use both original filename and downloaded filename)
-                _active_prints[(printer_id, downloaded_filename)] = archive.id
-                if filename and filename != downloaded_filename:
-                    _active_prints[(printer_id, filename)] = archive.id
-                if subtask_name:
-                    _active_prints[(printer_id, f"{subtask_name}.3mf")] = archive.id
+                _bind_active_print(printer_id, archive_id, downloaded_filename, filename, subtask_name)
 
                 logger.info("Created archive %s for %s", archive.id, downloaded_filename)
 

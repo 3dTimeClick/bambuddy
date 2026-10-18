@@ -5686,6 +5686,8 @@ export default {
         noData: '此備份中沒有這類資料',
         archivesPrinterMissing: '部分封存參照了已不存在的印表機 - 已清除連結',
         archivesProjectMissing: '部分封存參照了已不存在的專案 - 已清除連結',
+        archivesNumbersDropped: '部分封存的克數、成本、能耗或列印時間不是有效數字 - 已留空',
+        usageNumbersDropped: '部分用量紀錄的重量或成本不是有效數字 - 已留空',
         archivesOwnerCleared: '部分封存參照了已不存在的使用者 - 已清除擁有者，因此在管理員重新指派之前，只有具備 archives:read_all 權限的使用者才看得到',
         archivesOwnerUnmatched: '部分封存指向本執行個體沒有的使用者 - 已清除擁有者，而非依備份中的使用者 ID 推測，因此在管理員重新指派之前，只有具備 archives:read_all 權限的使用者才看得到',
         archivesOwnerUnknown: '部分封存還原時沒有擁有者 - 此備份未記錄擁有者，因此在管理員指派之前，只有具備 archives:read_all 權限的使用者才看得到',

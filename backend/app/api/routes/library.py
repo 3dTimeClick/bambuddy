@@ -76,7 +76,7 @@ from backend.app.schemas.library import (
     ZipExtractResult,
 )
 from backend.app.schemas.slicer import SliceRequest, SliceResponse
-from backend.app.services.archive import ThreeMFParser
+from backend.app.services.archive import ThreeMFParser, estimate_filament_cost
 from backend.app.services.design_settings import (
     DesignOverride,
     apply_design_overrides,
@@ -5167,9 +5167,13 @@ async def slice_and_persist_as_archive(
         bed_type=parsed_metadata.get("bed_type") or source_archive.bed_type,
         makerworld_url=source_archive.makerworld_url,
         designer=source_archive.designer,
-        # Sliced-but-not-printed: keep status default ("completed") so it
-        # surfaces in the normal archives list, but do not stamp
-        # started/completed_at — the user hasn't actually printed it yet.
+        # Sliced, not printed: "archived", as archive_print files an unprinted
+        # 3MF. It is listed under "Not printed" and is not counted as a
+        # completed print; no started/completed_at either.
+        status="archived",
+        # Priced like any archive with grams, for the card's estimate.
+        # Statistics read the print log, so nothing is counted that did not print.
+        cost=await estimate_filament_cost(db, filament_g or None, new_filament_type),
         extra_data=metadata,
         created_by_id=current_user_id,
     )

@@ -5752,6 +5752,8 @@ export default {
         noData: 'No data of this kind in this backup',
         archivesPrinterMissing: 'Some archives referenced printers that no longer exist - link cleared',
         archivesProjectMissing: 'Some archives referenced projects that no longer exist - link cleared',
+        archivesNumbersDropped: 'Some archives had grams, costs, energy or print times that are not valid numbers - left empty',
+        usageNumbersDropped: 'Some usage entries had weights or costs that are not valid numbers - left empty',
         archivesOwnerCleared: 'Some archives referenced users that no longer exist - owner cleared, so they are visible only to users with the archives:read_all permission until an admin reassigns them',
         archivesOwnerUnmatched: 'Some archives name an owner this instance does not have - owner cleared rather than guessed from the backup\'s user id, so they are visible only to users with the archives:read_all permission until an admin reassigns them',
         archivesOwnerUnknown: 'Some archives were restored without an owner - this backup does not record one, so they are visible only to users with the archives:read_all permission until an admin reassigns them',

@@ -5686,6 +5686,8 @@ export default {
         noData: 'Nessun dato di questo tipo in questo backup',
         archivesPrinterMissing: 'Alcuni archivi facevano riferimento a stampanti non più esistenti - collegamento rimosso',
         archivesProjectMissing: 'Alcuni archivi facevano riferimento a progetti non più esistenti - collegamento rimosso',
+        archivesNumbersDropped: 'Alcuni archivi avevano grammi, costi, energia o tempi di stampa non validi come numeri - lasciati vuoti',
+        usageNumbersDropped: 'Alcune voci di utilizzo avevano pesi o costi non validi come numeri - lasciati vuoti',
         archivesOwnerCleared: 'Alcuni archivi facevano riferimento a utenti non più esistenti - proprietario rimosso, quindi sono visibili solo agli utenti con il permesso archives:read_all finché un amministratore non li riassegna',
         archivesOwnerUnmatched: 'Alcuni archivi indicano un proprietario che questa istanza non ha - il proprietario è stato rimosso anziché dedotto dall\'id utente del backup, quindi sono visibili solo agli utenti con il permesso archives:read_all finché un amministratore non li riassegna',
         archivesOwnerUnknown: 'Alcuni archivi sono stati ripristinati senza proprietario - questo backup non ne registra alcuno, quindi sono visibili solo agli utenti con il permesso archives:read_all finché un amministratore non li riassegna',

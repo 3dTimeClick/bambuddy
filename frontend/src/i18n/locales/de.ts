@@ -5700,6 +5700,8 @@ export default {
         noData: 'Keine Daten dieser Art in diesem Backup',
         archivesPrinterMissing: 'Einige Archive verwiesen auf nicht mehr vorhandene Drucker - Verknüpfung entfernt',
         archivesProjectMissing: 'Einige Archive verwiesen auf nicht mehr vorhandene Projekte - Verknüpfung entfernt',
+        archivesNumbersDropped: 'Einige Archive enthielten Gramm-, Kosten-, Energie- oder Druckzeitwerte, die keine gültigen Zahlen sind - leer gelassen',
+        usageNumbersDropped: 'Einige Verbrauchseinträge enthielten Gewichte oder Kosten, die keine gültigen Zahlen sind - leer gelassen',
         archivesOwnerCleared: 'Einige Archive verwiesen auf nicht mehr vorhandene Benutzer - Eigentümer entfernt. Sie sind daher nur für Benutzer mit der Berechtigung archives:read_all sichtbar, bis ein Administrator sie neu zuweist',
         archivesOwnerUnmatched: 'Einige Archive nennen einen Eigentümer, den es auf dieser Instanz nicht gibt - der Eigentümer wurde entfernt statt aus der Benutzer-ID der Sicherung geraten. Sie sind daher nur für Benutzer mit der Berechtigung archives:read_all sichtbar, bis ein Administrator sie neu zuweist',
         archivesOwnerUnknown: 'Einige Archive wurden ohne Eigentümer wiederhergestellt - diese Sicherung enthält keinen, daher sind sie nur für Benutzer mit der Berechtigung archives:read_all sichtbar, bis ein Administrator sie neu zuweist',

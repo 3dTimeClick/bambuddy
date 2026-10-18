@@ -5748,6 +5748,8 @@ errors: {
         noData: 'Ingen data av denna typ i denna säkerhetskopia',
         archivesPrinterMissing: 'Vissa arkiv refererade till skrivare som inte längre finns — länk rensad',
         archivesProjectMissing: 'Vissa arkiv refererade till projekt som inte längre finns — länk rensad',
+        archivesNumbersDropped: 'Vissa arkiv hade gram, kostnader, energi eller utskriftstider som inte är giltiga tal - lämnades tomma',
+        usageNumbersDropped: 'Vissa förbrukningsposter hade vikter eller kostnader som inte är giltiga tal - lämnades tomma',
         archivesOwnerCleared: 'Vissa arkiv refererade till användare som inte längre finns — ägare rensad, så de är synliga endast för användare med behörigheten archives:read_all tills en admin tilldelar dem på nytt',
         archivesOwnerUnmatched: 'Vissa arkiv namnger en ägare som denna instans inte har — ägare rensad snarare än gissad från säkerhetskopians användar-ID, så de är synliga endast för användare med behörigheten archives:read_all tills en admin tilldelar dem på nytt',
         archivesOwnerUnknown: 'Vissa arkiv återställdes utan en ägare — denna säkerhetskopia registrerar ingen, så de är synliga endast för användare med behörigheten archives:read_all tills en admin tilldelar dem på nytt',

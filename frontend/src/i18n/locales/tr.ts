@@ -5676,6 +5676,8 @@ export default {
         noData: 'Bu yedekte bu türde veri yok',
         archivesPrinterMissing: 'Bazı arşivler artık var olmayan yazıcılara işaret ediyordu - bağlantı temizlendi',
         archivesProjectMissing: 'Bazı arşivler artık var olmayan projelere işaret ediyordu - bağlantı temizlendi',
+        archivesNumbersDropped: 'Bazı arşivlerde gram, maliyet, enerji veya baskı süresi geçerli bir sayı değil - boş bırakıldı',
+        usageNumbersDropped: 'Bazı kullanım kayıtlarında ağırlık veya maliyet geçerli bir sayı değil - boş bırakıldı',
         archivesOwnerCleared: 'Bazı arşivler artık var olmayan kullanıcılara işaret ediyordu - sahip temizlendi, bu yüzden bir yönetici yeniden atayana kadar yalnızca archives:read_all iznine sahip kullanıcılara görünürler',
         archivesOwnerUnmatched: 'Bazı arşivler bu örnekte bulunmayan bir sahibi belirtiyor - sahip, yedekteki kullanıcı kimliğinden tahmin edilmek yerine temizlendi, bu yüzden bir yönetici yeniden atayana kadar yalnızca archives:read_all iznine sahip kullanıcılara görünürler',
         archivesOwnerUnknown: 'Bazı arşivler sahipsiz geri yüklendi - bu yedek sahip bilgisi içermiyor, bu yüzden bir yönetici atama yapana kadar yalnızca archives:read_all iznine sahip kullanıcılara görünürler',

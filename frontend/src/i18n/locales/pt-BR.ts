@@ -5686,6 +5686,8 @@ export default {
         noData: 'Não há dados desse tipo neste backup',
         archivesPrinterMissing: 'Alguns arquivos referenciavam impressoras que não existem mais - vínculo removido',
         archivesProjectMissing: 'Alguns arquivos referenciavam projetos que não existem mais - vínculo removido',
+        archivesNumbersDropped: 'Alguns arquivos tinham gramas, custos, energia ou tempos de impressão que não são números válidos - deixados vazios',
+        usageNumbersDropped: 'Algumas entradas de uso tinham pesos ou custos que não são números válidos - deixados vazios',
         archivesOwnerCleared: 'Alguns arquivos referenciavam usuários que não existem mais - o proprietário foi limpo, então eles só ficam visíveis para usuários com a permissão archives:read_all até que um administrador os reatribua',
         archivesOwnerUnmatched: 'Alguns arquivos apontam para um proprietário que esta instância não tem - o proprietário foi limpo em vez de deduzido do id de usuário da cópia, então eles só ficam visíveis para usuários com a permissão archives:read_all até que um administrador os reatribua',
         archivesOwnerUnknown: 'Alguns arquivos foram restaurados sem proprietário - este backup não registra nenhum, então eles só ficam visíveis para usuários com a permissão archives:read_all até que um administrador os atribua',

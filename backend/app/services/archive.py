@@ -210,6 +210,24 @@ def read_3dmodel_without_meshes(zf: zipfile.ZipFile, model_path: str = "3D/3dmod
 _GCODE_SCAN_BYTES = 64 * 1024
 
 
+async def estimate_filament_cost(db: AsyncSession, grams: float | None, filament_type: str | None) -> float | None:
+    """An archive's filament cost from its grams and type: the first type's
+    cost per kg on record, else the default filament cost (25 when unset).
+    ``None`` without grams or a type."""
+    if not grams or not filament_type:
+        return None
+    # For multi-material prints, the first filament type prices the whole print
+    primary_type = filament_type.split(",")[0].strip()
+    filament = (await db.execute(select(Filament).where(Filament.type == primary_type).limit(1))).scalar_one_or_none()
+    if filament:
+        return round((grams / 1000) * filament.cost_per_kg, 2)
+    from backend.app.api.routes.settings import get_setting
+
+    default_cost_setting = await get_setting(db, "default_filament_cost")
+    default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
+    return round((grams / 1000) * default_cost_per_kg, 2)
+
+
 class ThreeMFParser:
     """Parser for Bambu Lab 3MF files."""
 
@@ -1448,25 +1466,7 @@ class ArchiveService:
         started_at = datetime.now(timezone.utc) if status == "printing" else None
         completed_at = datetime.now(timezone.utc) if status in ("completed", "failed", "archived") else None
 
-        # Calculate cost based on filament usage and type
-        cost = None
-        filament_grams = metadata.get("filament_used_grams")
-        filament_type = metadata.get("filament_type")
-        if filament_grams and filament_type:
-            # For multi-material prints, use the first filament type for cost calculation
-            primary_type = filament_type.split(",")[0].strip()
-            # Look up filament cost_per_kg from database
-            filament_result = await self.db.execute(select(Filament).where(Filament.type == primary_type).limit(1))
-            filament = filament_result.scalar_one_or_none()
-            if filament:
-                cost = round((filament_grams / 1000) * filament.cost_per_kg, 2)
-            else:
-                # Use default filament cost from settings
-                from backend.app.api.routes.settings import get_setting
-
-                default_cost_setting = await get_setting(self.db, "default_filament_cost")
-                default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
-                cost = round((filament_grams / 1000) * default_cost_per_kg, 2)
+        cost = await estimate_filament_cost(self.db, metadata.get("filament_used_grams"), metadata.get("filament_type"))
 
         # Calculate quantity from printable objects count
         # printable_objects is a dict of {identify_id: name} for non-skipped objects

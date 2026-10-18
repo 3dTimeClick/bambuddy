@@ -5687,6 +5687,8 @@ export default {
         noData: 'Aucune donnée de ce type dans cette sauvegarde',
         archivesPrinterMissing: 'Certaines archives référençaient des imprimantes qui n\'existent plus - lien effacé',
         archivesProjectMissing: 'Certaines archives référençaient des projets qui n\'existent plus - lien effacé',
+        archivesNumbersDropped: 'Certaines archives contenaient des grammes, coûts, énergie ou durées d’impression qui ne sont pas des nombres valides - laissés vides',
+        usageNumbersDropped: 'Certaines entrées d’utilisation contenaient des poids ou coûts qui ne sont pas des nombres valides - laissés vides',
         archivesOwnerCleared: 'Certaines archives référençaient des utilisateurs qui n\'existent plus - propriétaire effacé, elles ne sont donc visibles que par les utilisateurs disposant de la permission archives:read_all jusqu\'à ce qu\'un administrateur les réattribue',
         archivesOwnerUnmatched: 'Certaines archives désignent un propriétaire absent de cette instance - le propriétaire a été effacé plutôt que déduit de l\'identifiant utilisateur de la sauvegarde, elles ne sont donc visibles que par les utilisateurs disposant de la permission archives:read_all jusqu\'à ce qu\'un administrateur les réattribue',
         archivesOwnerUnknown: 'Certaines archives ont été restaurées sans propriétaire - cette sauvegarde n\'en enregistre aucun, elles ne sont donc visibles que par les utilisateurs disposant de la permission archives:read_all jusqu\'à ce qu\'un administrateur les réattribue',
