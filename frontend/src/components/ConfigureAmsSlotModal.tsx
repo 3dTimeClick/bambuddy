@@ -10,6 +10,7 @@ import { Button } from './Button';
 import { getAmsLabel } from '../utils/amsHelpers';
 import { getSwatchStyle } from '../utils/colors';
 import { useCancellableTimeout } from '../hooks/useCancellableTimeout';
+import { flowApplies, flowLabel, normaliseFlow } from '../utils/nozzleFlow';
 import { useToast } from '../contexts/ToastContext';
 
 interface SlotInfo {
@@ -111,6 +112,13 @@ function parsePresetName(name: string): { material: string; brand: string; varia
 // are both offered, because such a slot can reach either nozzle. Keying on
 // name+K alone made the two indistinguishable and, when their K happened to
 // match, silently collapsed them into whichever came first.
+// "[HF] " / "[S] " for a profile measured on a high-flow or standard nozzle;
+// nothing where the printer declares no flow (an X1C declares none).
+function kProfileFlowPrefix(profile: KProfile): string {
+  const label = flowLabel(normaliseFlow(profile.nozzle_id));
+  return label ? `[${label}] ` : '';
+}
+
 function kProfileOptionValue(profile: KProfile): string {
   return `${profile.extruder_id ?? 0}|${profile.name}|${profile.k_value}`;
 }
@@ -907,6 +915,19 @@ export function ConfigureAmsSlotModal({
     [kprofilesData?.profiles]
   );
 
+  // The flow of the nozzle on the slot's hotend, from the printer status the
+  // printer card already keeps (H2-series report HH01 / HS01; others nothing).
+  const { data: printerStatus } = useQuery({
+    queryKey: ['printerStatus', printerId],
+    queryFn: () => api.getPrinterStatus(printerId),
+    enabled: isOpen,
+  });
+  const fittedFlow = useMemo(() => {
+    const nozzles = printerStatus?.nozzles ?? [];
+    const extruder = slotInfo.extruderId ?? 0;
+    return normaliseFlow(nozzles[extruder]?.nozzle_type) ?? normaliseFlow(nozzles[0]?.nozzle_type);
+  }, [printerStatus?.nozzles, slotInfo.extruderId]);
+
   const matchingKProfiles = useMemo(() => {
     if (!kprofilesData?.profiles) return [];
     if (!selectedPresetInfo) {
@@ -1010,9 +1031,14 @@ export function ConfigureAmsSlotModal({
     // the list instead — the X2D case in #3044, where the second AMS's slots
     // point at the first's entries — so the tagging is ignored rather than
     // enforced.
-    const onThisNozzle = tableNamesThisHotend(kprofilesData.profiles, slotInfo.extruderId)
+    const onThisHotend = tableNamesThisHotend(kprofilesData.profiles, slotInfo.extruderId)
       ? filtered.filter(p => (p.extruder_id ?? 0) === slotInfo.extruderId)
       : filtered;
+    // And to the flow of the nozzle fitted there: a K measured on a high-flow
+    // nozzle is not a fact about a standard one, and the backend does not apply
+    // it at assign time. Unknown flow on either side matches (an X1C reports
+    // none). The others stay reachable under "Other", labelled [HF] / [S].
+    const onThisNozzle = onThisHotend.filter(p => flowApplies(p.nozzle_id, fittedFlow));
 
     // Deduplicate genuine duplicates — same nozzle, same name, same K.
     const seen = new Map<string, KProfile>();
@@ -1045,7 +1071,7 @@ export function ConfigureAmsSlotModal({
     }
 
     return result;
-  }, [kprofilesData?.profiles, selectedPresetInfo, slotInfo.extruderId, slotInfo.caliIdx, slotInfo.trayInfoIdx, selectedPresetId, openedPresetId]);
+  }, [kprofilesData?.profiles, selectedPresetInfo, slotInfo.extruderId, slotInfo.caliIdx, slotInfo.trayInfoIdx, selectedPresetId, openedPresetId, fittedFlow]);
 
   // Every remaining K-profile the printer holds, offered under a separate group
   // after the matching ones (#2710). The matcher works off preset names and
@@ -1402,14 +1428,14 @@ export function ConfigureAmsSlotModal({
                         <option value="">{t('configureAmsSlot.noKProfile')}</option>
                         {matchingKProfiles.map((profile) => (
                           <option key={kProfileOptionValue(profile)} value={kProfileOptionValue(profile)}>
-                            {profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
+                            {kProfileFlowPrefix(profile)}{profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
                           </option>
                         ))}
                         {otherKProfiles.length > 0 && (
                           <optgroup label={t('configureAmsSlot.otherKProfiles')}>
                             {otherKProfiles.map((profile) => (
                               <option key={kProfileOptionValue(profile)} value={kProfileOptionValue(profile)}>
-                                {profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
+                                {kProfileFlowPrefix(profile)}{profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
                               </option>
                             ))}
                           </optgroup>
@@ -1647,14 +1673,14 @@ export function ConfigureAmsSlotModal({
                       <option value="">{t('configureAmsSlot.noKProfile')}</option>
                       {matchingKProfiles.map((profile) => (
                         <option key={kProfileOptionValue(profile)} value={kProfileOptionValue(profile)}>
-                          {profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
+                          {kProfileFlowPrefix(profile)}{profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
                         </option>
                       ))}
                       {otherKProfiles.length > 0 && (
                         <optgroup label={t('configureAmsSlot.otherKProfiles')}>
                           {otherKProfiles.map((profile) => (
                             <option key={kProfileOptionValue(profile)} value={kProfileOptionValue(profile)}>
-                              {profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
+                              {kProfileFlowPrefix(profile)}{profile.name} (K={profile.k_value}){kProfileNozzleSuffix(profile, isDualNozzleProfiles, t)}
                             </option>
                           ))}
                         </optgroup>

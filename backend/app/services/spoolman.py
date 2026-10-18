@@ -7,7 +7,6 @@ import math
 import time
 import weakref
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Literal
 
 import httpx
@@ -458,7 +457,12 @@ class SpoolmanClient:
         clear_location: bool = False,
         extra: dict | None = None,
     ) -> dict:
-        """Update an existing spool in Spoolman, always setting last_used."""
+        """Update an existing spool in Spoolman.
+
+        Leaves ``last_used`` alone: syncs, location changes and weighing are not
+        use. Print usage goes through ``use_spool`` (Spoolman's /use endpoint),
+        which sets it.
+        """
         data: dict = {}
         if remaining_weight is not None:
             data["remaining_weight"] = remaining_weight
@@ -469,8 +473,6 @@ class SpoolmanClient:
         if extra:
             data["extra"] = extra
             await self._ensure_extra_fields(extra)
-        data["last_used"] = datetime.now(timezone.utc).isoformat()
-
         response = await self._request_spool("PATCH", spool_id, json_body=data, operation="update")
         return response.json()
 
@@ -741,7 +743,7 @@ class SpoolmanClient:
         clear_spool_weight: bool = False,
         initial_weight: float | None = None,
     ) -> dict:
-        """Update a spool with full field support; unlike update_spool, does not auto-set last_used."""
+        """Update a spool with full field support; like update_spool, leaves last_used alone."""
         data: dict = {}
         if filament_id is not None:
             data["filament_id"] = filament_id

@@ -167,7 +167,10 @@ class SpoolBase(BaseModel):
 
 
 class SpoolCreate(SpoolBase):
-    pass
+    # Never negative from a client; more than the label is possible (print
+    # tracking of a mis-labelled spool). Here, not on SpoolBase: a response
+    # must still serialise a value stored before there was a bound.
+    weight_used: float = Field(default=0, ge=0)
 
 
 class SpoolBulkCreate(BaseModel):
@@ -198,7 +201,7 @@ class SpoolUpdate(IgnoresNullForRequiredColumns):
     label_weight: int | None = None
     core_weight: int | None = None
     core_weight_catalog_id: int | None = None
-    weight_used: float | None = None
+    weight_used: float | None = Field(default=None, ge=0)
     slicer_filament: str | None = None
     slicer_filament_name: str | None = None
     nozzle_temp_min: int | None = None

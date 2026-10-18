@@ -1480,7 +1480,8 @@ async def import_spools_csv(
             # the other create paths: the file is authoritative. A CSV that
             # leaves the column blank is stating "no number", not asking for
             # one to be guessed from whatever else is in the inventory.
-            spool = Spool(**row.spool)
+            # The file has no lock column: a used weight in it is locked.
+            spool = Spool(**_lock_entered_weight(dict(row.spool), set()))
             db.add(spool)
             # Supplier assignments resolved by name during parsing (#2988).
             # Flush first so the spool has an id to hang the links on.
@@ -1565,6 +1566,15 @@ async def get_spool(
     return spool
 
 
+def _lock_entered_weight(payload: dict, fields_set: set[str]) -> dict:
+    """A used weight entered for a new spool is locked, as an edited one is:
+    otherwise the AMS remain% sync can overwrite it on its first pass. An
+    explicit ``weight_locked`` from the client wins."""
+    if (payload.get("weight_used") or 0) > 0 and "weight_locked" not in fields_set:
+        payload["weight_locked"] = True
+    return payload
+
+
 @router.post("/spools", response_model=SpoolResponse)
 async def create_spool(
     spool_data: SpoolCreate,
@@ -1576,6 +1586,7 @@ async def create_spool(
         payload = await prepare_internal_spool_payload(db, spool_data.model_dump(), set(spool_data.model_fields_set))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    payload = _lock_entered_weight(payload, set(spool_data.model_fields_set))
     # A new spool of an already-numbered product inherits its material number (#2870).
     payload = await apply_material_number_inheritance(db, payload)
     spool = Spool(**payload)
@@ -1604,6 +1615,7 @@ async def bulk_create_spools(
         payload = await prepare_internal_spool_payload(db, data.spool.model_dump(), fields_set)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    payload = _lock_entered_weight(payload, fields_set)
     # A new spool of an already-numbered product inherits its material number (#2870).
     payload = await apply_material_number_inheritance(db, payload)
     for _ in range(data.quantity):
