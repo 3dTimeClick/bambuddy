@@ -1343,7 +1343,10 @@ async def get_filament_id_map(
                 continue
             try:
                 detail = await cloud.get_setting_detail(setting_id)
-                fid = detail.get("filament_id", "")
+                # On the envelope normally; in the preset JSON under `setting`
+                # when not (the same fallback as slicer_filament_resolver).
+                nested = detail.get("setting")
+                fid = detail.get("filament_id") or (nested.get("filament_id") if isinstance(nested, dict) else "")
                 name = detail.get("name", "")
                 if fid and name:
                     # Strip printer/nozzle suffix: "Devil Design PLA Basic @Bambu Lab H2D 0.4 nozzle" → "Devil Design PLA Basic"

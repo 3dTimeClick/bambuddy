@@ -86,6 +86,7 @@ from backend.app.services.spool_filament_preset import resolve_spool_preset
 from backend.app.services.spoolman import SpoolmanClient, get_spoolman_client, init_spoolman_client
 from backend.app.services.supplier_links import apply_supplier_inheritance, apply_supplier_inheritance_to_batch
 from backend.app.services.tag_conflict import tag_already_linked
+from backend.app.utils.filament_finish import different_finish, finish_generic_id
 from backend.app.utils.filament_ids import (
     GENERIC_FILAMENT_IDS,
     GENERIC_IDS_REPLACED_ON_REUSE,
@@ -133,6 +134,7 @@ async def apply_spool_to_slot_via_mqtt(
     tray_id: int,
     current_tray_info_idx: str = "",
     current_tray_type: str = "",
+    current_tray_sub_brands: str = "",
 ) -> bool:
     """Publish ams_filament_setting + extrusion_cali_sel for a spool on a slot.
 
@@ -223,6 +225,9 @@ async def apply_spool_to_slot_via_mqtt(
             and not is_material_name(current_tray_info_idx)
             and current_tray_type
             and current_tray_type.upper() == tray_type.upper()
+            # The same type in another finish is another preset: a Silk spool
+            # does not take the slot's Matte id. Only when both name a finish.
+            and not different_finish(f"{spool.material or ''} {spool.subtype or ''}", current_tray_sub_brands)
         ):
             tray_info_idx = current_tray_info_idx
         elif tray_type:
@@ -232,7 +237,8 @@ async def apply_spool_to_slot_via_mqtt(
             # (GFG96) that reducing it to "PETG" would trade away for GFG99.
             material = (spool.material or "").upper().strip()
             generic = (
-                GENERIC_FILAMENT_IDS.get(material)
+                finish_generic_id(tray_type, f"{spool.material or ''} {spool.subtype or ''}")
+                or GENERIC_FILAMENT_IDS.get(material)
                 or GENERIC_FILAMENT_IDS.get(material.split("-")[0].split(" ")[0])
                 or GENERIC_FILAMENT_IDS.get(tray_type.upper())
                 or ""
@@ -2202,6 +2208,7 @@ async def assign_spool(
     fingerprint_color = None
     fingerprint_type = None
     current_tray_info_idx = ""
+    current_tray_sub_brands = ""
     tray_state: int | None = None
     # Firmware's tray_exist_bits answer for this slot, when the payload carries
     # one. Outranks tray_state below — see services/ams_slot_presence.py.
@@ -2217,6 +2224,7 @@ async def assign_spool(
                     fingerprint_color = vt.get("tray_color", "")
                     fingerprint_type = vt.get("tray_type", "")
                     current_tray_info_idx = vt.get("tray_info_idx", "")
+                    current_tray_sub_brands = vt.get("tray_sub_brands", "")
                     raw_state = vt.get("state")
                     if isinstance(raw_state, int):
                         tray_state = raw_state
@@ -2240,6 +2248,7 @@ async def assign_spool(
                 fingerprint_color = tray.get("tray_color", "")
                 fingerprint_type = tray.get("tray_type", "")
                 current_tray_info_idx = tray.get("tray_info_idx", "")
+                current_tray_sub_brands = tray.get("tray_sub_brands", "")
                 raw_state = tray.get("state")
                 if isinstance(raw_state, int):
                     tray_state = raw_state
@@ -2340,6 +2349,7 @@ async def assign_spool(
                 tray_id=data.tray_id,
                 current_tray_info_idx=current_tray_info_idx,
                 current_tray_type=fingerprint_type or "",
+                current_tray_sub_brands=current_tray_sub_brands,
             )
         except Exception as e:
             logger.warning("MQTT auto-configure failed for spool %d: %s", spool.id, e)

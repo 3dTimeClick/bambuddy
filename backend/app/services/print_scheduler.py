@@ -9259,9 +9259,9 @@ class PrintScheduler:
         # — on a dual-nozzle machine use_ams is which extruder to feed, not
         # whether to use the AMS, so it is not ours to rewrite.
         effective_use_ams = item.use_ams
+        plate_uses_only_external = False
         if (
-            effective_use_ams
-            and ams_mapping
+            ams_mapping
             and file_path is not None
             # Cheap gate before opening the file: with nothing on the spool
             # holder anywhere in the mapping, no subset of it can be all
@@ -9279,6 +9279,11 @@ class PrintScheduler:
                 ams_mapping, extract_filament_requirements(file_path, plate_id=effective_plate_id)
             )
             if consumed and all(_is_external_tray(t) for t in consumed):
+                # Exact for this plate: the command builder must not turn the
+                # AMS back on for a real tray another plate of the file uses,
+                # whether the job asked for the AMS or already had it off.
+                plate_uses_only_external = True
+            if plate_uses_only_external and effective_use_ams:
                 effective_use_ams = False
                 logger.info(
                     "Queue item %s: every filament plate %s prints is on the external spool "
@@ -9315,6 +9320,7 @@ class PrintScheduler:
             layer_inspect=item.layer_inspect,
             timelapse=effective_timelapse,
             use_ams=effective_use_ams,
+            plate_uses_only_external=plate_uses_only_external,
             nozzle_offset_cali=item.nozzle_offset_cali,
             nozzle_mapping=item.nozzle_mapping
             or (json.dumps(resolved_nozzle_mapping) if resolved_nozzle_mapping else None),

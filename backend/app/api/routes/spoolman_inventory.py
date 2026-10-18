@@ -76,6 +76,7 @@ from backend.app.services.spoolman import (
 from backend.app.services.spoolman_tracking import get_fallback_spool_tag_for_slot, is_slot_fallback_tag
 from backend.app.services.tag_conflict import tag_already_linked
 from backend.app.utils.color_utils import spoolman_color_hex
+from backend.app.utils.filament_finish import finish_generic_id
 from backend.app.utils.filament_ids import (
     GENERIC_FILAMENT_IDS,
     filament_id_to_setting_id,
@@ -1919,7 +1920,10 @@ async def assign_spoolman_slot(
             # preset (GFG96) rather than trading it for "PETG"'s GFG99.
             if not tray_info_idx:
                 tray_info_idx = (
-                    GENERIC_FILAMENT_IDS.get(material_upper)
+                    # The finish first, as in internal mode: a Silk spool
+                    # gets Generic PLA Silk.
+                    finish_generic_id(tray_type, f"{material} {subtype}")
+                    or GENERIC_FILAMENT_IDS.get(material_upper)
                     or GENERIC_FILAMENT_IDS.get(material_upper.split("-")[0].split(" ")[0])
                     or GENERIC_FILAMENT_IDS.get(tray_type.upper())
                     or ""

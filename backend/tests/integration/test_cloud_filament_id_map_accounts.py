@@ -115,3 +115,27 @@ async def test_a_preset_one_account_resolved_is_not_served_to_another(async_clie
     assert for_anna["P5a1b2c3"]["name"] == "Anna Private PLA @Bambu Lab X1C"
     assert for_ben["P5a1b2c3"]["name"] != for_anna["P5a1b2c3"]["name"]
     assert for_ben["P5a1b2c3"]["k"] is None
+
+
+async def test_a_filament_id_inside_the_preset_json_is_read_too(async_client: AsyncClient):
+    """Same fallback as the slicer filament resolver: the preset JSON under
+    ``setting`` can carry the id when the envelope does not."""
+    token = await _admin_token(async_client)
+    group = await _group(async_client, token, "readers", permissions=["filaments:read"])
+    anna, _ = await _user(async_client, token, "anna", [group])
+    cloud = SimpleNamespace(
+        is_authenticated=True,
+        get_slicer_settings=AsyncMock(return_value={"filament": {"private": [{"setting_id": "S0"}]}}),
+        get_setting_detail=AsyncMock(
+            return_value={"filament_id": None, "name": "Nested PLA @Bambu Lab X1C", "setting": {"filament_id": "P9"}}
+        ),
+        close=AsyncMock(),
+    )
+
+    async def build(db, user):
+        return cloud
+
+    with patch("backend.app.api.routes.cloud.build_authenticated_cloud", new=build):
+        body = (await async_client.get("/api/v1/cloud/filament-id-map", headers=_auth(anna))).json()
+
+    assert body == {"P9": "Nested PLA"}

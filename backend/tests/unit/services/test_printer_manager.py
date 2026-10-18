@@ -467,8 +467,18 @@ class TestPrinterManager:
             nozzle_offset_cali="auto",
             nozzle_mapping=None,
             nozzle_slot_extruders=None,
+            plate_uses_only_external=False,
         )
         assert result is True
+
+    def test_start_print_passes_the_plates_external_spool_answer(self, manager, mock_client):
+        """The scheduler's exact use_ams=False for the plate (#3087) reaches the builder."""
+        mock_client.start_print.return_value = True
+        manager._clients[1] = mock_client
+
+        manager.start_print(1, "test.gcode", use_ams=False, plate_uses_only_external=True)
+
+        assert mock_client.start_print.call_args.kwargs["plate_uses_only_external"] is True
 
     def test_start_print_returns_false_for_unknown(self, manager):
         """Verify start_print returns False for unknown printer."""

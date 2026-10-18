@@ -100,6 +100,7 @@ from backend.app.services.printer_media import (
 )
 from backend.app.services.slicer_filament_resolver import _ORCA_PROFILE_ID, lookup_orca_filament_id
 from backend.app.services.slot_nozzle import reports_two_nozzles, resolve_slot_nozzle
+from backend.app.utils.filament_finish import different_finish, finish_generic_id
 from backend.app.utils.filament_ids import (
     GENERIC_FILAMENT_IDS,
     GENERIC_IDS_REPLACED_ON_REUSE,
@@ -3017,6 +3018,7 @@ async def configure_ams_slot(
         # No preset provided — try slot reuse or generic fallback
         current_tray_info_idx = ""
         current_tray_type = ""
+        current_tray_sub_brands = ""
         state = printer_manager.get_status(printer_id)
         if state and state.raw_data:
             from backend.app.api.routes.inventory import _find_tray_in_ams_data
@@ -3028,6 +3030,7 @@ async def configure_ams_slot(
                     if isinstance(vt, dict) and int(vt.get("id", 254)) == ext_id:
                         current_tray_info_idx = vt.get("tray_info_idx", "")
                         current_tray_type = vt.get("tray_type", "")
+                        current_tray_sub_brands = vt.get("tray_sub_brands", "")
                         break
             else:
                 ams_data = state.raw_data.get("ams", {})
@@ -3042,6 +3045,7 @@ async def configure_ams_slot(
                 if cur_tray:
                     current_tray_info_idx = cur_tray.get("tray_info_idx", "")
                     current_tray_type = cur_tray.get("tray_type", "")
+                    current_tray_sub_brands = cur_tray.get("tray_sub_brands", "")
 
         if (
             # An Orca profile without an id must not inherit whatever specific
@@ -3052,6 +3056,8 @@ async def configure_ams_slot(
             and current_tray_info_idx not in GENERIC_IDS_REPLACED_ON_REUSE
             and current_tray_type
             and current_tray_type.upper() == tray_type.upper()
+            # The same type in another finish is another preset.
+            and not different_finish(tray_sub_brands, current_tray_sub_brands)
         ):
             logger.info(
                 "[configure_ams_slot] Reusing slot's existing tray_info_idx=%r (same material %r)",
@@ -3066,7 +3072,8 @@ async def configure_ams_slot(
             # to "PETG" would trade away for GFG99.
             material = requested_tray_type.upper().strip()
             generic = (
-                GENERIC_FILAMENT_IDS.get(material)
+                finish_generic_id(tray_type, f"{requested_tray_type} {tray_sub_brands}")
+                or GENERIC_FILAMENT_IDS.get(material)
                 or GENERIC_FILAMENT_IDS.get(material.split("-")[0].split(" ")[0])
                 or GENERIC_FILAMENT_IDS.get(tray_type.upper())
                 or ""

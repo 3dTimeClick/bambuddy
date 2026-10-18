@@ -6098,6 +6098,7 @@ class BambuMQTTClient:
         nozzle_offset_cali: str = "auto",
         nozzle_mapping: str | None = None,
         nozzle_slot_extruders: str | None = None,
+        plate_uses_only_external: bool = False,
     ):
         """Start a print job on the printer.
 
@@ -6115,6 +6116,10 @@ class BambuMQTTClient:
             vibration_cali: Vibration compensation calibration
             layer_inspect: First layer AI inspection
             use_ams: Use AMS for automatic filament changes
+            plate_uses_only_external: The caller determined from the plate's
+                own filament list that it prints only from the spool holder;
+                use_ams=False then stands even if the mapping names a real
+                tray (one another plate of the file uses, #3087)
             nozzle_offset_cali: Nozzle offset calibration — "off"/"on"/"auto"
                 (dual-nozzle printers only — silently ignored on single-nozzle).
             nozzle_mapping: Opaque JSON string captured from BambuStudio's
@@ -6262,7 +6267,10 @@ class BambuMQTTClient:
             if ams_mapping and not is_dual_nozzle:
                 has_real_tray = any(t is not None and 0 <= int(t) <= 253 for t in ams_mapping)
                 all_external = all(t is None or int(t) >= 254 for t in ams_mapping)
-                if has_real_tray and not use_ams:
+                # (Not when the scheduler worked out from the plate's own
+                # filament list that it prints only from the spool holder: a
+                # real tray here is then one another plate of the file uses.)
+                if has_real_tray and not use_ams and not plate_uses_only_external:
                     use_ams = True
                     logger.info(
                         "[%s] AMS mapping resolved a real slot — setting use_ams=True (#2595)",

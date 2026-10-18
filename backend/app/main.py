@@ -2595,6 +2595,7 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
                                 tray_id=assignment.tray_id,
                                 current_tray_info_idx=current_tray.get("tray_info_idx", ""),
                                 current_tray_type=cur_type,
+                                current_tray_sub_brands=current_tray.get("tray_sub_brands", ""),
                             )
                             logger.info(
                                 "SpoolBuddy pre-config applied on insert: spool %d → printer %d AMS%d-T%d",

@@ -427,6 +427,16 @@ class VirtualPrinterInstance:
         """
         return self.target_printer_id is not None or not is_nozzle_rack_model(self.model)
 
+    def _keeps_slicer_use_ams(self) -> bool:
+        """Whether the slicer's ``use_ams`` is stored on the queue item.
+
+        The slicer was looking at this VP, which advertises no AMS. Only a VP
+        bound to one printer stands for a machine whose AMS the user chose to
+        use or not; a VP for any printer of the model leaves it on and the
+        dispatch reconciles it against the printer it picks (#2595).
+        """
+        return self.target_printer_id is not None
+
     def _target_is_dual_nozzle(self) -> bool:
         """Whether the target printer has two nozzles, which decides the global
         tray of an external spool in the slicer's mapping (#3237).
@@ -564,6 +574,8 @@ class VirtualPrinterInstance:
             ("timelapse", "timelapse"),
             ("use_ams", "use_ams"),
         ):
+            if mqtt_field == "use_ams" and not self._keeps_slicer_use_ams():
+                continue
             if mqtt_field in data:
                 patch[column] = bool(data[mqtt_field])
 
@@ -971,8 +983,9 @@ class VirtualPrinterInstance:
                 vibration_cali = _slicer_or("vibration_cali", defaults["vibration_cali"])
                 layer_inspect = _slicer_or("layer_inspect", defaults["layer_inspect"])
                 timelapse = _slicer_or("timelapse", defaults["timelapse"])
-                # No setting for it: the column default (on) when the slicer is silent.
-                use_ams = _slicer_or("use_ams", True)
+                # No setting for it: the column default (on) when the slicer is
+                # silent, or when the VP does not stand for one printer.
+                use_ams = _slicer_or("use_ams", True) if self._keeps_slicer_use_ams() else True
 
                 # "Ask for Outcome" is a default print option like the ones
                 # above. A plate sent here from Bambu Studio is also one of the
