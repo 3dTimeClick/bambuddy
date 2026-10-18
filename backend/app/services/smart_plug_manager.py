@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,72 @@ async def publish_plug_state(
         )
     except Exception as e:
         logger.debug("MQTT relay: failed to publish the state of plug %s: %s", plug_id, e)
+
+
+def _is_script_plug(plug) -> bool:
+    """A Home Assistant script entity: it can be run, not switched."""
+    return (
+        getattr(plug, "plug_type", None) == "homeassistant"
+        and bool(getattr(plug, "ha_entity_id", None))
+        and plug.ha_entity_id.startswith("script.")
+    )
+
+
+async def run_linked_scripts(printer_id: int, plug_state: str, db: AsyncSession) -> None:
+    """Run the HA scripts linked to a printer after its power plug switched.
+
+    ON runs the scripts set to "Run when printer turns on", OFF those set to
+    "Run when printer turns off". Never raises: a script that fails must not
+    undo the switch that triggered it.
+    """
+    from backend.app.models.smart_plug import SmartPlug
+
+    result = await db.execute(select(SmartPlug).where(SmartPlug.printer_id == printer_id))
+    for plug in result.scalars().all():
+        # "Enabled" is the script's automation switch, as at print start.
+        if not _is_script_plug(plug) or not plug.enabled:
+            continue
+        if plug_state == "ON" and plug.auto_on:
+            logger.info("Auto-triggering script '%s' on printer power-on", plug.name)
+        elif plug_state == "OFF" and plug.auto_off:
+            logger.info("Auto-triggering script '%s' on printer power-off", plug.name)
+        else:
+            continue
+        try:
+            service = await smart_plug_manager.get_service_for_plug(plug, db)
+            await service.turn_on(plug)  # Scripts are triggered by calling turn_on
+        except Exception as e:
+            logger.error("Failed to trigger script '%s': %s", plug.name, e)
+
+
+# (printer_id, state) -> when its scripts last ran after an automatic switch.
+# Two plugs feeding one printer both auto-off after a print; the printer
+# turned off once.
+_recent_automatic_script_runs: dict[tuple[int, str], float] = {}
+_AUTOMATIC_SCRIPT_RUN_WINDOW_S = 120.0
+
+
+async def run_linked_scripts_after_automatic_switch(printer_id: int | None, plug, plug_state: str) -> None:
+    """Linked scripts for a printer's power plug switched by Bambuddy itself.
+
+    Only for a plug that feeds the printer: an accessory switching is not the
+    printer turning on or off. Print start is not routed here -- it runs the
+    "on" scripts itself, as linked plugs with auto-on.
+    """
+    if not printer_id or _is_script_plug(plug) or not getattr(plug, "controls_printer_power", True):
+        return
+    now = time.monotonic()
+    last = _recent_automatic_script_runs.get((printer_id, plug_state))
+    if last is not None and now - last < _AUTOMATIC_SCRIPT_RUN_WINDOW_S:
+        return
+    _recent_automatic_script_runs[(printer_id, plug_state)] = now
+    from backend.app.core.database import async_session
+
+    try:
+        async with async_session() as db:
+            await run_linked_scripts(printer_id, plug_state, db)
+    except Exception as e:
+        logger.warning("Could not run the scripts linked to printer %s: %s", printer_id, e)
 
 
 class SmartPlugManager:
@@ -328,6 +395,7 @@ class SmartPlugManager:
                             await publish_plug_state(
                                 plug.id, plug.name, plug.printer_id, on=True, ha_entity_id=plug.ha_entity_id
                             )
+                            await run_linked_scripts_after_automatic_switch(plug.printer_id, plug, "ON")
 
                 # Check if we should turn off
                 if plug.schedule_off_time == current_time:
@@ -345,6 +413,7 @@ class SmartPlugManager:
                             # Mark printer offline if this plug feeds it (#2629)
                             if plug.printer_id and plug.controls_printer_power:
                                 printer_manager.mark_printer_offline(plug.printer_id)
+                            await run_linked_scripts_after_automatic_switch(plug.printer_id, plug, "OFF")
 
             await db.commit()
 
@@ -601,6 +670,7 @@ class SmartPlugManager:
                     self.rest_off_body = rest_off_body
                     self.rest_method = rest_method
                     self.rest_headers = rest_headers
+                    self.controls_printer_power = controls_printer_power
 
             plug_info = PlugInfo()
             service = await self.get_service_for_plug(plug_info)
@@ -617,6 +687,7 @@ class SmartPlugManager:
                 # plug actually feeds the printer (#2629).
                 if controls_printer_power:
                     printer_manager.mark_printer_offline(printer_id)
+                await run_linked_scripts_after_automatic_switch(printer_id, plug_info, "OFF")
 
         except asyncio.CancelledError:
             logger.debug("Delayed turn-off cancelled for plug %s", plug_id)
@@ -734,6 +805,7 @@ class SmartPlugManager:
                                 self.rest_off_body = rest_off_body
                                 self.rest_method = rest_method
                                 self.rest_headers = rest_headers
+                                self.controls_printer_power = controls_printer_power
 
                         plug_info = PlugInfo()
                         service = await self.get_service_for_plug(plug_info)
@@ -753,6 +825,7 @@ class SmartPlugManager:
                             # when this plug actually feeds the printer (#2629).
                             if controls_printer_power:
                                 printer_manager.mark_printer_offline(printer_id)
+                            await run_linked_scripts_after_automatic_switch(printer_id, plug_info, "OFF")
 
                         break
 
@@ -903,6 +976,7 @@ class SmartPlugManager:
                             )
                             if plug.controls_printer_power:
                                 printer_manager.mark_printer_offline(plug.printer_id)
+                            await run_linked_scripts_after_automatic_switch(plug.printer_id, plug, "OFF")
 
                 if pending_plugs:
                     logger.info("Resumed %s pending auto-off(s)", len(pending_plugs))

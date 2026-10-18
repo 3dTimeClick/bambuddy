@@ -132,7 +132,7 @@ async def test_an_mqtt_plug_that_stopped_reporting_publishes_nothing(db_session,
 # The plug backends themselves (a REST toggle is a turn_on or turn_off).
 PLUG_BACKENDS = {"tasmota.py", "homeassistant.py", "rest_smart_plug.py", "mqtt_smart_plug.py"}
 # Runs a Home Assistant script through its entity's turn_on: no plug changes state.
-NOT_A_SWITCH = {("api/routes/smart_plugs.py", "trigger_associated_scripts")}
+NOT_A_SWITCH = {("services/smart_plug_manager.py", "run_linked_scripts")}
 
 
 def _called_names(node: ast.AST) -> set[str]:

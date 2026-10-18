@@ -55,7 +55,7 @@ from backend.app.services.secret_fields import (
     reject_placeholder,
     same_value,
 )
-from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
+from backend.app.services.smart_plug_manager import publish_plug_state, run_linked_scripts, smart_plug_manager
 from backend.app.services.tasmota import tasmota_service
 from backend.app.utils.local_time import utcnow_naive
 
@@ -807,7 +807,7 @@ async def control_smart_plug(
         plug.plug_type == "homeassistant" and plug.ha_entity_id and plug.ha_entity_id.startswith("script.")
     )
     if is_main_plug and plug.printer_id and expected_state:
-        await trigger_associated_scripts(plug.printer_id, expected_state, db)
+        await run_linked_scripts(plug.printer_id, expected_state, db)
 
     # MQTT relay - publish smart plug state change. A toggle doesn't say which
     # way it went, so read the state it ended in.
@@ -823,37 +823,6 @@ async def control_smart_plug(
         )
 
     return {"success": True, "action": control.action}
-
-
-async def trigger_associated_scripts(printer_id: int, plug_state: str, db: AsyncSession):
-    """Trigger scripts linked to a printer based on main plug state change.
-
-    When the main plug turns ON, triggers scripts with auto_on=True.
-    When the main plug turns OFF, triggers scripts with auto_off=True.
-    """
-    result = await db.execute(select(SmartPlug).where(SmartPlug.printer_id == printer_id))
-    plugs = result.scalars().all()
-
-    # Find scripts that should be triggered
-    for plug in plugs:
-        is_script = plug.plug_type == "homeassistant" and plug.ha_entity_id and plug.ha_entity_id.startswith("script.")
-        if not is_script:
-            continue
-
-        should_trigger = False
-        if plug_state == "ON" and plug.auto_on:
-            should_trigger = True
-            logger.info("Auto-triggering script '%s' on printer power-on", plug.name)
-        elif plug_state == "OFF" and plug.auto_off:
-            should_trigger = True
-            logger.info("Auto-triggering script '%s' on printer power-off", plug.name)
-
-        if should_trigger:
-            try:
-                service = await _get_service_for_plug(plug, db)
-                await service.turn_on(plug)  # Scripts are triggered by calling turn_on
-            except Exception as e:
-                logger.error("Failed to trigger script '%s': %s", plug.name, e)
 
 
 @router.get("/{plug_id}/status", response_model=SmartPlugStatus)
