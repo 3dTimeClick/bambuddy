@@ -197,6 +197,7 @@ import { FileUploadModal } from '../components/FileUploadModal';
 import { PrintModal } from '../components/PrintModal';
 import { PrinterInfoModal } from '../components/PrinterInfoModal';
 import { FeedDirectionModal } from '../components/FeedDirectionModal';
+import { plateCheckFailureText } from '../utils/plateCheck';
 import { amsHasLoadedTray, getAmsLabel, getEmptySlotKind, getGlobalTrayId, getFillBarColor, getSpoolmanFillLevel, getFallbackSpoolTag, installedNozzleDiameters, isAmsHtUnit, isBambuLabSpool, trayForSlot, resolveSlotNozzleDiameter, resolveSlotExtruder, formatSlotLabel, slotPresetDescribesTray, FTS_INLET_SIDE } from '../utils/amsHelpers';
 import { MAX_CHAMBER_TEMP_C, getPrinterImage, getWifiStrength, filterCompatibleQueueItems, isPrinterCurrentlyDispatchable } from '../utils/printer';
 import { FilamentSlotCircle } from '../components/FilamentSlotCircle';
@@ -2271,6 +2272,7 @@ function PrinterCard({
     message: string;
     debug_image_url?: string;
     needs_calibration: boolean;
+    failure_reason?: string | null;
     light_warning?: boolean;
     reference_count?: number;
     max_references?: number;
@@ -6848,6 +6850,8 @@ function PrinterCard({
               <div className="flex items-center gap-2">
                 {plateCheckResult.needs_calibration ? (
                   <ScanSearch className="w-[var(--pc-i5,1.25rem)] h-[var(--pc-i5,1.25rem)] text-blue-500" />
+                ) : plateCheckResult.failure_reason ? (
+                  <XCircle className="w-[var(--pc-i5,1.25rem)] h-[var(--pc-i5,1.25rem)] text-bambu-gray" />
                 ) : plateCheckResult.is_empty ? (
                   <CheckCircle className="w-[var(--pc-i5,1.25rem)] h-[var(--pc-i5,1.25rem)] text-green-500" />
                 ) : (
@@ -6883,6 +6887,11 @@ function PrinterCard({
                     <p dangerouslySetInnerHTML={{ __html: t('printers.plateDetection.calibrationTip') }} />
                   </div>
                 </>
+              ) : plateCheckResult.failure_reason ? (
+                <div className="p-3 rounded-lg bg-bambu-dark-tertiary border border-bambu-dark-tertiary">
+                  <p className="font-medium text-white">{t('printers.plateDetection.couldNotRunTitle')}</p>
+                  <p className="text-sm text-bambu-gray mt-1">{plateCheckFailureText(t, plateCheckResult.failure_reason)}</p>
+                </div>
               ) : (
                 <>
                   <div className={`p-3 rounded-lg ${plateCheckResult.is_empty ? 'bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50' : 'bg-yellow-100 dark:bg-yellow-500/20 border border-yellow-300 dark:border-yellow-500/50'}`}>

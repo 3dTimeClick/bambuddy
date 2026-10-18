@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { bulkUpdateToast } from '../utils/queueBulkUpdate';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -2008,7 +2009,8 @@ export function QueuePage() {
       queryClient.invalidateQueries({ queryKey: ['queue'] });
       setSelectedItems([]);
       setShowBulkEditModal(false);
-      showToast(result.message);
+      const toast = bulkUpdateToast(result);
+      showToast(t(toast.key, toast.params), toast.type);
     },
     onError: () => showToast(t('queue.toast.updateFailed'), 'error'),
   });

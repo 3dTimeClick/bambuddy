@@ -33,9 +33,13 @@ def _clear_dicts():
     )
     for d in dicts:
         d.clear()
+    BROADCASTS.clear()
     yield
     for d in dicts:
         d.clear()
+
+
+BROADCASTS: list[dict] = []
 
 
 def _printer():
@@ -74,8 +78,9 @@ async def _run_print_start(events: list[str], *, check_plate_empty, pause_side_e
     session.__aexit__ = AsyncMock()
     session.execute = AsyncMock(side_effect=execute_router)
 
-    async def broadcast(_message):
+    async def broadcast(message):
         events.append("broadcast")
+        BROADCASTS.append(message)
 
     async def notify(**_kwargs):
         events.append("notify")
@@ -133,7 +138,7 @@ async def test_light_goes_off_when_detection_raises():
 
     await _run_print_start(events, check_plate_empty=AsyncMock(side_effect=RuntimeError("camera gone")))
 
-    assert events == ["light:on", "light:off"]
+    assert events == ["light:on", "light:off", "broadcast"]
 
 
 @pytest.mark.asyncio
@@ -146,3 +151,53 @@ async def test_light_goes_off_when_pausing_raises():
 
     assert "light:off" in events
     assert "notify" not in events
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("check", "reason"),
+    [
+        (
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    needs_calibration=False,
+                    is_empty=True,
+                    confidence=0.0,
+                    difference_percent=0.0,
+                    failure_reason="no_camera_frame",
+                    message="Failed to capture camera frame from any source",
+                )
+            ),
+            "no_camera_frame",
+        ),
+        (AsyncMock(side_effect=RuntimeError("camera gone")), "error"),
+        (
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    needs_calibration=True,
+                    is_empty=True,
+                    confidence=0.0,
+                    difference_percent=0.0,
+                    failure_reason=None,
+                    message="No calibration - please calibrate with empty plate first",
+                )
+            ),
+            "not_calibrated",
+        ),
+    ],
+)
+async def test_a_check_that_could_not_run_says_so(check, reason, caplog):
+    """It still does not block the print, but it is no longer reported as an
+    empty plate."""
+    import logging
+
+    events: list[str] = []
+    with caplog.at_level(logging.WARNING):
+        await _run_print_start(events, check_plate_empty=check)
+
+    assert "pause" not in events
+    assert [m for m in BROADCASTS if m["type"] == "plate_check_failed"] == [
+        {"type": "plate_check_failed", "printer_id": 1, "printer_name": "TestP1S", "reason": reason}
+    ]
+    assert any("could not run" in r.message for r in caplog.records if r.levelno == logging.WARNING)
+    assert not any("Plate is empty" in r.message for r in caplog.records)

@@ -1885,6 +1885,7 @@ async def check_plate_empty(
         - difference_percent: float - How different from calibration reference
         - message: str - Human-readable result message
         - needs_calibration: bool - True if calibration is required
+        - failure_reason: str | None - why the check could not run, None when it ran
         - light_warning: bool - True if chamber light is off
     """
     from backend.app.services.plate_detection import (

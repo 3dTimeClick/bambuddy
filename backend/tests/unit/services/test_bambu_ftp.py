@@ -19,6 +19,7 @@ import socket
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -450,6 +451,88 @@ class TestUpload:
         result = client.upload_file(local, "/cache/test.bin")
         assert result is False
         client.disconnect()
+
+    @pytest.mark.parametrize(("server_size", "logged_error"), [(100, True), (1024, False), (None, False)])
+    def test_upload_without_a_226_is_checked_on_a_new_connection(
+        self, ftp_client_factory, ftp_server, tmp_path, caplog, server_size, logged_error
+    ):
+        """No 226 within the wait (an H2D can take 30+ s) still lets the upload
+        proceed, but its size is read back on a fresh connection, since the
+        old one may be out of step, and a mismatch is logged as an error."""
+        import logging
+
+        import backend.app.services.bambu_ftp as ftp_mod
+
+        local = tmp_path / "test.bin"
+        local.write_bytes(b"data" * 256)
+        client = ftp_client_factory()
+        client.connect()
+
+        def never_answers():
+            raise TimeoutError("timed out")
+
+        client._ftp.voidresp = never_answers
+        checked: list[str] = []
+
+        def fake_size(c, remote_path):
+            checked.append(remote_path)
+            return server_size
+
+        with (
+            patch.object(ftp_mod, "_size_on_new_connection", fake_size),
+            caplog.at_level(logging.INFO, logger="backend.app.services.bambu_ftp"),
+        ):
+            assert client.upload_file(local, "/cache/test.bin") is True
+        client.disconnect()
+
+        assert checked == ["/cache/test.bin"]
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert bool(errors) is logged_error
+
+    def test_the_read_back_reads_the_size_on_its_own_connection(self, ftp_client_factory, ftp_server):
+        import backend.app.services.bambu_ftp as ftp_mod
+
+        client = ftp_client_factory()
+        client.connect()
+        assert client.upload_bytes(b"x" * 300, "/cache/r.bin") is True
+
+        assert ftp_mod._size_on_new_connection(client, "/cache/r.bin") == 300
+        client.disconnect()
+
+    def test_a_refused_read_back_does_not_pause_the_printer(self, ftp_client_factory, ftp_server):
+        """A second session can be refused while the first still waits; that
+        must not open the cool-off that skips the printer's archive downloads."""
+        import ssl
+
+        import backend.app.services.bambu_ftp as ftp_mod
+
+        client = ftp_client_factory()
+        with patch.object(ftp_mod.ImplicitFTP_TLS, "connect", side_effect=ssl.SSLError("refused")):
+            assert ftp_mod._size_on_new_connection(client, "/cache/r.bin") is None
+
+        assert not ftp_mod.BambuFTPClient.handshake_blocked("127.0.0.1")
+
+    def test_upload_bytes_without_a_226_is_checked_too(self, ftp_client_factory, ftp_server):
+        import backend.app.services.bambu_ftp as ftp_mod
+
+        client = ftp_client_factory()
+        client.connect()
+
+        def never_answers():
+            raise TimeoutError("timed out")
+
+        client._ftp.voidresp = never_answers
+        checked: list[str] = []
+
+        def fake_size(c, remote_path):
+            checked.append(remote_path)
+            return 3
+
+        with patch.object(ftp_mod, "_size_on_new_connection", fake_size):
+            assert client.upload_bytes(b"abc", "/cache/b.bin") is True
+        client.disconnect()
+
+        assert checked == ["/cache/b.bin"]
 
     def test_upload_426_with_intact_file_proceeds(self, ftp_client_factory, ftp_server, tmp_path):
         """Some P2S firmware revisions return 426 on voidresp() even when the

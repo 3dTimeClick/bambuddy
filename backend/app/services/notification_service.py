@@ -463,9 +463,12 @@ class NotificationService:
         if not phone or not apikey:
             return False, "Phone number and API key are required"
 
-        # URL encode the message
-        encoded_message = quote(message)
-        url = f"https://api.callmebot.com/whatsapp.php?phone={phone}&text={encoded_message}&apikey={apikey}"
+        # Every value URL-encoded: a phone number written "+49 151 ..." would
+        # otherwise lose its "+", which a query string reads as a space.
+        url = (
+            "https://api.callmebot.com/whatsapp.php"
+            f"?phone={quote(phone, safe='')}&text={quote(message, safe='')}&apikey={quote(apikey, safe='')}"
+        )
 
         client = await self._get_client()
         response = await client.get(url)

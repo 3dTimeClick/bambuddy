@@ -105,6 +105,7 @@ from backend.app.services.archive_cost_estimate import (
 )
 from backend.app.services.archive_purge import archive_purge_service
 from backend.app.services.bambu_ftp import (
+    RECOVERY_DOWNLOAD_MAX_TIMEOUT,
     FileNotOnPrinterError,
     cache_3mf_download,
     clear_3mf_cache,
@@ -4008,6 +4009,7 @@ def _schedule_fallback_3mf_retry(
                         temp_path,
                         socket_timeout=ftp_timeout,
                         printer_model=printer_model,
+                        max_total_timeout=RECOVERY_DOWNLOAD_MAX_TIMEOUT,
                     )
                 except Exception as e:
                     logger.debug("[RECOVER] Retry download of %s failed: %s", name, e)
@@ -4303,6 +4305,17 @@ async def _forget_if_printer_gone(printer_id: int) -> None:
         )
 
 
+async def _announce_plate_check_failed(printer_id: int, printer_name: str, reason: str) -> None:
+    """Tell the UI a plate check could not run. It does not block the print,
+    but an unchecked plate is not an empty one."""
+    try:
+        await ws_manager.broadcast(
+            {"type": "plate_check_failed", "printer_id": printer_id, "printer_name": printer_name, "reason": reason}
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning("[PLATE CHECK] Could not announce the failed check: %s", e)
+
+
 async def on_print_start(printer_id: int, data: dict):
     """Handle print start - archive the 3MF file immediately."""
     logger = logging.getLogger(__name__)
@@ -4456,6 +4469,7 @@ async def on_print_start(printer_id: int, data: dict):
 
                 plate_photo_data = None
                 objects_detected = False
+                check_failure: str | None = None
                 try:
                     logger.info("[PLATE CHECK] Running plate detection for printer %s", printer_id)
                     plate_result = await check_plate_empty(
@@ -4471,7 +4485,12 @@ async def on_print_start(printer_id: int, data: dict):
                         external_camera_snapshot_url=printer.external_camera_snapshot_url,
                     )
 
-                    objects_detected = not plate_result.needs_calibration and not plate_result.is_empty
+                    # No reference to compare against is a check that did not
+                    # run either: say so rather than call the plate empty.
+                    check_failure = getattr(plate_result, "failure_reason", None) or (
+                        "not_calibrated" if plate_result.needs_calibration else None
+                    )
+                    objects_detected = not check_failure and not plate_result.is_empty
                     if objects_detected:
                         # Objects detected - pause the print!
                         logger.warning(
@@ -4527,11 +4546,24 @@ async def on_print_start(printer_id: int, data: dict):
                         )
                     except Exception as notif_err:
                         logger.warning("[PLATE CHECK] Failed to send notification: %s", notif_err)
+                elif check_failure:
+                    logger.warning(
+                        "[PLATE CHECK] Plate check could not run for printer %s (%s): %s; proceeding with print",
+                        printer_id,
+                        check_failure,
+                        plate_result.message,
+                    )
+                    await _announce_plate_check_failed(printer_id, printer.name, check_failure)
                 else:
                     logger.info("[PLATE CHECK] Plate is empty for printer %s, proceeding with print", printer_id)
             except Exception as plate_err:
                 # Don't block print on plate detection errors
-                logger.warning("[PLATE CHECK] Plate detection failed for printer %s: %s", printer_id, plate_err)
+                logger.warning(
+                    "[PLATE CHECK] Plate check could not run for printer %s: %s; proceeding with print",
+                    printer_id,
+                    plate_err,
+                )
+                await _announce_plate_check_failed(printer_id, printer.name, "error")
 
         if not printer:
             logger.info("[CALLBACK] Skipping archive - printer not found in database")

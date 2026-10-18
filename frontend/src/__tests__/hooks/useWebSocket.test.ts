@@ -468,6 +468,30 @@ describe('useWebSocket hook', () => {
       vi.unstubAllGlobals();
     });
 
+    it('relays a plate check that could not run to the layout', async () => {
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      const received: unknown[] = [];
+      const listener = (event: Event) => received.push((event as CustomEvent).detail);
+      window.addEventListener('plate-check-failed', listener);
+
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+      const ws = await waitForWs();
+      act(() => {
+        ws.open();
+      });
+      act(() => {
+        ws.simulateMessage({
+          type: 'plate_check_failed',
+          printer_id: 3,
+          printer_name: 'X1C',
+          reason: 'no_camera_frame',
+        });
+      });
+      window.removeEventListener('plate-check-failed', listener);
+
+      expect(received).toEqual([{ printer_id: 3, printer_name: 'X1C', reason: 'no_camera_frame' }]);
+    });
+
     it('invalidates inventory queries on inventory_changed message', async () => {
       vi.useFakeTimers();
       const { useWebSocket } = await import('../../hooks/useWebSocket');

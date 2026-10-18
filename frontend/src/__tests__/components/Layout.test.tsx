@@ -414,6 +414,22 @@ describe('Layout', () => {
       });
     });
 
+    it('warns when a plate check could not run, naming why', async () => {
+      render(<Layout />);
+
+      window.dispatchEvent(
+        new CustomEvent('plate-check-failed', {
+          detail: { printer_id: 1, printer_name: 'Test Printer', reason: 'no_camera_frame' },
+        })
+      );
+
+      await waitFor(() => {
+        expect(document.body.textContent).toContain(
+          'Plate check could not run on Test Printer (no camera image). The print continues.'
+        );
+      });
+    });
+
     it('closes modal when I Understand button is clicked', async () => {
       render(<Layout />);
 
