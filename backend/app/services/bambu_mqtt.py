@@ -1545,10 +1545,6 @@ class BambuMQTTClient:
         # home_flag bit 10 is read from every status frame (#3259).
         self._backup_home_flag_trusted: bool = False
 
-        # Track last requested tray ID for H2D dual-nozzle printers
-        # H2D only reports slot number (0-3) in tray_now, not global tray ID
-        # We use our tracked value to resolve the correct global ID
-        self._last_load_tray_id: int | None = None
         # Whether the frame being handled carried the nozzles' snow: only then
         # may snow overrule the slot the same frame reports as tray_now.
         self._snow_in_frame = False
@@ -7839,7 +7835,6 @@ class BambuMQTTClient:
 
         # Track this load request for H2D dual-nozzle disambiguation
         # H2D reports only slot number (0-3) in tray_now, so we use our tracked value
-        self._last_load_tray_id = tray_id
         self.state.pending_tray_target = tray_id
         logger.info("[%s] Set pending_tray_target=%s for H2D disambiguation", self.serial_number, tray_id)
 
@@ -7946,7 +7941,6 @@ class BambuMQTTClient:
         logger.info("[%s] Unloading filament (tray_now was %s)", self.serial_number, tray_now)
 
         # Clear tracked load request since we're unloading
-        self._last_load_tray_id = None
         self.state.pending_tray_target = None
         logger.info("[%s] Cleared pending_tray_target (unload)", self.serial_number)
 

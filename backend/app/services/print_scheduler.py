@@ -1733,6 +1733,7 @@ class PrintScheduler:
                         target_model=(entry[1] if entry else "") or "",
                         waiting_reason=reason,
                         db=db,
+                        printer_id=item.printer_id,
                     )
                 except Exception as e:
                     # A queue that cannot say why it is waiting is the bug being
@@ -2296,6 +2297,7 @@ class PrintScheduler:
                                 wakeable_ids=wakeable_printer_ids,
                                 printer_scope=item_scope,
                                 is_short=is_short,
+                                drying_ids=drying_held,
                             )
                             # "Only if the previous print succeeded" is about the
                             # printer the job lands on: one whose last print failed
@@ -3192,6 +3194,7 @@ class PrintScheduler:
         wakeable_ids: set[int] | None = None,
         printer_scope: PrinterScope = ALL_PRINTERS,
         is_short: Callable[[int], Awaitable[bool]] | None = None,
+        drying_ids: set[int] | None = None,
     ) -> tuple[int | None, str | None]:
         """Find an idle, connected printer matching the model with compatible filaments.
 
@@ -3214,6 +3217,8 @@ class PrintScheduler:
                       is not. When every eligible printer is short, the first is
                       returned all the same, so the deficit gate holds the job there
                       and "Print Anyway" still has a printer to print on.
+            drying_ids: Excluded printers held by a drying cycle; named "(drying)"
+                        in the reason, as a pinned job's wait is.
 
         Returns:
             Tuple of (printer_id, waiting_reason):
@@ -3252,7 +3257,7 @@ class PrintScheduler:
                     if missing_colors:
                         printers_missing_filament.append((printer.name, missing_colors))
                         continue
-                printers_busy.append(printer.name)
+                printers_busy.append(f"{printer.name} (drying)" if printer.id in (drying_ids or ()) else printer.name)
                 continue
 
             is_connected = printer_manager.is_connected(printer.id)
@@ -5229,7 +5234,7 @@ class PrintScheduler:
             # reason enough to run the check. Its record is forgotten when the
             # relay is switched off, not when the broker drops: a reconnect must
             # not re-send every low slot.
-            notify = bool(await notification_service._get_providers_for_event(db, "on_filament_low"))
+            notify = bool(await notification_service._get_providers_for_event(db, "on_filament_low", fleet_wide=True))
             relay = mqtt_relay.enabled and mqtt_relay.connected
             if not notify:
                 self._notified_filament_low.clear()
@@ -5448,8 +5453,12 @@ class PrintScheduler:
             if self._stock_alerts_persisted is None:
                 await self._load_stock_alerts(db)
             wanted = {
-                "reorder": bool(await notification_service._get_providers_for_event(db, "on_stock_reorder_alert")),
-                "break": bool(await notification_service._get_providers_for_event(db, "on_stock_break_alert")),
+                "reorder": bool(
+                    await notification_service._get_providers_for_event(db, "on_stock_reorder_alert", fleet_wide=True)
+                ),
+                "break": bool(
+                    await notification_service._get_providers_for_event(db, "on_stock_break_alert", fleet_wide=True)
+                ),
             }
             if not any(wanted.values()):
                 # Nobody wants either event. Forget what was sent, so whoever
@@ -5779,7 +5788,11 @@ class PrintScheduler:
         # Find printers with scheduled items (for queue drying mode)
         # An "Any <model>" job counts for every printer it could land on.
         printers_with_scheduled: set[int] = set()
-        printers_with_items: set[int] = set()
+        # Printers with a job that could start now: the ones block mode keeps
+        # a new cycle off. A job waiting for its start time is what queue
+        # drying dries ahead of.
+        printers_with_ready_items: set[int] = set()
+        now_utc = datetime.now(timezone.utc)
         creator_scopes: dict[int | None, PrinterScope] = {}
         model_printers: dict[tuple[str, str | None, int | None], set[int]] = {}
         for item in queue_items:
@@ -5793,9 +5806,13 @@ class PrintScheduler:
                 )
             else:
                 continue
-            printers_with_items |= item_printers
             if item.scheduled_time and not item.manual_start:
                 printers_with_scheduled |= item_printers
+            sched = item.scheduled_time
+            if sched is not None and sched.tzinfo is None:
+                sched = sched.replace(tzinfo=timezone.utc)
+            if sched is None or sched <= now_utc:
+                printers_with_ready_items |= item_printers
 
         # If only queue mode is on and no printers have scheduled items, stop drying
         # (but skip this short-circuit when print_drying_enabled is on — busy printers
@@ -5861,10 +5878,13 @@ class PrintScheduler:
                         await self._stop_drying(pid)
                     logger.debug("Auto-drying: printer %d skipped — no scheduled prints", pid)
                     continue
-                # When block mode is on, don't START new drying on printers with pending items.
-                # But allow already-drying printers through so humidity auto-stop logic still runs.
-                if block_for_drying and pid in printers_with_items and not self._drying_in_progress.get(pid):
-                    logger.debug("Auto-drying: printer %d skipped — has pending items (block mode)", pid)
+                # When block mode is on, don't START new drying on printers with
+                # a job that could start now: the cycle would hold it. One
+                # scheduled for later may pre-dry; if the cycle is still running
+                # at its time, the hold applies then. Already-drying printers go
+                # through so humidity auto-stop logic still runs.
+                if block_for_drying and pid in printers_with_ready_items and not self._drying_in_progress.get(pid):
+                    logger.debug("Auto-drying: printer %d skipped — has a job ready to start (block mode)", pid)
                     continue
             if not printer_manager.is_connected(pid):
                 logger.debug("Auto-drying: printer %d skipped — not connected", pid)
@@ -8100,6 +8120,7 @@ class PrintScheduler:
                     target_model=(printer.model if printer else "") or "",
                     waiting_reason="filament_short",
                     db=db,
+                    printer_id=item.printer_id,
                 )
             except Exception as e:
                 logger.debug("filament_short notification failed for item %s: %s", item.id, e)
@@ -8212,6 +8233,8 @@ class PrintScheduler:
                 target_model=(printer.model if printer else "") or "",
                 waiting_reason=f"needs {wanted}",
                 db=db,
+                # Released to the pool: no printer holds it any more.
+                printer_id=None if release_assignment else held_by,
             )
         except Exception as e:
             logger.debug("filament_missing notification failed for item %s: %s", item.id, e)

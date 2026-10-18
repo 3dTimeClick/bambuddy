@@ -76,8 +76,9 @@ class TestTheHoldCoversModelJobs:
         launched.assert_not_called()
         item = await _item(ctx, item_id)
         assert item.printer_id is None
-        # Busy-shaped: the cycle ends on its own, nothing to alert about.
-        assert item.waiting_reason == "Busy: X1C-01"
+        # Busy-shaped: the cycle ends on its own, nothing to alert about. Named
+        # like a pinned job's, so the wait reads as drying, not as printing.
+        assert item.waiting_reason == "Busy: X1C-01 (drying)"
 
     @pytest.mark.asyncio
     async def test_a_parked_timer_does_not_hold_it(self, ctx):
