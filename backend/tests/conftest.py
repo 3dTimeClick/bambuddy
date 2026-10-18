@@ -396,6 +396,29 @@ async def _reset_pg_test_schema(conn) -> None:
     await conn.execute(text(_PG_EMPTY_TABLES))
 
 
+async def _release_app_engine() -> None:
+    """Close the app engine's pooled connections before this test's loop ends.
+
+    Code that opens its own session (print completion, services) uses the
+    app's module-level engine, shared by every test on the worker. Its pool
+    would keep a connection opened in this test's event loop into the next
+    test's, where SQLAlchemy closes it in a loop it does not belong to; on
+    PostgreSQL that leaves asyncpg's cleanup unawaited, reported as an
+    unraisable "Connection._cancel" coroutine in some later test.
+    """
+    await _app_engine.dispose()
+
+
+if TEST_PG_URL is not None:
+
+    @pytest.fixture(autouse=True)
+    async def _app_engine_released_after_each_test():
+        """Every test, not only those with test_engine: any of them can reach
+        the app engine through code that opens its own session."""
+        yield
+        await _release_app_engine()
+
+
 @pytest.fixture
 async def test_engine():
     """Create a test database engine."""
@@ -455,6 +478,7 @@ async def test_engine():
         async with engine.begin() as conn:
             await _reset_pg_test_schema(conn)
         yield engine
+        await _release_app_engine()
         await engine.dispose()
         return
 
@@ -462,6 +486,7 @@ async def test_engine():
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
+    await _release_app_engine()
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

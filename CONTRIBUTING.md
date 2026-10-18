@@ -195,7 +195,7 @@ ruff format backend/
 ruff format --check backend/
 ```
 
-Types are checked with [basedpyright](https://docs.basedpyright.com/) (configuration in `pyproject.toml`). Errors that existed when the check was introduced are listed in `.basedpyright/baseline.json` and pass; a new one fails the check. The check runs against the pinned library versions in `requirements-typecheck.lock`, because other versions report different errors. It needs Python 3.11 or newer on Linux, macOS on Apple Silicon, or WSL (the lock is built for Linux; on Intel Macs some pinned packages have no wheels). Once `.typecheck-venv` exists, `./test_backend.sh` runs it for you and rebuilds the venv whenever the lock changes. Running the commands by hand, re-run the `pip install` after a lock change:
+Types are checked with [basedpyright](https://docs.basedpyright.com/) (configuration in `pyproject.toml`). Errors that existed when the check was introduced are listed in `.basedpyright/baseline.json` and pass; a new one fails the check. The check runs against the pinned library versions in `requirements-typecheck.lock`, because other versions report different errors. It needs Python 3.11 or newer on Linux, macOS on Apple Silicon, or WSL (the lock is built for Linux; on Intel Macs some pinned packages have no wheels). `./test_backend.sh` runs it for you: it creates `.typecheck-venv` on first use when Python 3.11 is available (through `uv`, or as `python3.11`), and rebuilds it whenever the lock changes. Running the commands by hand, re-run the `pip install` after a lock change:
 
 ```bash
 python3 -m venv .typecheck-venv          # Python 3.11 or newer
