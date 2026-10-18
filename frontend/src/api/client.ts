@@ -6402,11 +6402,8 @@ export const api = {
     request<SlicerSettingDeleteResponse>(`/cloud/settings/${settingId}`, {
       method: 'DELETE',
     }),
-  getCloudDevices: () => request<CloudDevice[]>('/cloud/devices'),
   getCloudFields: (presetType: 'filament' | 'print' | 'process' | 'printer') =>
     request<FieldDefinitionsResponse>(`/cloud/fields/${presetType}`),
-  getAllCloudFields: () =>
-    request<Record<string, FieldDefinitionsResponse>>('/cloud/fields'),
   getFilamentInfo: (settingIds: string[]) =>
     request<Record<string, { name: string; k: number | null }>>('/cloud/filament-info', {
       method: 'POST',
@@ -6516,7 +6513,6 @@ export const api = {
     if (targetModel) params.set('target_model', targetModel);
     return request<PrintQueueItem[]>(`/queue/?${params}`);
   },
-  getQueueItem: (id: number) => request<PrintQueueItem>(`/queue/${id}`),
   addToQueue: (data: PrintQueueItemCreate) =>
     request<PrintQueueItem>('/queue/', {
       method: 'POST',
@@ -6578,17 +6574,11 @@ export const api = {
     const params = status ? `?status=${status}` : '';
     return request<PrintBatch[]>(`/queue/batches${params}`);
   },
-  getBatch: (id: number) => request<PrintBatch>(`/queue/batches/${id}`),
   cancelBatch: (id: number) =>
     request<{ message: string }>(`/queue/batches/${id}`, { method: 'DELETE' }),
   createBatch: (data: PrintBatchCreate) =>
     request<PrintBatch>('/queue/batches', {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateBatch: (id: number, data: PrintBatchUpdate) =>
-    request<PrintBatch>(`/queue/batches/${id}`, {
-      method: 'PATCH',
       body: JSON.stringify(data),
     }),
   dispatchBatch: (id: number, data: PrintBatchDispatchRequest = {}) =>
@@ -7469,8 +7459,6 @@ export const api = {
     withStreamToken(`${API_BASE}/printers/${printerId}/camera/stream?fps=${fps}`),
   getCameraSnapshotUrl: (printerId: number) =>
     withStreamToken(`${API_BASE}/printers/${printerId}/camera/snapshot`),
-  testCameraConnection: (printerId: number) =>
-    request<{ success: boolean; message?: string; error?: string }>(`/printers/${printerId}/camera/test`),
   getCameraStatus: (printerId: number) =>
     request<{ active: boolean; stalled: boolean }>(`/printers/${printerId}/camera/status`),
   diagnoseCamera: (printerId: number) =>
@@ -7501,11 +7489,6 @@ export const api = {
       `/printers/${printerId}/camera/check-plate?${params.toString()}`
     );
   },
-  getPlateDetectionStatus: (printerId: number) => {
-    return request<PlateDetectionStatus & { chamber_light?: boolean }>(
-      `/printers/${printerId}/camera/plate-detection/status`
-    );
-  },
   calibratePlateDetection: (printerId: number, options?: { label?: string; useExternal?: boolean }) => {
     const params = new URLSearchParams();
     if (options?.label) params.set('label', options.label);
@@ -7515,12 +7498,6 @@ export const api = {
     return request<CalibrationResult & { index: number }>(
       `/printers/${printerId}/camera/plate-detection/calibrate?${params.toString()}`,
       { method: 'POST' }
-    );
-  },
-  deletePlateCalibration: (printerId: number) => {
-    return request<CalibrationResult>(
-      `/printers/${printerId}/camera/plate-detection/calibrate`,
-      { method: 'DELETE' }
     );
   },
   getPlateReferences: (printerId: number) => {
@@ -8416,8 +8393,6 @@ export const api = {
   // Local Presets (OrcaSlicer imports)
   getLocalPresets: () =>
     request<LocalPresetsResponse>('/local-presets/'),
-  getLocalPresetDetail: (id: number) =>
-    request<LocalPresetDetail>(`/local-presets/${id}`),
   importLocalPresets: (formData: FormData) =>
     fetch(`${API_BASE}/local-presets/import`, {
       method: 'POST',
@@ -8430,20 +8405,8 @@ export const api = {
       }
       return res.json() as Promise<ImportResponse>;
     }),
-  createLocalPreset: (data: { name: string; preset_type: string; setting: Record<string, unknown> }) =>
-    request<LocalPreset>('/local-presets/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateLocalPreset: (id: number, data: { name?: string; setting?: Record<string, unknown> }) =>
-    request<LocalPreset>(`/local-presets/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
   deleteLocalPreset: (id: number) =>
     request<{ success: boolean }>(`/local-presets/${id}`, { method: 'DELETE' }),
-  refreshBaseProfileCache: () =>
-    request<{ refreshed: number; failed: number; total: number }>('/local-presets/base-cache/refresh', { method: 'POST' }),
 };
 
 // AMS History types

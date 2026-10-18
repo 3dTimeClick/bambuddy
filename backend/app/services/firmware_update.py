@@ -8,7 +8,6 @@ Orchestrates firmware updates for Bambu Lab printers:
 4. Notify user to trigger update from printer screen
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -17,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.compat import StrEnum
 from backend.app.core.tasks import spawn_background_task
-from backend.app.core.websocket import ws_manager
 from backend.app.models.printer import Printer
 from backend.app.services.bambu_ftp import (
     get_ftp_retry_settings,
@@ -256,7 +254,6 @@ class FirmwareUpdateService:
         state = get_upload_state(printer_id)
         state.status = FirmwareUploadStatus.PREPARING
         state.message = "Preparing firmware update..."
-        await self._broadcast_progress(printer_id, state)
 
         # Run the upload in background
         spawn_background_task(
@@ -289,7 +286,6 @@ class FirmwareUpdateService:
             state.status = FirmwareUploadStatus.DOWNLOADING
             state.progress = 0
             state.message = "Preparing firmware..."
-            await self._broadcast_progress(printer_id, state)
 
             firmware_path = await firmware_service.download_firmware(model, version=target_version)
 
@@ -310,26 +306,22 @@ class FirmwareUpdateService:
             state.status = FirmwareUploadStatus.UPLOADING
             state.progress = 0
             state.message = f"Uploading {firmware_path.name} to printer..."
-            await self._broadcast_progress(printer_id, state)
 
             # Upload to root of SD card (where printer expects firmware)
             remote_path = f"/{firmware_path.name}"
 
             logger.info("Uploading firmware to printer %s: %s", printer_id, remote_path)
 
-            # Track real progress via FTP callback
-            loop = asyncio.get_event_loop()
+            # Track real progress via FTP callback; the UI polls the upload status
             last_progress = 0
 
             def on_upload_progress(uploaded: int, total: int):
                 nonlocal last_progress
                 if total > 0:
                     progress = int((uploaded / total) * 100)
-                    # Only broadcast every 1% to avoid flooding
                     if progress > last_progress:
                         last_progress = progress
                         state.progress = min(99, progress)  # Cap at 99 until complete
-                        asyncio.run_coroutine_threadsafe(self._broadcast_progress(printer_id, state), loop)
 
             # Get FTP retry settings
             ftp_retry_enabled, ftp_retry_count, ftp_retry_delay, ftp_timeout = await get_ftp_retry_settings()
@@ -375,7 +367,6 @@ class FirmwareUpdateService:
                 f"Firmware {state.firmware_version or ''} uploaded successfully! "
                 "Please go to printer screen and trigger the update from Settings > Firmware."
             )
-            await self._broadcast_progress(printer_id, state)
 
             logger.info("Firmware upload complete for printer %s", printer_id)
 
@@ -384,22 +375,6 @@ class FirmwareUpdateService:
             state.status = FirmwareUploadStatus.ERROR
             state.error = str(e)
             state.message = f"Firmware upload failed: {e}"
-            await self._broadcast_progress(printer_id, state)
-
-    async def _broadcast_progress(self, printer_id: int, state: FirmwareUploadState):
-        """Broadcast firmware upload progress via WebSocket."""
-        await ws_manager.broadcast(
-            {
-                "type": "firmware_upload_progress",
-                "printer_id": printer_id,
-                "status": state.status.value,
-                "progress": state.progress,
-                "message": state.message,
-                "error": state.error,
-                "firmware_filename": state.firmware_filename,
-                "firmware_version": state.firmware_version,
-            }
-        )
 
 
 # Singleton instance

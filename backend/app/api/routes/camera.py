@@ -2045,47 +2045,6 @@ async def calibrate_plate_detection(
     return {"success": success, "message": message, "index": index}
 
 
-@router.delete("/{printer_id}/camera/plate-detection/calibrate")
-async def delete_plate_calibration(
-    printer_id: int,
-    plate_type: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-):
-    """Delete the plate detection calibration for a printer and plate type.
-
-    Args:
-        printer_id: Printer ID
-        plate_type: Type of build plate (if None, deletes legacy non-plate-specific calibration)
-
-    Returns:
-        Dict with:
-        - success: bool - Whether deletion succeeded
-        - message: str - Status message
-    """
-    from backend.app.services.plate_detection import (
-        delete_calibration,
-        is_plate_detection_available,
-    )
-
-    # Verify printer exists first (before OpenCV check)
-    await get_printer_or_404(printer_id, db)
-
-    if not is_plate_detection_available():
-        raise HTTPException(
-            status_code=503,
-            detail="Plate detection not available. Install opencv-python-headless to enable.",
-        )
-
-    deleted = delete_calibration(printer_id, plate_type)
-    plate_msg = f" for '{plate_type}'" if plate_type else ""
-
-    return {
-        "success": deleted,
-        "message": f"Calibration deleted{plate_msg}" if deleted else f"No calibration found{plate_msg}",
-    }
-
-
 @router.get("/{printer_id}/camera/plate-detection/status")
 async def get_plate_detection_status(
     printer_id: int,

@@ -676,25 +676,14 @@ class TestCameraAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_delete_calibration_printer_not_found(self, async_client: AsyncClient):
-        """Verify 404 when deleting calibration for non-existent printer."""
-        response = await async_client.delete("/api/v1/printers/99999/camera/plate-detection/calibrate")
-
-        assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    @pytest.mark.integration
-    async def test_delete_calibration_success(self, async_client: AsyncClient, printer_factory):
-        """Verify delete calibration returns proper structure."""
+    async def test_the_legacy_delete_all_calibration_route_is_gone(self, async_client: AsyncClient, printer_factory):
+        """References are deleted one at a time (DELETE .../references/{index});
+        the old delete-everything route had no caller left."""
         printer = await printer_factory()
 
-        with patch("backend.app.services.plate_detection.is_plate_detection_available", return_value=True):
-            response = await async_client.delete(f"/api/v1/printers/{printer.id}/camera/plate-detection/calibrate")
+        response = await async_client.delete(f"/api/v1/printers/{printer.id}/camera/plate-detection/calibrate")
 
-        assert response.status_code == 200
-        result = response.json()
-        assert "success" in result
-        assert "message" in result
+        assert response.status_code == 405
 
     @pytest.mark.asyncio
     @pytest.mark.integration

@@ -19,7 +19,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 # (method, path template, permission that used to suffice, permission needed now)
 ROUTES = [
     ("POST", "/api/v1/printers/{printer}/camera/plate-detection/calibrate", "camera:view", "printers:update"),
-    ("DELETE", "/api/v1/printers/{printer}/camera/plate-detection/calibrate", "camera:view", "printers:update"),
     ("PUT", "/api/v1/printers/{printer}/camera/plate-detection/references/0", "camera:view", "printers:update"),
     ("DELETE", "/api/v1/printers/{printer}/camera/plate-detection/references/0", "camera:view", "printers:update"),
     ("POST", "/api/v1/bug-report/stop-logging?was_debug=true", "settings:read", "settings:update"),

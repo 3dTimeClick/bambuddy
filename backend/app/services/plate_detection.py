@@ -411,16 +411,6 @@ class PlateDetector:
         """Check if a printer has any calibration reference images."""
         return len(self._get_reference_paths(printer_id)) > 0
 
-    def delete_calibration(self, printer_id: int, plate_type: str | None = None) -> bool:
-        """Delete all calibration reference images for a printer."""
-        paths = self._get_reference_paths(printer_id)
-        if not paths:
-            return False
-        for path in paths:
-            path.unlink()
-        logger.info("Deleted %s plate calibration reference(s) for printer %s", len(paths), printer_id)
-        return True
-
     def analyze_frame(
         self, image_data: bytes, printer_id: int, plate_type: str | None = None, include_debug_image: bool = False
     ) -> PlateDetectionResult:
@@ -841,15 +831,6 @@ def get_calibration_status(printer_id: int, plate_type: str | None = None) -> di
         "max_references": detector.MAX_REFERENCES,
         "message": message,
     }
-
-
-def delete_calibration(printer_id: int, plate_type: str | None = None) -> bool:
-    """Delete calibration for a printer and plate type."""
-    if not OPENCV_AVAILABLE:
-        return False
-
-    detector = PlateDetector()
-    return detector.delete_calibration(printer_id, plate_type)
 
 
 def is_plate_detection_available() -> bool:

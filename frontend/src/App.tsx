@@ -44,7 +44,6 @@ const GCodeViewerPage = lazyPage(() => import('./pages/GCodeViewerPage'), 'GCode
 const SpoolBuddyDashboard = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddyDashboard'), 'SpoolBuddyDashboard');
 const SpoolBuddyAmsPage = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddyAmsPage'), 'SpoolBuddyAmsPage');
 const SpoolBuddySettingsPage = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddySettingsPage'), 'SpoolBuddySettingsPage');
-const SpoolBuddyCalibrationPage = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddyCalibrationPage'), 'SpoolBuddyCalibrationPage');
 const SpoolBuddyWriteTagPage = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddyWriteTagPage'), 'SpoolBuddyWriteTagPage');
 const SpoolBuddyInventoryPage = lazyPage(() => import('./pages/spoolbuddy/SpoolBuddyInventoryPage'), 'SpoolBuddyInventoryPage');
 
@@ -214,7 +213,8 @@ function App() {
                   <Route path="spoolbuddy/write-tag" element={<SpoolBuddyWriteTagPage />} />
                   <Route path="spoolbuddy/inventory" element={<SpoolBuddyInventoryPage />} />
                   <Route path="spoolbuddy/settings" element={<SpoolBuddySettingsPage />} />
-                  <Route path="spoolbuddy/calibration" element={<SpoolBuddyCalibrationPage />} />
+                  {/* Calibration moved into the settings page; old bookmarks land there. */}
+                  <Route path="spoolbuddy/calibration" element={<Navigate to="/spoolbuddy/settings" replace />} />
                 </Route>
 
                 {/* Main app with WebSocket for real-time updates */}
