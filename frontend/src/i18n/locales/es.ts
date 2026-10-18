@@ -2458,6 +2458,7 @@ export default {
     tempAlarmMustBePositive: 'Un umbral de 0 o inferior se ignora: la alarma usa el umbral aceptable.',
     historyRetention: 'Retención del historial',
     keepSensorHistory: 'Conservar el historial del sensor durante',
+    keepPrinterTemperatureHistory: 'Conservar el historial de temperaturas de la impresora (boquilla, cama, cámara) durante',
     historyRetentionDescription: 'Los datos de humedad y temperatura más antiguos se eliminarán automáticamente',
     defaultPrintOptions: 'Opciones de impresión predeterminadas',
     defaultPrintOptionsDescription: 'Establezca valores predeterminados para las opciones de impresión al iniciar nuevas impresiones. Se pueden anular por impresión en el diálogo de impresión.',

@@ -2332,6 +2332,7 @@ export default {
     tempAlarmMustBePositive: '0 이하의 기준값은 무시되며, 보통 기준값으로 알립니다.',
     historyRetention: '기록 보존',
     keepSensorHistory: '센서 기록 보존 기간',
+    keepPrinterTemperatureHistory: '프린터 온도 기록(노즐, 베드, 챔버) 보존 기간',
     historyRetentionDescription: '오래된 습도 및 온도 데이터가 자동으로 삭제됩니다',
     defaultPrintOptions: '기본 인쇄 옵션',
     defaultPrintOptionsDescription: '새 인쇄 시작 시 기본값을 설정하세요. 인쇄 대화 상자에서 인쇄별로 재정의할 수 있습니다.',

@@ -2475,6 +2475,7 @@ export default {
     tempAlarmMustBePositive: 'Een drempel van 0 of lager wordt genegeerd — het alarm valt terug op de drempel Redelijk.',
     historyRetention: 'Bewaartermijn geschiedenis',
     keepSensorHistory: 'Sensorgeschiedenis bewaren gedurende',
+    keepPrinterTemperatureHistory: 'Temperatuurgeschiedenis van de printer (nozzle, bed, kamer) bewaren gedurende',
     historyRetentionDescription: 'Oudere gegevens over luchtvochtigheid en temperatuur worden automatisch verwijderd',
     defaultPrintOptions: 'Standaard afdrukopties',
     defaultPrintOptionsDescription: 'Stel standaardwaarden in voor afdrukopties bij het starten van nieuwe afdrukken. Deze kunnen per afdruk in het afdrukdialoogvenster worden overschreven.',

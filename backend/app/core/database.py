@@ -5439,6 +5439,7 @@ async def _run_migrations(conn):
     # Migration: Disambiguate the four ``user_print_*`` notification template
     # names by appending " Email" (#1792). See ``_migrate_rename_user_print_template_names``.
     await _migrate_rename_user_print_template_names(conn)
+    await _migrate_clear_bug_report_emails(conn)
 
     # Migration: per-file print progress inside a project (#1897).
     # - print_archives.library_file_id: which library file a queued run was
@@ -7188,6 +7189,19 @@ async def _migrate_rename_user_print_template_names(conn) -> None:
                 text("UPDATE notification_templates SET name = :new WHERE event_type = :et AND name = :old"),
                 {"new": new_name, "et": event_type, "old": old_name},
             )
+
+
+async def _migrate_clear_bug_report_emails(conn) -> None:
+    """Clear the reporter emails stored with past bug reports.
+
+    Every report kept the email it was sent with, and nothing ever read or
+    purged the table; the email only needs to reach the relay. Repeatable:
+    nothing writes one any more.
+    """
+    from sqlalchemy import text
+
+    async with conn.begin_nested():
+        await conn.execute(text("UPDATE bug_reports SET reporter_email = NULL WHERE reporter_email IS NOT NULL"))
 
 
 async def seed_notification_templates():

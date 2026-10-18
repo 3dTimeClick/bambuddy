@@ -2474,6 +2474,7 @@ export default {
     tempAlarmMustBePositive: 'Ett tröskelvärde på 0 eller lägre ignoreras — larmet faller tillbaka till Godkänd-tröskelvärdet.',
     historyRetention: 'Bevarande av historik',
     keepSensorHistory: 'Bevara sensordata för',
+    keepPrinterTemperatureHistory: 'Bevara skrivarens temperaturhistorik (munstycke, bädd, kammare) i',
     historyRetentionDescription: 'Äldre luftfuktighets- och temperaturdata kommer att tas bort automatiskt',
     defaultPrintOptions: 'Standardutskriftsalternativ',
     defaultPrintOptionsDescription: 'Sätt standardvärden för utskriftsalternativ när nya utskrifter startas. Dessa kan åsidosättas per utskrift i utskriftsdialogrutan.',

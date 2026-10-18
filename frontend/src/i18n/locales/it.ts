@@ -2410,6 +2410,7 @@ export default {
     tempAlarmMustBePositive: 'Una soglia pari o inferiore a 0 viene ignorata: l\'allarme usa la soglia discreta.',
     historyRetention: 'Conservazione cronologia',
     keepSensorHistory: 'Mantieni cronologia sensori per',
+    keepPrinterTemperatureHistory: 'Mantieni la cronologia delle temperature della stampante (ugello, piatto, camera) per',
     historyRetentionDescription: 'I dati più vecchi saranno eliminati automaticamente',
     defaultPrintOptions: 'Opzioni di stampa predefinite',
     defaultPrintOptionsDescription: 'Imposta i valori predefiniti per le opzioni di stampa. Possono essere modificati nella finestra di stampa.',

@@ -2477,6 +2477,7 @@ export default {
     tempAlarmMustBePositive: 'A threshold of 0 or less is ignored — the alarm falls back to the fair threshold.',
     historyRetention: 'History Retention',
     keepSensorHistory: 'Keep sensor history for',
+    keepPrinterTemperatureHistory: 'Keep printer temperature history (nozzle, bed, chamber) for',
     historyRetentionDescription: 'Older humidity and temperature data will be automatically deleted',
     defaultPrintOptions: 'Default Print Options',
     defaultPrintOptionsDescription: 'Set default values for print options when starting new prints. These can be overridden per print in the print dialog.',

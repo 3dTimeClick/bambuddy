@@ -2454,6 +2454,7 @@ export default {
     tempAlarmMustBePositive: '0以下のしきい値は無視され、普通のしきい値で発報します。',
     historyRetention: '履歴の保持',
     keepSensorHistory: 'センサー履歴の保持期間',
+    keepPrinterTemperatureHistory: 'プリンター温度履歴(ノズル・ベッド・チャンバー)の保持期間',
     historyRetentionDescription: '古い湿度と温度データは自動的に削除されます',
     defaultPrintOptions: 'デフォルト印刷オプション',
     defaultPrintOptionsDescription: '新しい印刷のデフォルト値を設定します。印刷ダイアログで個別に変更できます。',

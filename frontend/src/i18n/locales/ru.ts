@@ -2335,6 +2335,7 @@ export default {
     tempAlarmMustBePositive: "Порог 0 или меньше игнорируется — тревога срабатывает по допустимому порогу.",
     historyRetention: "Хранение истории",
     keepSensorHistory: "Хранить историю датчиков",
+    keepPrinterTemperatureHistory: 'Хранить историю температур принтера (сопло, стол, камера)',
     historyRetentionDescription: "Более старые данные влажности и температуры будут удаляться автоматически",
     defaultPrintOptions: "Параметры печати по умолчанию",
     defaultPrintOptionsDescription: "Задайте значения по умолчанию для новых заданий. Их можно изменить отдельно в диалоге запуска печати.",

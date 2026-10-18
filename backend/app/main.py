@@ -9295,6 +9295,18 @@ async def on_print_complete(printer_id: int, data: dict):
 _ams_history_task: asyncio.Task | None = None
 AMS_HISTORY_INTERVAL = 300  # Record every 5 minutes
 AMS_HISTORY_RETENTION_DAYS = 30  # Keep data for 30 days
+
+
+def _retention_days(stored: str | None, default: int) -> int:
+    """A history retention setting as days to keep: at least 1, the default
+    when unset or unreadable. A stored 0 or less (the API took one before it
+    had a minimum) would put the cutoff at now and delete all history."""
+    try:
+        return max(1, int(stored)) if stored is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 _ams_cleanup_counter = 0  # Track recordings to trigger periodic cleanup
 # Track alarm cooldowns (printer_id:ams_id:type -> last_alarm_time)
 _ams_alarm_cooldown: dict[str, datetime] = {}
@@ -9733,7 +9745,7 @@ async def record_ams_history():
 
                     result = await db.execute(select(Settings).where(Settings.key == "ams_history_retention_days"))
                     setting = result.scalar_one_or_none()
-                    retention_days = int(setting.value) if setting else AMS_HISTORY_RETENTION_DAYS
+                    retention_days = _retention_days(setting.value if setting else None, AMS_HISTORY_RETENTION_DAYS)
 
                     cutoff = utcnow_naive() - timedelta(days=retention_days)
                     result = await db.execute(delete(AMSSensorHistory).where(AMSSensorHistory.recorded_at < cutoff))
@@ -9859,7 +9871,9 @@ async def record_printer_sensor_history():
                         select(Settings).where(Settings.key == "printer_sensor_history_retention_days")
                     )
                     setting = result.scalar_one_or_none()
-                    retention_days = int(setting.value) if setting else PRINTER_SENSOR_HISTORY_RETENTION_DAYS
+                    retention_days = _retention_days(
+                        setting.value if setting else None, PRINTER_SENSOR_HISTORY_RETENTION_DAYS
+                    )
 
                     cutoff = utcnow_naive() - timedelta(days=retention_days)
                     cleanup = await db.execute(

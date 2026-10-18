@@ -86,3 +86,40 @@ describe('SettingsPage fields that were never saved', () => {
     });
   });
 });
+
+describe('SettingsPage printer temperature history retention', () => {
+  let saves: Record<string, unknown>[];
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+    vi.mocked(localStorage.getItem).mockReset();
+    localStorage.clear();
+    setAuthToken(null);
+    saves = [];
+    const withRetention = { ...settings, ams_history_retention_days: 30, printer_sensor_history_retention_days: 30 };
+    server.use(
+      http.get('/api/v1/settings/', () => HttpResponse.json(withRetention)),
+      http.put('/api/v1/settings/', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        saves.push(body);
+        return HttpResponse.json({ ...withRetention, ...body });
+      }),
+      http.get('/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: false, requires_setup: false })),
+    );
+  });
+
+  it('can be set next to the AMS history and is saved', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await screen.findByText('Date Format');
+    await user.click(screen.getAllByText('Filament')[0]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const input = await screen.findByLabelText('Keep printer temperature history (nozzle, bed, chamber) for');
+    fireEvent.change(input, { target: { value: '90' } });
+
+    await waitFor(() => expect(saves.at(-1)).toMatchObject({ printer_sensor_history_retention_days: 90 }), {
+      timeout: 3000,
+    });
+  });
+});

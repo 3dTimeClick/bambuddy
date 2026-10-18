@@ -2455,6 +2455,7 @@ export default {
     tempAlarmMustBePositive: 'Ein Schwellenwert von 0 oder weniger wird ignoriert — der Alarm nutzt dann den mittleren Schwellenwert.',
     historyRetention: 'Verlaufsaufbewahrung',
     keepSensorHistory: 'Sensorverlauf behalten für',
+    keepPrinterTemperatureHistory: 'Temperaturverlauf des Druckers (Düse, Bett, Kammer) behalten für',
     historyRetentionDescription: 'Ältere Feuchtigkeits- und Temperaturdaten werden automatisch gelöscht',
     defaultPrintOptions: 'Standard-Druckoptionen',
     defaultPrintOptionsDescription: 'Standardwerte für Druckoptionen bei neuen Drucken festlegen. Diese können im Druckdialog pro Druck überschrieben werden.',

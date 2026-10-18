@@ -2459,6 +2459,7 @@ export default {
     tempAlarmMustBePositive: 'Sıfır veya daha küçük bir eşik yok sayılır — alarm orta eşiği kullanır.',
     historyRetention: 'Geçmiş Saklama',
     keepSensorHistory: 'Sensör geçmişini sakla',
+    keepPrinterTemperatureHistory: 'Yazıcı sıcaklık geçmişini (nozül, tabla, hazne) sakla',
     historyRetentionDescription: 'Daha eski nem ve sıcaklık verileri otomatik olarak silinecek',
     defaultPrintOptions: 'Varsayılan Baskı Seçenekleri',
     defaultPrintOptionsDescription: 'Yeni baskılar başlatılırken baskı seçenekleri için varsayılan değerleri ayarlayın. Bunlar baskı iletişim kutusunda baskı başına geçersiz kılınabilir.',

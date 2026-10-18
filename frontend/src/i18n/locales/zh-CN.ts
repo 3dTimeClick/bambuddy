@@ -2455,6 +2455,7 @@ export default {
     tempAlarmMustBePositive: '小于或等于 0 的阈值将被忽略，告警改用一般阈值。',
     historyRetention: '历史保留',
     keepSensorHistory: '保留传感器历史',
+    keepPrinterTemperatureHistory: '保留打印机温度历史(喷嘴、热床、腔室)',
     historyRetentionDescription: '较旧的湿度和温度数据将被自动删除',
     defaultPrintOptions: '默认打印选项',
     defaultPrintOptionsDescription: '设置新打印的默认选项值。可在打印对话框中逐次覆盖。',

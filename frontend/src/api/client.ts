@@ -1435,6 +1435,7 @@ export interface AppSettings {
   // resolves to ams_temp_fair so existing installs are unaffected.
   ams_temp_alarm: number | null;
   ams_history_retention_days: number;  // days to keep AMS sensor history
+  printer_sensor_history_retention_days?: number;  // days to keep printer heater history
   // Queue auto-drying settings
   queue_drying_enabled: boolean;  // Auto-dry AMS between queued prints
   queue_drying_block: boolean;  // Block queue until drying completes

@@ -2410,6 +2410,7 @@ export default {
     tempAlarmMustBePositive: 'Un seuil de 0 ou moins est ignoré — l\'alerte utilise alors le seuil correct.',
     historyRetention: 'Rétention d\'historique',
     keepSensorHistory: 'Garder l\'historique pendant',
+    keepPrinterTemperatureHistory: 'Garder l\'historique des températures de l\'imprimante (buse, plateau, caisson) pendant',
     historyRetentionDescription: 'Les anciennes données seront supprimées.',
     defaultPrintOptions: 'Options d\'impression par défaut',
     defaultPrintOptionsDescription: 'Définir les valeurs par défaut des options d\'impression. Modifiables dans la boîte de dialogue d\'impression.',

@@ -2410,6 +2410,7 @@ export default {
     tempAlarmMustBePositive: 'Um limiar de 0 ou menos é ignorado — o alarme usa o limiar razoável.',
     historyRetention: 'Retenção de Histórico',
     keepSensorHistory: 'Manter histórico do sensor por',
+    keepPrinterTemperatureHistory: 'Manter o histórico de temperatura da impressora (bico, mesa, câmara) por',
     historyRetentionDescription: 'Dados antigos de umidade e temperatura serão automaticamente excluídos',
     defaultPrintOptions: 'Opções de impressão padrão',
     defaultPrintOptionsDescription: 'Defina valores padrão para opções de impressão. Podem ser alterados no diálogo de impressão.',
