@@ -1302,10 +1302,59 @@ def resolve_plate_id(state) -> int | None:
     return parse_plate_id(state.gcode_file)
 
 
+def print_ams_mapping(state: PrinterState) -> list:
+    """The running print's AMS mapping: the one captured from its print command,
+    else whatever the printer's push carried (it rarely does)."""
+    if isinstance(state.print_ams_mapping, list):
+        return list(state.print_ams_mapping)
+    raw = (state.raw_data or {}).get("ams_mapping")
+    return list(raw) if isinstance(raw, list) else []
+
+
+def nozzle_wiring(state: PrinterState) -> dict | None:
+    """Which nozzle each AMS is wired to, for the runout hint; None with a
+    Filament Track Switch fitted, where an AMS can feed either nozzle and the
+    map can still hold an AMS's wiring from before it moved onto the switch."""
+    if state.fila_switch and state.fila_switch.installed:
+        return None
+    return state.ams_extruder_map
+
+
+def _trays_on_extruder(
+    raw_slot: int,
+    ams_layout: list[tuple[int, bool]],
+    active_extruder: int | None,
+    ams_extruder_map: dict | None,
+) -> set[int] | None:
+    """The global trays a local ``raw_slot`` can be on the AMS units wired to
+    ``active_extruder`` (an AMS-HT's one tray for slot 0), or None when the
+    wiring is unknown.
+
+    An AMS on the Filament Track Switch has no entry in the map (it can feed
+    either nozzle), so one without an entry makes the answer unknown too.
+    """
+    if active_extruder is None or not ams_extruder_map:
+        return None
+    trays: set[int] = set()
+    for ams_id, is_ht in ams_layout:
+        nozzle = ams_extruder_map.get(str(ams_id))
+        if nozzle is None:
+            return None
+        if nozzle != active_extruder:
+            continue
+        if not is_ht:
+            trays.add(ams_id * 4 + raw_slot)
+        elif raw_slot == 0:
+            trays.add(ams_id)
+    return trays
+
+
 def resolve_expected_tray(
     raw_slot: int | None,
     ams_layout: list[tuple[int, bool]],
     mapping_raw: object,
+    active_extruder: int | None = None,
+    ams_extruder_map: dict | None = None,
 ) -> int | None:
     """Globalise a raw firmware ``tray_tar``/``tray_pre`` value for the runout UI (#2587).
 
@@ -1322,8 +1371,10 @@ def resolve_expected_tray(
     - ``0``-``3`` local slot:
         * exactly one regular AMS -> ``ams_id*4 + slot``
         * several regular AMS -> resolved via the snow-encoded ``mapping`` field
-          (each entry = ``ams_hw_id*256 + slot``; ``65535`` = unmapped), or
-          ``None`` when it stays ambiguous (honest "can't determine")
+          (each entry = ``ams_hw_id*256 + slot``; ``65535`` = unmapped), then
+          narrowed to the AMS that feed ``active_extruder`` (``ams_extruder_map``,
+          dual-nozzle printers), or ``None`` when it stays ambiguous (honest
+          "can't determine")
         * no regular AMS -> ``None``
     - ``4``-``15`` -> already a global regular-AMS ID, returned as-is
 
@@ -1341,10 +1392,8 @@ def resolve_expected_tray(
         if len(regular) == 1:
             return regular[0] * 4 + raw_slot
         if len(regular) > 1:
-            if not isinstance(mapping_raw, list):
-                return None
             candidates: set[int] = set()
-            for value in mapping_raw:
+            for value in mapping_raw if isinstance(mapping_raw, list) else []:
                 if not isinstance(value, int) or value >= 65535:
                     continue
                 ams_hw_id = value >> 8
@@ -1353,7 +1402,16 @@ def resolve_expected_tray(
                     candidates.add(ams_hw_id * 4 + raw_slot)
                 elif 128 <= ams_hw_id <= 135 and raw_slot == 0:
                     candidates.add(ams_hw_id)
-            return candidates.pop() if len(candidates) == 1 else None
+            if len(candidates) == 1:
+                return candidates.pop()
+            # The print paused on the active nozzle, so the slot is on an AMS
+            # that feeds it.
+            narrowed = _trays_on_extruder(raw_slot, ams_layout, active_extruder, ams_extruder_map)
+            if narrowed is None:
+                return None
+            if candidates:
+                narrowed &= candidates
+            return narrowed.pop() if len(narrowed) == 1 else None
         return None
     if 4 <= raw_slot <= 15:
         return raw_slot
@@ -1394,6 +1452,7 @@ def ams_units_to_dicts(
         # Skip if ams_data is not a dict (defensive check)
         if not isinstance(ams_data, dict):
             continue
+        ams_id = int(ams_data.get("id", 0))
         trays = []
         for tray in ams_data.get("tray", []):
             tag_uid = tray.get("tag_uid")
@@ -1407,7 +1466,7 @@ def ams_units_to_dicts(
             k_value = tray.get("k")
             cali_idx = tray.get("cali_idx")
             if k_value is None:
-                k_value = resolve_slot_k(cali_idx, int(ams_data.get("id", 0)), int(tray.get("id", 0)))
+                k_value = resolve_slot_k(cali_idx, ams_id, int(tray.get("id", 0)))
 
             # P1S / A1 Mini physically-empty-slot signal (#1322 follow-up by
             # @RosdasHH): for a truly empty slot the firmware sends only
@@ -1452,8 +1511,8 @@ def ams_units_to_dicts(
         humidity_pct = ams_humidity_percent(ams_data)
         humidity_value = int(round(humidity_pct)) if humidity_pct is not None else None
 
-        # AMS-HT has 1 tray, regular AMS has 4 trays
-        is_ams_ht = len(trays) == 1
+        # AMS-HT by its unit id: a regular AMS can report fewer than 4 trays.
+        is_ams_ht = 128 <= ams_id <= 135
 
         # Active-cycle filament + target temperature for the badge.
         # Bambu does not echo the cycle's chosen filament/temp on the
@@ -1656,6 +1715,8 @@ def printer_state_to_dict(
                 state.tray_tar,
                 [(u["id"], u.get("is_ams_ht", False)) for u in ams_units],
                 raw_data.get("mapping"),
+                active_extruder=state.active_extruder,
+                ams_extruder_map=nozzle_wiring(state),
             )
             if state.state == "PAUSE"
             else None
@@ -1665,12 +1726,23 @@ def printer_state_to_dict(
                 state.tray_pre,
                 [(u["id"], u.get("is_ams_ht", False)) for u in ams_units],
                 raw_data.get("mapping"),
+                active_extruder=state.active_extruder,
+                ams_extruder_map=nozzle_wiring(state),
             )
             if state.state == "PAUSE"
             else None
         ),
         # Per-AMS extruder map: {ams_id: extruder_id} where 0=right, 1=left
         "ams_extruder_map": ams_extruder_map,
+        # The running print's mapping, for the slot pills (#1762).
+        "ams_mapping": print_ams_mapping(state),
+        # Pushed so a change reaches the card at once rather than with the
+        # 30 s REST poll; the frontend shallow-merges each push over its status.
+        "nozzles": [
+            {"nozzle_type": n.nozzle_type, "nozzle_diameter": n.nozzle_diameter} for n in (state.nozzles or [])
+        ],
+        "firmware_version": state.firmware_version,
+        "developer_mode": state.developer_mode,
         # Filament Track Switch. Both fields have to travel on the WebSocket, not
         # only on the REST status: the frontend shallow-merges each push over its
         # cached status, so a field that is absent here keeps whatever the last

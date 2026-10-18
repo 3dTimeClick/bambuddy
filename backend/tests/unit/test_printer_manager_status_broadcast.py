@@ -102,6 +102,10 @@ def _fake_state(**overrides):
         "wifi_signal": None,
         "wired_network": None,
         "ams_filament_backup": None,
+        "developer_mode": None,
+        "nozzles": [],
+        "ams_extruder_map": {},
+        "print_ams_mapping": None,
         # Filament Track Switch. None means "no accessory", which is what
         # printer_state_to_dict gates both of these on.
         "fila_switch": None,

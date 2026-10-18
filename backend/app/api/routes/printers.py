@@ -73,6 +73,8 @@ from backend.app.services.printer_manager import (
     display_temperatures,
     drying_screen_only,
     get_derived_status_name,
+    nozzle_wiring,
+    print_ams_mapping,
     printer_manager,
     resolve_expected_tray,
     resolve_plate_id,
@@ -729,8 +731,8 @@ async def get_printer_status(
         filament_tangle_detect=state.print_options.filament_tangle_detect,
     )
 
-    # Get AMS mapping from raw_data (which AMS is connected to which nozzle)
-    ams_mapping = raw_data.get("ams_mapping", [])
+    # The running print's AMS mapping, for the slot pills (#1762).
+    ams_mapping = print_ams_mapping(state)
     # Get per-AMS extruder map from state attribute (not raw_data, to avoid race condition
     # where raw_data gets replaced during MQTT updates and ams_extruder_map is temporarily missing)
     ams_extruder_map = state.ams_extruder_map or {}
@@ -831,6 +833,8 @@ async def get_printer_status(
                 state.tray_tar,
                 [(u.id, u.is_ams_ht) for u in ams_units],
                 raw_data.get("mapping"),
+                active_extruder=state.active_extruder,
+                ams_extruder_map=nozzle_wiring(state),
             )
             if state.state == "PAUSE"
             else None
@@ -840,6 +844,8 @@ async def get_printer_status(
                 state.tray_pre,
                 [(u.id, u.is_ams_ht) for u in ams_units],
                 raw_data.get("mapping"),
+                active_extruder=state.active_extruder,
+                ams_extruder_map=nozzle_wiring(state),
             )
             if state.state == "PAUSE"
             else None

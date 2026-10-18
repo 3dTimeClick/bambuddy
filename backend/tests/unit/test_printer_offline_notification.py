@@ -71,6 +71,9 @@ def _state(connected: bool, state: str = "IDLE") -> SimpleNamespace:
         door_open=False,
         subtask_name="",
         ams_filament_backup=None,
+        firmware_version=None,
+        developer_mode=None,
+        print_ams_mapping=None,
     )
 
 

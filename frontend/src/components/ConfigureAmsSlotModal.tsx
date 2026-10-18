@@ -16,7 +16,6 @@ import { useToast } from '../contexts/ToastContext';
 interface SlotInfo {
   amsId: number;
   trayId: number;
-  trayCount: number;
   trayType?: string;
   trayColor?: string;
   traySubBrands?: string;
@@ -1287,7 +1286,7 @@ export function ConfigureAmsSlotModal({
                   />
                 )}
                 <span className="text-white/70">
-                  {t('configureAmsSlot.slotLabel', { ams: getAmsLabel(slotInfo.amsId, slotInfo.trayCount), slot: slotInfo.trayId + 1 })}
+                  {t('configureAmsSlot.slotLabel', { ams: getAmsLabel(slotInfo.amsId), slot: slotInfo.trayId + 1 })}
                 </span>
                 {slotInfo.traySubBrands && (
                   <span>({slotInfo.traySubBrands})</span>
@@ -1328,7 +1327,7 @@ export function ConfigureAmsSlotModal({
                   />
                 )}
                 <span className="text-white font-medium">
-                  {t('configureAmsSlot.slotLabel', { ams: getAmsLabel(slotInfo.amsId, slotInfo.trayCount), slot: slotInfo.trayId + 1 })}
+                  {t('configureAmsSlot.slotLabel', { ams: getAmsLabel(slotInfo.amsId), slot: slotInfo.trayId + 1 })}
                 </span>
                 {slotInfo.traySubBrands && (
                   <span className="text-bambu-gray">({slotInfo.traySubBrands})</span>

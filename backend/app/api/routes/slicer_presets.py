@@ -788,8 +788,8 @@ async def list_loaded_spools(
                 _loaded_spool_tray(t, ams_id, int(t.get("id", 0)), saved.get((printer.id, ams_id, int(t.get("id", 0)))))
                 for t in raw_trays
             ]
-            # Same rule as the printer status: an AMS-HT reports a single tray.
-            units.append(LoadedSpoolUnit(id=ams_id, is_ams_ht=len(trays) == 1, trays=trays))
+            # Same rule as the printer status: an AMS-HT is a unit id 128-135.
+            units.append(LoadedSpoolUnit(id=ams_id, is_ams_ht=128 <= ams_id <= 135, trays=trays))
 
         external: list[LoadedSpoolTray] = []
         holders = [vt for vt in raw_data.get("vt_tray") or [] if isinstance(vt, dict)]

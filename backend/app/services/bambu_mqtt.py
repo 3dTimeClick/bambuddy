@@ -1039,6 +1039,9 @@ class PrinterState:
     mc_print_sub_stage: int = 0
     # AMS mapping for dual nozzle: which slot is active (from ams.ams_exist_bits/tray_exist_bits)
     ams_mapping: list = field(default_factory=list)
+    # The running print's AMS mapping (global tray per filament, -1 = none),
+    # as captured from its print command. None when no print has one.
+    print_ams_mapping: list | None = None
     # Per-AMS extruder map: {ams_id: extruder_id} where 0=right/main, 1=left/deputy
     ams_extruder_map: dict = field(default_factory=dict)
     # Filament Track Switch (FTS) accessory — when installed, AMS info reports
@@ -1527,9 +1530,10 @@ class BambuMQTTClient:
         # We use our tracked value to resolve the correct global ID
         self._last_load_tray_id: int | None = None
 
-        # Captured ams_mapping from print commands on the request topic
-        # Intercepts slicer/Bambuddy print commands to get the slot-to-tray mapping
-        self._captured_ams_mapping: list[int] | None = None
+        # The captured ams_mapping lives on the state (print_ams_mapping), so
+        # the status the card reads carries it; see _captured_ams_mapping.
+        # The destination of the dispatch it was captured from.
+        self._captured_mapping_url: str | None = None
 
         # True once we've seen (and normalised 16->6) an A2L AMS-Lite unit in the
         # AMS telemetry. Used to globalise the Lite's local `tray_now` to 24+slot.
@@ -2096,6 +2100,19 @@ class BambuMQTTClient:
         except json.JSONDecodeError:
             pass  # Ignore non-JSON MQTT messages (e.g. binary or malformed payloads)
 
+    @property
+    def _captured_ams_mapping(self):
+        """The ams_mapping captured from the current print's command.
+
+        Kept on the state so the status shows it (the slot pills, #1762): the
+        printer's own push almost never carries one.
+        """
+        return self.state.print_ams_mapping
+
+    @_captured_ams_mapping.setter
+    def _captured_ams_mapping(self, mapping) -> None:
+        self.state.print_ams_mapping = mapping
+
     def _handle_request_message(self, data: dict) -> None:
         """Intercept print commands on the request topic to capture ams_mapping."""
         print_data = data.get("print", {})
@@ -2113,6 +2130,7 @@ class BambuMQTTClient:
                 self.state.last_project_url = url
             if "ams_mapping" in print_data:
                 self._captured_ams_mapping = self._resolve_captured_mapping(print_data)
+                self._captured_mapping_url = url if isinstance(url, str) else None
                 logger.info(
                     "[%s] Captured ams_mapping from print command: %s",
                     self.serial_number,
@@ -2190,9 +2208,13 @@ class BambuMQTTClient:
         # On a screen start this frame is the only place the mapping appears --
         # no slicer ever sent one. Fill a gap only: when the request topic
         # already captured this print's mapping that copy is the slicer's own,
-        # and the echo can arrive without the field at all.
-        if self._captured_ams_mapping is None and isinstance(print_data.get("ams_mapping"), list):
+        # and the echo can arrive without the field at all. A mapping captured
+        # for another destination is from a dispatch that never ran (refused,
+        # or cancelled before it started, so no completion cleared it).
+        stale = self._captured_ams_mapping is not None and self._captured_mapping_url != url
+        if (self._captured_ams_mapping is None or stale) and isinstance(print_data.get("ams_mapping"), list):
             self._captured_ams_mapping = self._resolve_captured_mapping(print_data)
+            self._captured_mapping_url = url
             logger.info(
                 "[%s] Captured ams_mapping from print response: %s",
                 self.serial_number,

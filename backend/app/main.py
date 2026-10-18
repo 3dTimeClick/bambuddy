@@ -2055,6 +2055,17 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
         f"{ams_dry_key}:{ams_tray_key}:{state.door_open}:{state.ams_filament_backup}:{fts_key}"
     )
 
+    # Fields that change only when the machine does (a nozzle swap, a firmware
+    # update, developer mode) or once per print (its AMS mapping): no traffic,
+    # but on an idle printer nothing else moves the key when they change.
+    machine_key = (
+        tuple((n.nozzle_type, n.nozzle_diameter) for n in (state.nozzles or [])),
+        state.firmware_version,
+        state.developer_mode,
+        tuple(state.print_ams_mapping) if isinstance(state.print_ams_mapping, list) else None,
+    )
+    status_key = f"{status_key}:{machine_key}"
+
     is_active_print = state.state in _ACTIVE_PRINT_STATES
     if not is_active_print:
         _unauthorized_print_kill_sent.discard(printer_id)

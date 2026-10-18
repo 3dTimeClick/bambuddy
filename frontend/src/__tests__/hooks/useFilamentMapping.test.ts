@@ -62,6 +62,17 @@ describe('buildLoadedFilaments', () => {
     });
   });
 
+  it('tells AMS-HT by its unit id, not by a one-tray list', () => {
+    const status = createPrinterStatus([
+      { id: 1, tray: [{ id: 0, tray_type: 'PLA', tray_color: 'FF0000', tray_info_idx: 'GFA00' }] },
+      { id: 128, tray: [{ id: 0, tray_type: 'PETG', tray_color: '00FF00', tray_info_idx: 'GFG00' }] },
+    ] as PrinterStatus['ams']);
+
+    const result = buildLoadedFilaments(status);
+
+    expect(result.map(f => [f.globalTrayId, f.isHt])).toEqual([[4, false], [128, true]]);
+  });
+
   it('includes tray_info_idx from AMS trays', () => {
     const status = createPrinterStatus([
       {

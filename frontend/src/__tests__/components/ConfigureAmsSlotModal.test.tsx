@@ -70,7 +70,6 @@ const defaultProps = {
   slotInfo: {
     amsId: 0,
     trayId: 0,
-    trayCount: 4,
     trayType: 'PLA',
     trayColor: 'FFFFFF',
     traySubBrands: 'PLA Basic',

@@ -4411,7 +4411,7 @@ class PrintScheduler:
         for ams_unit in ams_data:
             ams_id = int(ams_unit.get("id", 0))
             trays = ams_unit.get("tray", [])
-            is_ht = len(trays) == 1  # AMS-HT has single tray
+            is_ht = 128 <= ams_id <= 135  # AMS-HT unit ids; a regular AMS may list fewer trays
 
             for tray in trays:
                 tray_type = tray.get("tray_type")

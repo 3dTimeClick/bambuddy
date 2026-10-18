@@ -1308,12 +1308,12 @@ class TestPrinterStateToDict:
         assert result["cover_url"] is None
 
     def test_ams_ht_detection(self, mock_state):
-        """Verify AMS-HT is detected (1 tray vs 4)."""
+        """Verify AMS-HT is detected by its unit id (128-135)."""
         mock_state.raw_data = {
             "ams": [
                 {
-                    "id": 0,
-                    "tray": [{"id": 0}],  # Only 1 tray = AMS-HT
+                    "id": 128,
+                    "tray": [{"id": 0}],
                 }
             ]
         }

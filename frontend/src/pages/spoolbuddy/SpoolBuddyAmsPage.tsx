@@ -244,7 +244,6 @@ export function SpoolBuddyAmsPage() {
   const [configureSlotModal, setConfigureSlotModal] = useState<{
     amsId: number;
     trayId: number;
-    trayCount: number;
     trayType?: string;
     trayColor?: string;
     traySubBrands?: string;
@@ -258,7 +257,6 @@ export function SpoolBuddyAmsPage() {
   const [slotActionPicker, setSlotActionPicker] = useState<{
     amsId: number;
     trayId: number;
-    trayCount: number;
     tray: AMSTray | null;
     trayType?: string;
     trayColor?: string;
@@ -382,7 +380,6 @@ export function SpoolBuddyAmsPage() {
     const slotData = {
       amsId,
       trayId,
-      trayCount: tray ? (amsId >= 128 ? 1 : 4) : 4,
       tray,
       trayType: tray?.tray_type || undefined,
       trayColor: tray?.tray_color || undefined,
@@ -407,7 +404,6 @@ export function SpoolBuddyAmsPage() {
     const slotData = {
       amsId: 255,
       trayId: slotTrayId,
-      trayCount: 1,
       tray: isTrayEmpty(extTray) ? null : extTray,
       trayType: extTray.tray_type || undefined,
       trayColor: extTray.tray_color || undefined,
