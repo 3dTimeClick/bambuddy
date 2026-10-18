@@ -497,6 +497,12 @@ _printer_kprofiles_primed_since_connect: dict[int, bool] = {}
 # {(printer_id, filename): archive_id}
 _expected_prints: dict[tuple[int, str], int] = {}
 
+# Archives of the running prints Bambuddy dispatched itself: adopted from an
+# expected print, or found with Bambuddy's dispatch marker. _active_prints holds
+# every print on_print_start archived, those started from Bambu Studio, Handy or
+# the printer's screen included, so it is no proof of ownership on its own.
+_owned_print_archive_ids: set[int] = set()
+
 # Track AMS mapping for prints: {archive_id: [global_tray_id_per_slot]}
 # Used by usage tracker to map 3MF slots to physical AMS trays
 _print_ams_mappings: dict[int, list[int]] = {}
@@ -863,7 +869,18 @@ def _is_bambuddy_authorized_print_in_memory(printer_id: int, state: PrinterState
     if printer_manager.get_current_print_user(printer_id):
         return True
 
-    return any(key in _expected_prints or key in _active_prints for key in _build_status_print_keys(printer_id, state))
+    return any(
+        key in _expected_prints or _active_prints.get(key) in _owned_print_archive_ids
+        for key in _build_status_print_keys(printer_id, state)
+    )
+
+
+def _mark_owned_if_dispatched(archive) -> None:
+    """Remember a running print's archive as Bambuddy's when it carries a
+    dispatch marker Bambuddy writes itself: ``billing_run_id`` (minted per
+    dispatch in the scheduler) or ``created_by_id`` (from the queue item)."""
+    if archive.billing_run_id is not None or archive.created_by_id is not None:
+        _owned_print_archive_ids.add(archive.id)
 
 
 async def _is_printer_kill_switch_enabled_cached() -> bool:
@@ -897,6 +914,14 @@ async def _is_bambuddy_authorized_print(printer_id: int, state: PrinterState, db
     if _is_bambuddy_authorized_print_in_memory(printer_id, state):
         return True
 
+    # The printer's built-in calibration runs (Bambuddy's Calibrate, the
+    # printer's screen) play gcode from its read-only system partition, where no
+    # user file can be. Only that path counts: a calibration *name* proves
+    # nothing, since Bambu Studio's pressure-advance print reports a user-style
+    # path, and any print can be given that name.
+    if str(getattr(state, "gcode_file", "") or "").startswith("/usr/"):
+        return True
+
     possible_keys = _build_status_print_keys(printer_id, state)
 
     # In-memory ownership is lost on every Bambuddy restart, so fall back to what
@@ -904,22 +929,47 @@ async def _is_bambuddy_authorized_print(printer_id: int, state: PrinterState, db
     # actually running, rather than to an unrelated one that reuses a filename.
     raw_subtask_id = getattr(state, "subtask_id", None)
     subtask_id = str(raw_subtask_id).strip() if raw_subtask_id is not None else ""
-    if subtask_id in ("", "0"):
+    if subtask_id == "":
+        # Not reported yet: the first frames after a restart can lack it.
         return None
 
     from backend.app.models.archive import PrintArchive
 
-    result = await db.execute(
-        select(PrintArchive)
-        .where(
-            PrintArchive.printer_id == printer_id,
-            PrintArchive.status == "printing",
-            PrintArchive.subtask_id == subtask_id,
+    if subtask_id == "0":
+        # A print started outside the cloud from Bambu Studio, Handy or the
+        # printer's screen reports "0", so there is no id to match: one of
+        # Bambuddy's printing archives on this printer under the name the
+        # printer reports, compared as the printer echoes names (spaces become
+        # underscores). Nothing reported to compare yet: wait.
+        reported = {_normalise_subtask_name(name) for _pid, name in possible_keys} - {""}
+        if not reported:
+            return None
+        dispatched = await db.execute(
+            select(PrintArchive)
+            .where(
+                PrintArchive.printer_id == printer_id,
+                PrintArchive.status == "printing",
+                or_(PrintArchive.billing_run_id.is_not(None), PrintArchive.created_by_id.is_not(None)),
+                # An archive with a real id of its own is a print that reported
+                # one: a "0" print is not it, even under the same name (one whose
+                # completion was missed would otherwise cover it).
+                or_(PrintArchive.subtask_id.is_(None), PrintArchive.subtask_id.in_(("", "0"))),
+            )
+            .order_by(PrintArchive.created_at.desc())
         )
-        .order_by(PrintArchive.created_at.desc())
-        .limit(1)
-    )
-    archive = result.scalar_one_or_none()
+        archive = next((a for a in dispatched.scalars() if _archive_name_forms(a) & reported), None)
+    else:
+        result = await db.execute(
+            select(PrintArchive)
+            .where(
+                PrintArchive.printer_id == printer_id,
+                PrintArchive.status == "printing",
+                PrintArchive.subtask_id == subtask_id,
+            )
+            .order_by(PrintArchive.created_at.desc())
+            .limit(1)
+        )
+        archive = result.scalar_one_or_none()
 
     # An archive row on its own proves nothing: `on_print_start` archives every
     # print it observes, including ones started from Bambu Studio or Handy, and
@@ -931,6 +981,7 @@ async def _is_bambuddy_authorized_print(printer_id: int, state: PrinterState, db
     if archive is not None and (archive.billing_run_id is not None or archive.created_by_id is not None):
         # Rehydrate the fast in-memory path for subsequent status frames. Include
         # both the archive filename and every normalized key reported by MQTT.
+        _owned_print_archive_ids.add(archive.id)
         _active_prints[(printer_id, archive.filename)] = archive.id
         for key in possible_keys:
             _active_prints[key] = archive.id
@@ -1096,6 +1147,7 @@ async def forget_printer(printer_id: int) -> None:
         for key in [key for key in tracked if key[0] == printer_id]:
             archive_ids.add(tracked.pop(key))
     for archive_id in archive_ids:
+        _owned_print_archive_ids.discard(archive_id)
         _print_ams_mappings.pop(archive_id, None)
         _print_cost_center_ids.pop(archive_id, None)
         _print_plate_ids.pop(archive_id, None)
@@ -4648,6 +4700,9 @@ async def on_print_start(printer_id: int, data: dict):
         if expected_archive_id:
             # This is a reprint/scheduled print - use existing archive, don't create new one
             logger.info("Using expected archive %s for print (skipping duplicate)", expected_archive_id)
+            # Bambuddy dispatched it: the kill switch's fast path keeps it as
+            # Bambuddy's once the expected entry is consumed here.
+            _owned_print_archive_ids.add(expected_archive_id)
             from backend.app.models.archive import PrintArchive
 
             result = await db.execute(select(PrintArchive).where(PrintArchive.id == expected_archive_id))
@@ -4988,6 +5043,7 @@ async def on_print_start(printer_id: int, data: dict):
             if subtask_match:
                 logger.info("Resuming archive %s on subtask_id match (%s)", existing_archive.id, subtask_id)
                 _active_prints[(printer_id, existing_archive.filename)] = existing_archive.id
+                _mark_owned_if_dispatched(existing_archive)
                 if existing_archive.energy_start_kwh is None:
                     await _record_energy_start(existing_archive, printer_id, db, context="subtask-resume")
                 if not notification_sent:
@@ -5071,6 +5127,7 @@ async def on_print_start(printer_id: int, data: dict):
                 )
                 # Track this as the active print
                 _active_prints[(printer_id, existing_archive.filename)] = existing_archive.id
+                _mark_owned_if_dispatched(existing_archive)
                 # Attach subtask_id retroactively so future restarts can resume.
                 # Compare for inequality (not "is empty") to also pick up reprint
                 # dispatches that mint a fresh id — see #1807 for the bogus
@@ -7887,6 +7944,7 @@ async def on_print_complete(printer_id: int, data: dict):
     for key in possible_keys:
         archive_id = _active_prints.pop(key, None)
         if archive_id:
+            _owned_print_archive_ids.discard(archive_id)
             logger.info("Found archive %s with key %s", archive_id, key)
             # Also clean up any other keys pointing to this archive
             keys_to_remove = [k for k, v in _active_prints.items() if v == archive_id]
@@ -10175,6 +10233,10 @@ def _evict_stale_expected_prints() -> None:
     """
     # Use monotonic time so the TTL is unaffected by system clock adjustments
     # (e.g. NTP sync, DST changes).
+    # A print that ended without its archive being found at completion leaves
+    # its id here; only running prints are owned.
+    _owned_print_archive_ids.intersection_update(_active_prints.values())
+
     cutoff = time.monotonic() - _EXPECTED_PRINT_TTL_SECONDS
     stale_keys = [k for k, t in _expected_print_registered_at.items() if t < cutoff]
     if not stale_keys:

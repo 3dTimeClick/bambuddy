@@ -23,6 +23,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Slicer commands logged in full, not cut at 100 characters: they say how the
+# slicer addresses an AMS tray (see _handle_publish).
+_COMMANDS_LOGGED_WHOLE = frozenset(
+    {"extrusion_cali_sel", "extrusion_cali_set", "ams_filament_setting", "ams_change_filament"}
+)
+
 # Default MQTT port for Bambu printers (MQTT over TLS)
 MQTT_PORT = 8883
 
@@ -1229,6 +1235,16 @@ class SimpleMQTTServer:
                     message[:200],
                 )
                 return
+
+            # The line above stops at 100 characters, before the tray_id of a
+            # K-profile command: how BambuStudio numbers an A2L or AMS-HT tray,
+            # which support bundles are the only source for. These carry no
+            # credentials, so they are logged whole.
+            print_command = data.get("print") if isinstance(data, dict) else None
+            if isinstance(print_command, dict) and print_command.get("command") in _COMMANDS_LOGGED_WHOLE:
+                logger.info(
+                    "MQTT %s from slicer: %s", print_command["command"], json.dumps(print_command, sort_keys=True)
+                )
 
             # Env-flagged command trace (#1622): every slicer-originated publish
             # gets a line in vp_wire/<vp>_cmd.jsonl alongside the printer-side

@@ -714,3 +714,50 @@ class TestHandleClientTCPKeepaliveTuning:
                 "a macOS sleep leaves the pre-sleep socket in _clients "
                 "for ~2 h until the default SO_KEEPALIVE probes fire."
             )
+
+
+class TestSlicerCommandsTheLogKeepsWhole:
+    """The publish log line stops at 100 characters, which cut every K-profile
+    command off before its tray_id: the field that says how BambuStudio numbers
+    an A2L or AMS-HT tray. Those few commands are logged whole; nothing they
+    carry is a credential."""
+
+    def _publish(self, caplog, command: dict):
+        import logging
+
+        server = _make_server()
+        server._client_serials["c1"] = server.serial
+        writer = MagicMock()
+        writer.write = MagicMock()
+        writer.drain = AsyncMock()
+        payload = _build_publish_payload("device/01P00AABCDEFGHI/request", {"print": command})
+        with caplog.at_level(logging.INFO, logger="backend.app.services.virtual_printer.mqtt_server"):
+            asyncio.run(server._handle_publish(0x30, payload, writer, "c1"))
+        return caplog.text
+
+    @pytest.mark.parametrize(
+        "command",
+        ["extrusion_cali_sel", "extrusion_cali_set", "ams_filament_setting", "ams_change_filament"],
+    )
+    def test_the_whole_command_is_logged(self, caplog, command):
+        body = {
+            "command": command,
+            "ams_id": 16,
+            "slot_id": 2,
+            "nozzle_diameter": "0.4",
+            "filament_id": "GFA00",
+            "setting_id": "GFSA00_25",
+            "tray_id": 26,
+        }
+
+        text = self._publish(caplog, body)
+
+        assert '"tray_id": 26' in text
+
+    def test_other_commands_keep_the_short_line(self, caplog):
+        text = self._publish(
+            caplog,
+            {"command": "project_file", "url": "ftp:///x.3mf", "param": "Metadata/plate_1.gcode" * 5, "tray_id": 26},
+        )
+
+        assert '"tray_id": 26' not in text
