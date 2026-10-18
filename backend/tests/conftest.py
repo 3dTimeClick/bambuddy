@@ -396,6 +396,27 @@ async def _reset_pg_test_schema(conn) -> None:
     await conn.execute(text(_PG_EMPTY_TABLES))
 
 
+async def _finish_query_cancellations() -> None:
+    """Wait for asyncpg to finish cancelling queries in this test's loop.
+
+    A test that cancels a task mid-query (to stop the background work a
+    handler started) awaits the task, but asyncpg cancels the query on the
+    server in a task of its own. If the test ends first, that task is still
+    pending when the loop closes and is reported as an unraisable
+    "Connection._cancel" coroutine in some later test.
+    """
+    current = asyncio.current_task()
+    pending = [
+        task
+        for task in asyncio.all_tasks()
+        if task is not current
+        and not task.done()
+        and getattr(task.get_coro(), "__qualname__", "") == "Connection._cancel"
+    ]
+    if pending:
+        await asyncio.wait(pending, timeout=5)
+
+
 async def _release_app_engine() -> None:
     """Close the app engine's pooled connections before this test's loop ends.
 
@@ -406,6 +427,7 @@ async def _release_app_engine() -> None:
     PostgreSQL that leaves asyncpg's cleanup unawaited, reported as an
     unraisable "Connection._cancel" coroutine in some later test.
     """
+    await _finish_query_cancellations()
     await _app_engine.dispose()
 
 
