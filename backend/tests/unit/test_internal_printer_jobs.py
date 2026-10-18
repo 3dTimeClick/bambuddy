@@ -153,6 +153,7 @@ class TestPrintStartSkipsTheCalibration:
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock()
+            mock_session.scalar = AsyncMock(return_value=None)  # no queue job of Bambuddy's printing
             mock_session.execute = AsyncMock(
                 return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_printer))
             )
@@ -184,6 +185,7 @@ class TestPrintStartSkipsTheCalibration:
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock()
+            mock_session.scalar = AsyncMock(return_value=None)  # no queue job of Bambuddy's printing
             mock_session.execute = AsyncMock(
                 return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_printer))
             )

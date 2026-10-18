@@ -4316,6 +4316,49 @@ async def _announce_plate_check_failed(printer_id: int, printer_name: str, reaso
         logging.getLogger(__name__).warning("[PLATE CHECK] Could not announce the failed check: %s", e)
 
 
+def _expected_print_keys(printer_id: int, filename: str | None, subtask_name: str | None) -> list[tuple[int, str]]:
+    """The ``_expected_prints`` keys a print start may be registered under."""
+    keys: list[tuple[int, str]] = []
+    if subtask_name:
+        keys.append((printer_id, subtask_name))
+        keys.append((printer_id, f"{subtask_name}.3mf"))
+        keys.append((printer_id, f"{subtask_name}.gcode.3mf"))
+    if filename:
+        fname = filename.split("/")[-1] if "/" in filename else filename
+        keys.append((printer_id, fname))
+        # Strip extensions to match
+        base = fname.replace(".gcode", "").replace(".3mf", "")
+        keys.append((printer_id, base))
+        keys.append((printer_id, f"{base}.3mf"))
+    return keys
+
+
+async def _dispatched_by_bambuddy(db, printer_id: int, filename: str | None, subtask_name: str | None) -> bool:
+    """Whether this print start is one Bambuddy sent to the printer."""
+    if any(key in _expected_prints for key in _expected_print_keys(printer_id, filename, subtask_name)):
+        return True
+    from backend.app.models.archive import PrintArchive
+    from backend.app.models.print_queue import PrintQueueItem
+
+    # The queue row the scheduler sets to printing before it sends -- but only
+    # when it was sent as this print: a row left printing by a run whose end
+    # was missed names another file.
+    dispatched_names = (
+        await db.execute(
+            select(PrintArchive.filename)
+            .join(PrintQueueItem, PrintQueueItem.archive_id == PrintArchive.id)
+            .where(PrintQueueItem.printer_id == printer_id, PrintQueueItem.status == "printing")
+        )
+    ).scalars()
+    observed = [name for name in (subtask_name, (filename or "").rsplit("/", 1)[-1]) if name]
+    return any(
+        _subtask_names_match(_subtask_name_from_filename(dispatched), _subtask_name_from_filename(seen))
+        for dispatched in dispatched_names
+        if dispatched
+        for seen in observed
+    )
+
+
 async def on_print_start(printer_id: int, data: dict):
     """Handle print start - archive the 3MF file immediately."""
     logger = logging.getLogger(__name__)
@@ -4581,7 +4624,14 @@ async def on_print_start(printer_id: int, data: dict):
         # matching completion is suppressed in on_print_complete for the same
         # reason. Checked before the auto-archive switches, whose "off" path
         # still notifies.
-        if is_internal_printer_job(data.get("filename", ""), data.get("subtask_name", "")):
+        # A /usr/ path is the printer's own file. A name alone is not proof: a
+        # print Bambuddy dispatched is never one, whatever it is called.
+        # Dispatched = an expected print, or, after a restart that lost those,
+        # a queue job printing on the printer.
+        if is_internal_printer_job(data.get("filename", ""), data.get("subtask_name", "")) and (
+            (data.get("filename") or "").startswith("/usr/")
+            or not await _dispatched_by_bambuddy(db, printer_id, data.get("filename", ""), data.get("subtask_name", ""))
+        ):
             logger.info(
                 "[CALLBACK] Skipping archive — internal printer job detected: filename=%s, subtask=%s",
                 data.get("filename", ""),
@@ -4665,19 +4715,7 @@ async def on_print_start(printer_id: int, data: dict):
             return
 
         # Check if this is an expected print from reprint/scheduled
-        # Build list of possible keys to check
-        expected_keys = []
-        if subtask_name:
-            expected_keys.append((printer_id, subtask_name))
-            expected_keys.append((printer_id, f"{subtask_name}.3mf"))
-            expected_keys.append((printer_id, f"{subtask_name}.gcode.3mf"))
-        if filename:
-            fname = filename.split("/")[-1] if "/" in filename else filename
-            expected_keys.append((printer_id, fname))
-            # Strip extensions to match
-            base = fname.replace(".gcode", "").replace(".3mf", "")
-            expected_keys.append((printer_id, base))
-            expected_keys.append((printer_id, f"{base}.3mf"))
+        expected_keys = _expected_print_keys(printer_id, filename, subtask_name)
 
         expected_archive_id = None
         for key in expected_keys:
