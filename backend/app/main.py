@@ -945,6 +945,10 @@ async def _is_bambuddy_authorized_print(printer_id: int, state: PrinterState, db
     # path, and any print can be given that name.
     if str(getattr(state, "gcode_file", "") or "").startswith("/usr/"):
         return True
+    # A1, A1 Mini, P1 and A2L report the same calibration as a bare file name,
+    # which nothing distinguishes from a user's file given that name, so it is
+    # not exempt: with the kill switch on, calibrate on those printers with the
+    # switch off.
 
     possible_keys = _build_status_print_keys(printer_id, state)
 

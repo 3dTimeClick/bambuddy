@@ -278,3 +278,10 @@ class TestPrintCompleteStaysQuiet:
 
             spawned = [c for c in mock_spawn.call_args_list if "notify-no-archive" in str(c)]
             assert spawned, "An unmatched real print must still notify"
+
+
+def test_the_a1_built_in_calibration_reported_as_a_bare_name_is_internal():
+    """A1/P1S report it without the /usr/ path (support bundle, A1 01.08)."""
+    from backend.app.utils.print_jobs import is_internal_printer_job
+
+    assert is_internal_printer_job("auto_cali_for_user_param.gcode", "auto_cali_for_user_param.gcode")

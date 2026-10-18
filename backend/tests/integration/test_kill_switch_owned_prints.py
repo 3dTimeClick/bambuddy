@@ -231,3 +231,20 @@ async def test_a_print_resumed_after_a_restart_is_owned_only_with_bambuddys_mark
     )
 
     assert (archive.id in main_module._owned_print_archive_ids) is owned
+
+
+async def test_a_bare_calibration_name_is_not_exempt_from_the_kill_switch():
+    """A1, A1 Mini, P1 and A2L report their built-in calibration as a bare
+    auto_cali_for_user_param.gcode, which a user's own file can be called too;
+    nothing on these printers tells the two apart (no project URL is ever
+    recorded there), so the kill switch does not exempt it (maintainer
+    decision 2026-10-18)."""
+    state = SimpleNamespace(
+        current_print=None,
+        subtask_name="auto_cali_for_user_param.gcode",
+        subtask_id="0",
+        gcode_file="auto_cali_for_user_param.gcode",
+        current_project_url=None,
+    )
+
+    assert await main_module._is_bambuddy_authorized_print(9, state, _db(None)) is False
