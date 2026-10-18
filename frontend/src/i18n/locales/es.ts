@@ -5981,6 +5981,7 @@ export default {
       powerFailure: 'Corte de corriente',
       userCancelled: 'Cancelada por el usuario',
       noStatusUpdate: 'No se recibió actualización de estado',
+      killSwitch: 'Detenida por la parada de impresiones no autorizadas',
       other: 'Otro',
     },
     // Archive statuses
@@ -7446,7 +7447,9 @@ export default {
       apiToken: 'Token de API',
       apiTokenPlaceholder: 'Introduzca el token de API',
       saveConfig: 'Guardar configuración',
-      systemQueued: 'Configuración encolada.',
+      systemSavedRestart: 'Guardado. Reinicia el demonio para aplicarla.',
+      systemApplying: 'Esperando a que el dispositivo reciba la configuración...',
+      systemRestarting: 'Reiniciando el demonio...',
       nfcDiagnostic: 'Diagnóstico de NFC',
       scaleDiagnostic: 'Diagnóstico de la báscula',
       readTagDiagnostic: 'Diagnóstico de lectura de etiqueta',

@@ -5960,6 +5960,7 @@ export default {
       powerFailure: 'Mancanza corrente',
       userCancelled: 'Annullato dall\'utente',
       noStatusUpdate: 'Nessun aggiornamento di stato ricevuto',
+      killSwitch: "Fermata dall'arresto automatico della stampa",
       other: 'Altro',
     },
     // Archive statuses
@@ -7466,7 +7467,9 @@ export default {
       apiToken: 'Token API',
       apiTokenPlaceholder: 'Inserisci token API',
       saveConfig: 'Salva configurazione',
-      systemQueued: 'Configurazione in coda.',
+      systemSavedRestart: 'Salvato. Riavvia il daemon per applicarla.',
+      systemApplying: 'In attesa che il dispositivo riceva la configurazione...',
+      systemRestarting: 'Riavvio del daemon...',
       systemFieldsRequired: 'L\'URL del backend è obbligatorio.',
       nfcDiagnostic: 'Diagnostica NFC',
       scaleDiagnostic: 'Diagnostica bilancia',

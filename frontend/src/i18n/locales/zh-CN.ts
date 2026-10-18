@@ -5960,6 +5960,7 @@ export default {
       powerFailure: '断电',
       userCancelled: '用户取消',
       noStatusUpdate: '未收到状态更新',
+      killSwitch: '被打印机紧急停止开关停止',
       other: '其他',
     },
     // Archive statuses
@@ -7423,7 +7424,9 @@ export default {
       apiToken: 'API 令牌',
       apiTokenPlaceholder: '输入 API 令牌',
       saveConfig: '保存配置',
-      systemQueued: '配置已加入队列。',
+      systemSavedRestart: '已保存。重启守护进程后生效。',
+      systemApplying: '正在等待设备接收配置...',
+      systemRestarting: '正在重启守护进程...',
       nfcDiagnostic: 'NFC 诊断',
       scaleDiagnostic: '秤诊断',
       readTagDiagnostic: '读取标签诊断',

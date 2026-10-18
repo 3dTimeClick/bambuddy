@@ -5973,6 +5973,7 @@ export default {
       powerFailure: 'Stromausfall',
       userCancelled: 'Vom Benutzer abgebrochen',
       noStatusUpdate: 'Kein Statusupdate empfangen',
+      killSwitch: 'Vom automatischen Druckstopp beendet',
       other: 'Sonstiges',
     },
     // Archive statuses
@@ -7438,7 +7439,9 @@ export default {
       apiToken: 'API-Token',
       apiTokenPlaceholder: 'API-Token eingeben',
       saveConfig: 'Konfiguration speichern',
-      systemQueued: 'Konfiguration in Warteschlange.',
+      systemSavedRestart: 'Gespeichert. Starte den Daemon neu, um sie zu übernehmen.',
+      systemApplying: 'Warte, bis das Gerät die Konfiguration übernommen hat...',
+      systemRestarting: 'Daemon wird neu gestartet...',
       nfcDiagnostic: 'NFC-Diagnose',
       scaleDiagnostic: 'Waagen-Diagnose',
       readTagDiagnostic: 'Tag-Lese-Diagnose',

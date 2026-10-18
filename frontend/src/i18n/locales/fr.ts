@@ -5961,6 +5961,7 @@ export default {
       powerFailure: 'Coupure courant',
       userCancelled: 'Annulé par l\'utilisateur',
       noStatusUpdate: 'Aucune mise à jour d\'état reçue',
+      killSwitch: "Arrêtée par l'interrupteur d'arrêt automatique",
       other: 'Autre',
     },
     // Archive statuses
@@ -7467,7 +7468,9 @@ export default {
       apiToken: 'Jeton d\'API',
       apiTokenPlaceholder: 'Saisir un jeton d\'API',
       saveConfig: 'Enregistrer la configuration',
-      systemQueued: 'Configuration mise en file.',
+      systemSavedRestart: "Enregistré. Redémarrez le daemon pour l'appliquer.",
+      systemApplying: "En attente de la prise en compte de la configuration par l'appareil...",
+      systemRestarting: 'Redémarrage du daemon...',
       systemFieldsRequired: 'L\'URL du backend est obligatoire.',
       nfcDiagnostic: 'Diagnostic NFC',
       scaleDiagnostic: 'Diagnostic balance',

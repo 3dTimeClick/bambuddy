@@ -2567,7 +2567,9 @@ async def stop_queue_item(
         if archive and archive.status == "printing":
             archive.status = "cancelled"
             archive.completed_at = datetime.now(timezone.utc)
-            archive.failure_reason = "Stopped by user (printer was offline)"
+            # The vocabulary key every user cancel stores (#2974); that the
+            # printer was offline is on the queue row's error_message.
+            archive.failure_reason = "userCancelled"
 
     await db.commit()
     await refresh_batches_after([item.id])

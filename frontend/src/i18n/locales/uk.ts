@@ -6014,6 +6014,7 @@ export default {
       powerFailure: "Збій живлення",
       userCancelled: "Користувач скасовано",
       noStatusUpdate: "Оновлення статусу не отримано",
+      killSwitch: 'Зупинено автозупинкою несанкціонованого друку',
       other: "інше",
     },
     // Archive statuses
@@ -7479,7 +7480,9 @@ export default {
       apiToken: "API Токен",
       apiTokenPlaceholder: "Введіть API-токен.",
       saveConfig: "Зберегти конфігурацію",
-      systemQueued: "Конфігурацію в черзі.",
+      systemSavedRestart: 'Збережено. Перезапустіть демон, щоб застосувати.',
+      systemApplying: 'Очікування, поки пристрій прийме конфігурацію...',
+      systemRestarting: 'Перезапуск демона...',
       nfcDiagnostic: "NFC Діагностика",
       scaleDiagnostic: "Діагностика ваг",
       readTagDiagnostic: "Прочитайте діагностику тегів",

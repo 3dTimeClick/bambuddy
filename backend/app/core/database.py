@@ -1918,6 +1918,8 @@ async def _migrate_add_print_archive_cost_center(conn) -> None:
 # ``defaultValue`` fallback in both the editor and the Statistics breakdown, and
 # guessing at it would be worse than leaving one honest string in its own bucket.
 _LEGACY_FAILURE_REASON_LABELS: dict[str, str] = {
+    # Written by the offline queue stop before it stored the key (PC-C4).
+    "Stopped by user (printer was offline)": "userCancelled",
     "Adhesion failure": "adhesionFailure",
     "Agotamiento del filamento": "filamentRunout",
     "Alabeo": "warping",

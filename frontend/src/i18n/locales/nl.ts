@@ -6024,6 +6024,7 @@ export default {
       powerFailure: 'Stroomuitval',
       userCancelled: 'Door gebruiker geannuleerd',
       noStatusUpdate: 'Geen statusupdate ontvangen',
+      killSwitch: 'Gestopt door de noodstop voor ongeautoriseerde afdrukken',
       other: 'Overig',
     },
     // Archive statuses
@@ -7489,7 +7490,9 @@ export default {
       apiToken: 'API-token',
       apiTokenPlaceholder: 'Voer API-token in',
       saveConfig: 'Configuratie opslaan',
-      systemQueued: 'Configuratie in wachtrij geplaatst.',
+      systemSavedRestart: 'Opgeslagen. Herstart de daemon om deze toe te passen.',
+      systemApplying: 'Wachten tot het apparaat de configuratie heeft overgenomen...',
+      systemRestarting: 'Daemon wordt herstart...',
       nfcDiagnostic: 'NFC-diagnose',
       scaleDiagnostic: 'Weegschaaldiagnose',
       readTagDiagnostic: 'Tagleesdiagnose',

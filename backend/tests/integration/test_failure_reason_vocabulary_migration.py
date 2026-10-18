@@ -106,6 +106,8 @@ def test_the_map_covers_every_writer_that_ever_existed() -> None:
     # 3. The two stale-path prose sentences.
     assert m["Stale - print likely cancelled or failed without status update"] == "noStatusUpdate"
     assert m["Stale - reconciled after reconnect, end time unknown"] == "noStatusUpdate"
+    # 4. The offline queue stop (PC-C4).
+    assert m["Stopped by user (printer was offline)"] == "userCancelled"
 
 
 # ---------------------------------------------------------------------------

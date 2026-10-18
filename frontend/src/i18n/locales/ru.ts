@@ -5709,6 +5709,7 @@ export default {
       powerFailure: "Сбой питания",
       userCancelled: "Отменено пользователем",
       noStatusUpdate: "Обновление статуса не получено",
+      killSwitch: 'Остановлена автоостановкой несанкционированной печати',
       other: "Другое",
     },
     statuses: {
@@ -7070,7 +7071,9 @@ export default {
       apiToken: "Токен API",
       apiTokenPlaceholder: "Введите токен API",
       saveConfig: "Сохранить конфигурацию",
-      systemQueued: "Конфигурация поставлена в очередь.",
+      systemSavedRestart: 'Сохранено. Перезапустите демон, чтобы применить.',
+      systemApplying: 'Ожидание, пока устройство примет конфигурацию...',
+      systemRestarting: 'Перезапуск демона...',
       nfcDiagnostic: "Диагностика NFC",
       scaleDiagnostic: "Диагностика весов",
       readTagDiagnostic: "Диагностика чтения метки",

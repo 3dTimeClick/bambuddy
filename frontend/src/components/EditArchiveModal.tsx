@@ -28,6 +28,7 @@ export const FAILURE_REASON_KEYS = [
   'powerFailure',
   'userCancelled',
   'noStatusUpdate',
+  'killSwitch',
   'other',
 ] as const;
 

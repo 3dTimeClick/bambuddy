@@ -5721,6 +5721,7 @@ export default {
       powerFailure: '전원 실패',
       userCancelled: '사용자 취소',
       noStatusUpdate: '상태 업데이트를 받지 못함',
+      killSwitch: '무단 인쇄 자동 중지로 중지됨',
       other: '기타'
     },
     statuses: {
@@ -7082,7 +7083,9 @@ export default {
       apiToken: 'API 토큰',
       apiTokenPlaceholder: 'API 토큰 입력',
       saveConfig: '구성 저장',
-      systemQueued: '구성 대기 중.',
+      systemSavedRestart: '저장되었습니다. 적용하려면 데몬을 재시작하세요.',
+      systemApplying: '장치가 구성을 받을 때까지 기다리는 중...',
+      systemRestarting: '데몬을 재시작하는 중...',
       nfcDiagnostic: 'NFC 진단',
       scaleDiagnostic: '저울 진단',
       readTagDiagnostic: '태그 읽기 진단',

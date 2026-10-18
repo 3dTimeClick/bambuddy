@@ -5974,6 +5974,7 @@ export default {
       powerFailure: '電源障害',
       userCancelled: 'ユーザーによるキャンセル',
       noStatusUpdate: 'ステータス更新を受信できませんでした',
+      killSwitch: '印刷の自動停止で停止',
       other: 'その他',
     },
     // Archive statuses
@@ -7480,7 +7481,9 @@ export default {
       apiToken: 'APIトークン',
       apiTokenPlaceholder: 'APIトークンを入力',
       saveConfig: '設定を保存',
-      systemQueued: '設定をキューに追加しました。',
+      systemSavedRestart: '保存しました。適用するにはデーモンを再起動してください。',
+      systemApplying: 'デバイスが設定を受け取るのを待っています...',
+      systemRestarting: 'デーモンを再起動しています...',
       systemFieldsRequired: 'バックエンドURLは必須です。',
       nfcDiagnostic: 'NFC診断',
       scaleDiagnostic: 'スケール診断',

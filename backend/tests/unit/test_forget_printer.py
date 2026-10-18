@@ -78,6 +78,7 @@ def _entries(printer_id: int) -> dict[str, tuple]:
         "_timelapse_baselines": (printer_id, {"video.mp4"}),
         "_bed_cool_waiters": (printer_id, {"threshold": 35.0, "filename": "cube", "registered_at": 1.0}),
         "_user_stopped_printers": (printer_id, None),
+        "_kill_switch_stopped": (printer_id, None),
         "_printer_last_connected": (printer_id, True),
         "_printer_offline_published": (printer_id, None),
         "_printer_offline_notify_tasks": (printer_id, _sleeper()),

@@ -270,6 +270,8 @@ _FAILURE_REASON_KEYS = frozenset(
         # recognise, so leaving it out would delete the classification on the
         # next save of such an archive.
         "noStatusUpdate",
+        # A print the printer kill switch stopped (written at its completion).
+        "killSwitch",
         "other",
     }
 )

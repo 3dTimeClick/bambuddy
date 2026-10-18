@@ -4033,7 +4033,8 @@ async def test_stop_offline_reconciles_linked_archive_status_2603(
     assert item.status == "cancelled"
     assert archive.status == "cancelled", "an offline stop must reconcile the archive, not leave it 'printing'"
     assert archive.completed_at is not None
-    assert archive.failure_reason == "Stopped by user (printer was offline)"
+    # A vocabulary key (#2974), not prose: the stop's detail is on the queue row.
+    assert archive.failure_reason == "userCancelled"
 
 
 @pytest.mark.asyncio

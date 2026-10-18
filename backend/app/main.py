@@ -565,6 +565,10 @@ _bed_cool_waiters: dict[int, dict] = {}
 # as "cancelled" (stopped by user) so the correct notification email is sent.
 _user_stopped_printers: set[int] = set()
 
+# Printers whose running print the kill switch stopped. Their completion is a
+# cancel with the reason "killSwitch", not the "failed" the printer reports.
+_kill_switch_stopped: set[int] = set()
+
 # Offline-notification edge state (#1752): fire `on_printer_offline` exactly
 # once when a printer transitions connected → disconnected. `_printer_last_connected`
 # holds the previous observation so we only fire on the True → False edge (a
@@ -1209,6 +1213,7 @@ async def forget_printer(printer_id: int) -> None:
     for marked in (
         _unauthorized_print_kill_sent,
         _user_stopped_printers,
+        _kill_switch_stopped,
         _printer_offline_published,
         _nozzle_count_updated,
     ):
@@ -2090,6 +2095,7 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
                 stopped = printer_manager.stop_print(printer_id)
                 if stopped:
                     _unauthorized_print_kill_sent.add(printer_id)
+                    _kill_switch_stopped.add(printer_id)
                     printer_info = printer_manager.get_printer(printer_id)
                     printer_name = printer_info.name if printer_info else f"Printer {printer_id}"
                     filename = state.subtask_name or state.gcode_file or state.current_print or "Unknown"
@@ -4376,6 +4382,7 @@ async def on_print_start(printer_id: int, data: dict):
 
     # Clear any stale user-stopped flag from previous print cycles
     _user_stopped_printers.discard(printer_id)
+    _kill_switch_stopped.discard(printer_id)
     # A new print starts its milestones from zero (#3211). The status path only
     # resets on progress below 5 while not printing, which a printer that goes
     # from FINISH at 100% straight into a new print at a preparation-phase 85%
@@ -7910,7 +7917,15 @@ async def on_print_complete(printer_id: int, data: dict):
             printer_id,
         )
         data = {**data, "status": "cancelled"}
+    elif printer_id in _kill_switch_stopped and _raw_status in ("failed", "aborted"):
+        logger.info(
+            "[CALLBACK] Overriding status '%s' -> 'cancelled' for printer %s (stopped by the printer kill switch)",
+            _raw_status,
+            printer_id,
+        )
+        data = {**data, "status": "cancelled", "_kill_switch": True}
     _user_stopped_printers.discard(printer_id)
+    _kill_switch_stopped.discard(printer_id)
 
     # Raise the plate-clear gate for queued dispatch (#961). Any terminal status
     # may have left material on the bed: a user can cancel ten hours into a
@@ -8420,6 +8435,10 @@ async def on_print_complete(printer_id: int, data: dict):
                 # (issue #2974) and records that the real end time is unknown,
                 # which is also why its logged duration is 0 (#2592).
                 failure_reason = "noStatusUpdate"
+            elif data.get("_kill_switch"):
+                # Not the user's cancel: the kill switch stopped a print that did
+                # not come from Bambuddy.
+                failure_reason = "killSwitch"
             if failure_reason:
                 logger.info("[ARCHIVE] failure_reason=%r (status=%s)", failure_reason, status)
             elif status == "failed" and hms_errors:

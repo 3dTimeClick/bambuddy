@@ -6026,6 +6026,7 @@ export default {
       powerFailure: 'Power failure',
       userCancelled: 'User cancelled',
       noStatusUpdate: 'No status update received',
+      killSwitch: 'Stopped by the printer kill switch',
       other: 'Other',
     },
     // Archive statuses
@@ -7491,7 +7492,9 @@ export default {
       apiToken: 'API Token',
       apiTokenPlaceholder: 'Enter API token',
       saveConfig: 'Save Config',
-      systemQueued: 'Config queued.',
+      systemSavedRestart: 'Saved. Restart the daemon to apply it.',
+      systemApplying: 'Waiting for the device to take the config...',
+      systemRestarting: 'Restarting the daemon...',
       nfcDiagnostic: 'NFC Diagnostic',
       scaleDiagnostic: 'Scale Diagnostic',
       readTagDiagnostic: 'Read Tag Diagnostic',

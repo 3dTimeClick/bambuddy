@@ -5945,6 +5945,7 @@ export default {
       powerFailure: 'Güç kesintisi',
       userCancelled: 'Kullanıcı iptal etti',
       noStatusUpdate: 'Durum güncellemesi alınmadı',
+      killSwitch: 'Yetkisiz baskıyı otomatik durdurma tarafından durduruldu',
       other: 'Diğer',
     },
     statuses: {
@@ -7379,7 +7380,9 @@ export default {
       apiToken: 'API Belirteci',
       apiTokenPlaceholder: 'API belirtecini girin',
       saveConfig: 'Yapılandırmayı Kaydet',
-      systemQueued: 'Yapılandırma kuyruğa alındı.',
+      systemSavedRestart: "Kaydedildi. Uygulamak için daemon'u yeniden başlatın.",
+      systemApplying: 'Cihazın yapılandırmayı alması bekleniyor...',
+      systemRestarting: 'Daemon yeniden başlatılıyor...',
       nfcDiagnostic: 'NFC Tanılaması',
       scaleDiagnostic: 'Tartı Tanılaması',
       readTagDiagnostic: 'Etiket Okuma Tanılaması',

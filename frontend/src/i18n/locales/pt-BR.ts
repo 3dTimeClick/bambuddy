@@ -5960,6 +5960,7 @@ export default {
       powerFailure: 'Falha de energia',
       userCancelled: 'Cancelado pelo usuário',
       noStatusUpdate: 'Nenhuma atualização de status recebida',
+      killSwitch: 'Interrompida pela Parada Automática de Impressão',
       other: 'Outro',
     },
     // Archive statuses
@@ -7466,7 +7467,9 @@ export default {
       apiToken: 'Token de API',
       apiTokenPlaceholder: 'Insira o token de API',
       saveConfig: 'Salvar configuração',
-      systemQueued: 'Configuração enfileirada.',
+      systemSavedRestart: 'Salvo. Reinicie o daemon para aplicá-la.',
+      systemApplying: 'Aguardando o dispositivo receber a configuração...',
+      systemRestarting: 'Reiniciando o daemon...',
       systemFieldsRequired: 'URL do backend é obrigatória.',
       nfcDiagnostic: 'Diagnóstico NFC',
       scaleDiagnostic: 'Diagnóstico da balança',

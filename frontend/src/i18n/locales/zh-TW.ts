@@ -5960,6 +5960,7 @@ export default {
       powerFailure: '斷電',
       userCancelled: '使用者取消',
       noStatusUpdate: '未收到狀態更新',
+      killSwitch: '被列印機緊急停止開關停止',
       other: '其他',
     },
     // Archive statuses
@@ -7423,7 +7424,9 @@ export default {
       apiToken: 'API 權杖',
       apiTokenPlaceholder: '輸入 API 權杖',
       saveConfig: '儲存設定',
-      systemQueued: '設定已加入佇列。',
+      systemSavedRestart: '已儲存。重新啟動守護程式後生效。',
+      systemApplying: '正在等待裝置接收設定...',
+      systemRestarting: '正在重新啟動守護程式...',
       nfcDiagnostic: 'NFC 診斷',
       scaleDiagnostic: '磅秤診斷',
       readTagDiagnostic: '讀取標籤診斷',

@@ -6022,6 +6022,7 @@ errors: {
       powerFailure: 'Strömavbrott',
       userCancelled: 'Användare avbröt',
       noStatusUpdate: 'Ingen statusuppdatering mottogs',
+      killSwitch: 'Stoppad av nödstoppet för obehöriga utskrifter',
       other: 'Annat',
     },
     // Archive statuses
@@ -7487,7 +7488,9 @@ errors: {
       apiToken: 'API-token',
       apiTokenPlaceholder: 'Ange API-token',
       saveConfig: 'Spara konfiguration',
-      systemQueued: 'Konfiguration köad.',
+      systemSavedRestart: 'Sparad. Starta om demonen för att tillämpa den.',
+      systemApplying: 'Väntar på att enheten tar emot konfigurationen...',
+      systemRestarting: 'Startar om demonen...',
       nfcDiagnostic: 'NFC-diagnostik',
       scaleDiagnostic: 'Vågdiagnostik',
       readTagDiagnostic: 'Läs tagg-diagnostik',
