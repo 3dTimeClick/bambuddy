@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'L\'AMS ne peut pas démarrer le séchage pour le moment',
       startingDrying: 'Démarrage du séchage...',
       toastCommandSent: 'Commande de séchage envoyée',
-      toastStopped: 'Séchage arrêté',
+      toastStopped: "Commande d'arrêt envoyée",
       toastNotStarted: 'L\'imprimante a accepté la commande, mais l\'AMS n\'a pas démarré le séchage. Vérifiez que l\'adaptateur secteur de l\'AMS est branché et que l\'imprimante est inactive.',
       screenOnly: 'Sur cette imprimante, le séchage de l\'AMS ne peut être commandé que depuis l\'écran de l\'imprimante (limitation de Bambu)',
       stoppingDrying: 'Arrêt du séchage...',
@@ -6064,6 +6064,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'Profil K enregistré',
+      writeUnconfirmed: "Envoyé à l'imprimante, mais elle n'a pas confirmé. Vérifiez la liste après son actualisation.",
+      writesUnconfirmed: "L'imprimante n'en a pas confirmé {{count}}. Vérifiez la liste après son actualisation.",
       profilesSaved: 'Profil K enregistré sur {{count}} extrudeur(s)',
       selectAtLeastOneExtruder: 'Sélectionnez un extrudeur',
       selectFilament: 'Sélectionnez d’abord un filament',

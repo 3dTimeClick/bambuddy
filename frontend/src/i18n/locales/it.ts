@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'L\'AMS non può avviare l\'asciugatura al momento',
       startingDrying: 'Avvio essiccazione...',
       toastCommandSent: 'Comando di essiccazione inviato',
-      toastStopped: 'Essiccazione interrotta',
+      toastStopped: 'Comando di arresto inviato',
       toastNotStarted: 'La stampante ha accettato il comando, ma l\'AMS non ha avviato l\'essiccazione. Verifica che l\'alimentatore dell\'AMS sia collegato e che la stampante sia inattiva.',
       screenOnly: 'Su questa stampante l\'essiccazione dell\'AMS può essere comandata solo dallo schermo della stampante (limitazione di Bambu)',
       stoppingDrying: 'Arresto essiccazione...',
@@ -6063,6 +6063,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K-profile salvato',
+      writeUnconfirmed: "Inviato alla stampante, ma non ha confermato. Controlla l'elenco dopo l'aggiornamento.",
+      writesUnconfirmed: "La stampante non ne ha confermati {{count}}. Controlla l'elenco dopo l'aggiornamento.",
       profilesSaved: 'K-profile salvato su {{count}} estrusori',
       selectAtLeastOneExtruder: 'Seleziona almeno un estrusore',
       selectFilament: 'Seleziona prima un filamento',

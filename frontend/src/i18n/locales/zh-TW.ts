@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'AMS 目前無法開始乾燥',
       startingDrying: '正在啟動乾燥...',
       toastCommandSent: '已傳送乾燥命令',
-      toastStopped: '已停止乾燥',
+      toastStopped: '已傳送停止命令',
       toastNotStarted: '印表機已接受命令，但 AMS 未開始乾燥。請檢查 AMS 電源變壓器是否已連接，以及印表機是否處於閒置狀態。',
       screenOnly: '此印表機的 AMS 乾燥只能在印表機本身的螢幕上操作（Bambu 的限制）',
       stoppingDrying: '正在停止乾燥...',
@@ -6063,6 +6063,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K 值設定已儲存',
+      writeUnconfirmed: '已傳送到印表機，但印表機未確認。重新整理後請檢查清單。',
+      writesUnconfirmed: '其中 {{count}} 項印表機未確認。重新整理後請檢查清單。',
       profilesSaved: 'K 值設定已儲存到 {{count}} 個擠出機',
       selectAtLeastOneExtruder: '請至少選擇一個擠出機',
       selectFilament: '請先選擇耗材',

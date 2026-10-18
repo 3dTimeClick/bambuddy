@@ -763,7 +763,7 @@ export default {
       cannotDryNow: 'AMSは現在乾燥を開始できません',
       startingDrying: '乾燥を開始しています...',
       toastCommandSent: '乾燥コマンドを送信しました',
-      toastStopped: '乾燥を停止しました',
+      toastStopped: '停止コマンドを送信しました',
       toastNotStarted: 'プリンターはコマンドを受け付けましたが、AMS は乾燥を開始しませんでした。AMS の電源アダプターが接続されているか、プリンターがアイドル状態かを確認してください。',
       screenOnly: 'このプリンターでは、AMS の乾燥はプリンター本体の画面からのみ操作できます (Bambu の仕様上の制限)',
       stoppingDrying: '乾燥を停止しています...',
@@ -6077,6 +6077,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'Kプロファイルを保存しました',
+      writeUnconfirmed: 'プリンターに送信しましたが、確認がありませんでした。更新後に一覧を確認してください。',
+      writesUnconfirmed: 'そのうち {{count}} 件はプリンターから確認がありませんでした。更新後に一覧を確認してください。',
       profilesSaved: 'Kプロファイルを{{count}}台のエクストルーダーに保存しました',
       selectAtLeastOneExtruder: 'エクストルーダーを1つ以上選択してください',
       selectFilament: '先にフィラメントを選択してください',

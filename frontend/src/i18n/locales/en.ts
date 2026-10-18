@@ -769,7 +769,7 @@ export default {
       cannotDryNow: 'AMS can\'t start drying right now',
       startingDrying: 'Starting drying...',
       toastCommandSent: 'Drying command sent',
-      toastStopped: 'Drying stopped',
+      toastStopped: 'Stop command sent',
       toastNotStarted: 'The printer accepted the command but the AMS never started drying. Check that the AMS power adapter is connected and that the printer is idle.',
       screenOnly: 'AMS drying on this printer can only be controlled from the printer\'s own screen (Bambu limitation)',
       stoppingDrying: 'Stopping drying...',
@@ -6129,6 +6129,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K-profile saved',
+      writeUnconfirmed: 'Sent to the printer, but it did not confirm. Check the list once it refreshes.',
+      writesUnconfirmed: 'The printer did not confirm {{count}} of them. Check the list once it refreshes.',
       profilesSaved: 'K-profile saved to {{count}} extruders',
       selectAtLeastOneExtruder: 'Please select at least one extruder',
       selectFilament: 'Select a filament first',

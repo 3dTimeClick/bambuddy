@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'El AMS no puede iniciar el secado en este momento',
       startingDrying: 'Iniciando el secado...',
       toastCommandSent: 'Comando de secado enviado',
-      toastStopped: 'Secado detenido',
+      toastStopped: 'Orden de detención enviada',
       toastNotStarted: 'La impresora aceptó el comando, pero el AMS no inició el secado. Comprueba que el adaptador de corriente del AMS esté conectado y que la impresora esté inactiva.',
       screenOnly: 'En esta impresora, el secado del AMS solo se puede controlar desde la pantalla de la propia impresora (limitación de Bambu)',
       stoppingDrying: 'Deteniendo el secado...',
@@ -6084,6 +6084,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'Perfil K guardado',
+      writeUnconfirmed: 'Enviado a la impresora, pero no lo confirmó. Revisa la lista cuando se actualice.',
+      writesUnconfirmed: 'La impresora no confirmó {{count}} de ellos. Revisa la lista cuando se actualice.',
       profilesSaved: 'Perfil K guardado en {{count}} extrusores',
       selectAtLeastOneExtruder: 'Seleccione al menos un extrusor',
       selectFilament: 'Selecciona primero un filamento',

@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'AMS kann das Trocknen gerade nicht starten',
       startingDrying: 'Trocknung wird gestartet...',
       toastCommandSent: 'Trocknungsbefehl gesendet',
-      toastStopped: 'Trocknung gestoppt',
+      toastStopped: 'Stoppbefehl gesendet',
       toastNotStarted: 'Der Drucker hat den Befehl angenommen, aber das AMS hat die Trocknung nicht gestartet. Prüfe, ob das AMS-Netzteil angeschlossen ist und der Drucker im Leerlauf ist.',
       screenOnly: 'Die AMS-Trocknung kann bei diesem Drucker nur am Bildschirm des Druckers selbst gesteuert werden (Einschränkung von Bambu)',
       stoppingDrying: 'Trocknung wird gestoppt...',
@@ -6076,6 +6076,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K-Profil gespeichert',
+      writeUnconfirmed: 'An den Drucker gesendet, aber nicht bestätigt. Prüfe die Liste nach dem Aktualisieren.',
+      writesUnconfirmed: 'Der Drucker hat {{count}} davon nicht bestätigt. Prüfe die Liste nach dem Aktualisieren.',
       profilesSaved: 'K-Profil auf {{count}} Extrudern gespeichert',
       selectAtLeastOneExtruder: 'Bitte wählen Sie mindestens einen Extruder aus',
       selectFilament: 'Bitte zuerst ein Filament auswählen',

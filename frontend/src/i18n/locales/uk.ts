@@ -767,7 +767,7 @@ export default {
       cannotDryNow: "AMS зараз не може почати сушіння",
       startingDrying: "Запуск сушіння…",
       toastCommandSent: "Надіслано команду сушіння",
-      toastStopped: "Сушіння зупинено",
+      toastStopped: 'Команду зупинки надіслано',
       toastNotStarted: "Принтер прийняв команду, але AMS так і не почав сушити. Перевірте, чи підключено адаптер живлення AMS і чи принтер неактивний.",
       screenOnly: "Сушінням AMS на цьому принтері можна керувати лише з екрана принтера (обмеження Bambu)",
       stoppingDrying: "Припинення сушіння...",
@@ -6117,6 +6117,8 @@ export default {
     // Toast
     toast: {
       profileSaved: "K-профіль збережено",
+      writeUnconfirmed: 'Надіслано на принтер, але підтвердження немає. Перевірте список після оновлення.',
+      writesUnconfirmed: 'Принтер не підтвердив {{count}} з них. Перевірте список після оновлення.',
       profilesSaved: "K-профіль збережено в екструдери {{count}}.",
       selectAtLeastOneExtruder: "Виберіть принаймні один екструдер",
       selectFilament: "Спочатку виберіть філамент",

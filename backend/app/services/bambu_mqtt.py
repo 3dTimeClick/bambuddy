@@ -842,6 +842,21 @@ class NozzleInfo:
     nozzle_diameter: str = ""  # e.g., "0.4"
 
 
+# What await_cali_ack reports when the printer did not answer a K-profile write
+# in time. Not a refusal: firmware that predates the ack never answers.
+CALI_ACK_UNCONFIRMED = "no acknowledgement from printer"
+
+# Time the printer has to list a skipped object in s_obj before the skip is
+# logged as not confirmed.
+SKIP_CONFIRM_TIMEOUT_S = 60.0
+
+# Answers to K-profile commands: they echo the command's own fields (the nozzle
+# diameter among them), never the printer's status.
+_KPROFILE_COMMAND_ANSWERS = frozenset(
+    {"extrusion_cali_get", "extrusion_cali_set", "extrusion_cali_del", "extrusion_cali_sel"}
+)
+
+
 @dataclass
 class FilaSwitchState:
     """Filament Track Switch (FTS) accessory state.
@@ -1504,6 +1519,11 @@ class BambuMQTTClient:
         # on both an X1C and an H2D (#2718). Filled by the MQTT thread, drained
         # by await_cali_ack.
         self._pending_cali_acks: dict[str, dict | None] = {}
+        # Objects sent in skip_objects that the printer's s_obj list has not
+        # shown yet: object id -> when it was sent. And the ids of each
+        # command by its sequence_id, for its answer.
+        self._unconfirmed_skips: dict[int, float] = {}
+        self._skip_commands: dict[str, list[int]] = {}
         # Acks for RFID re-reads (ams_get_rfid, and the M620 R gcode_line
         # fallback), keyed the same way. Drained by ams_refresh_tray (#3206).
         self._pending_rfid_acks: dict[str, dict | None] = {}
@@ -2519,6 +2539,8 @@ class BambuMQTTClient:
                     ack_seq = str(print_data.get("sequence_id", ""))
                     if ack_seq in self._pending_cali_acks:
                         self._pending_cali_acks[ack_seq] = print_data
+                elif cmd == "skip_objects":
+                    self._handle_skip_objects_answer(print_data)
                 elif cmd in ("extrusion_cali_sel", "ams_filament_setting"):
                     logger.debug("[%s] %s response: %s", self.serial_number, cmd, print_data)
                     # A refused ams_filament_setting is the printer's verdict on
@@ -2618,7 +2640,9 @@ class BambuMQTTClient:
             # which then failed the #1899 dispatch guard. The response carries no
             # status telemetry, so skip it; the true nozzle comes from pushall.
             # (Same reasoning as get_accessories in _handle_system_response.)
-            if not is_kprofile_response:
+            # The answers to K-profile writes and selections echo the diameter
+            # the command named in the same way, so none of them is status.
+            if print_data.get("command") not in _KPROFILE_COMMAND_ANSWERS:
                 self._update_state(print_data)
 
     def _handle_system_response(self, data: dict):
@@ -5331,6 +5355,9 @@ class BambuMQTTClient:
                 if new_skipped != self.state.skipped_objects:
                     logger.debug("[%s] skipped_objects updated from printer: %s", self.serial_number, new_skipped)
                     self.state.skipped_objects = new_skipped
+                for oid in new_skipped:
+                    self._unconfirmed_skips.pop(oid, None)
+        self._check_unconfirmed_skips()
 
         # Parse chamber light status from lights_report
         if "lights_report" in data:
@@ -7094,7 +7121,7 @@ class BambuMQTTClient:
         finally:
             self._pending_cali_acks.pop(seq_id, None)
         logger.warning("[%s] No ack for K-profile write seq=%s within %.1fs", self.serial_number, seq_id, timeout)
-        return (True, "no acknowledgement from printer")
+        return (True, CALI_ACK_UNCONFIRMED)
 
     def set_kprofile(
         self,
@@ -7372,6 +7399,49 @@ class BambuMQTTClient:
         logger.info("[%s] Sent clear HMS errors command", self.serial_number)
         return True
 
+    def _handle_skip_objects_answer(self, print_data: dict) -> None:
+        """The printer's answer to skip_objects: a refusal is logged and the
+        objects are no longer shown as skipped."""
+        obj_list = self._skip_commands.pop(str(print_data.get("sequence_id", "")), None)
+        result = str(print_data.get("result", "") or "").lower()
+        if obj_list is None or result in ("", "success"):
+            return
+        logger.error(
+            "[%s] Printer refused skipping objects %s: result=%s reason=%s",
+            self.serial_number,
+            obj_list,
+            print_data.get("result"),
+            print_data.get("reason", ""),
+        )
+        for oid in obj_list:
+            self._unconfirmed_skips.pop(oid, None)
+        self.state.skipped_objects = [oid for oid in self.state.skipped_objects if oid not in obj_list]
+
+    def _check_unconfirmed_skips(self) -> None:
+        """Log, once, a skip the printer's s_obj list never showed."""
+        if not self._unconfirmed_skips:
+            return
+        if self.state.state not in ("RUNNING", "PAUSE"):
+            # The print ended; its skips are moot.
+            self._unconfirmed_skips.clear()
+            self._skip_commands.clear()
+            return
+        now = time.monotonic()
+        # A copy: skip_objects adds to the dict from the event loop while this
+        # runs on the MQTT thread.
+        pending = list(self._unconfirmed_skips.items())
+        expired = [oid for oid, sent_at in pending if now - sent_at > SKIP_CONFIRM_TIMEOUT_S]
+        if not expired:
+            return
+        logger.error(
+            "[%s] Printer did not confirm skipping objects %s within %.0fs; they may still be printed",
+            self.serial_number,
+            sorted(expired),
+            SKIP_CONFIRM_TIMEOUT_S,
+        )
+        for oid in expired:
+            self._unconfirmed_skips.pop(oid, None)
+
     def skip_objects(self, object_ids: list[int]) -> bool:
         """Skip specific objects during a print.
 
@@ -7409,6 +7479,10 @@ class BambuMQTTClient:
         command = {"print": {"sequence_id": str(self._sequence_id), "command": "skip_objects", "obj_list": obj_list}}
         self._client.publish(self.topic_publish, json.dumps(command), qos=1)
         logger.info("[%s] Sent skip_objects command: %s", self.serial_number, obj_list)
+        sent_at = time.monotonic()
+        for oid in obj_list:
+            self._unconfirmed_skips.setdefault(oid, sent_at)
+        self._skip_commands[str(self._sequence_id)] = obj_list
 
         # Track skipped objects in state
         for oid in obj_list:

@@ -726,7 +726,7 @@ export default {
       cannotDryNow: 'AMS가 지금은 건조를 시작할 수 없습니다',
       startingDrying: '건조 시작 중...',
       toastCommandSent: '건조 명령을 전송했습니다',
-      toastStopped: '건조를 중지했습니다',
+      toastStopped: '중지 명령을 보냈습니다',
       toastNotStarted: '프린터가 명령을 수락했지만 AMS가 건조를 시작하지 않았습니다. AMS 전원 어댑터가 연결되어 있는지, 프린터가 대기 상태인지 확인하십시오.',
       screenOnly: '이 프린터에서는 AMS 건조를 프린터 자체 화면에서만 제어할 수 있습니다 (Bambu 제한 사항)',
       stoppingDrying: '건조 정지 중...',
@@ -5814,6 +5814,8 @@ export default {
     },
     toast: {
       profileSaved: 'K-프로필 저장됨',
+      writeUnconfirmed: '프린터로 보냈지만 확인 응답이 없습니다. 목록이 새로 고쳐지면 확인하세요.',
+      writesUnconfirmed: '그중 {{count}}개는 프린터가 확인하지 않았습니다. 목록이 새로 고쳐지면 확인하세요.',
       profilesSaved: '{{count}}개 압출기에 K-프로필 저장됨',
       selectAtLeastOneExtruder: '적어도 하나의 압출기를 선택해 주세요',
       selectFilament: '먼저 필라먼트를 선택하세요',

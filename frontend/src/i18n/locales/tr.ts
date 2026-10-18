@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'AMS şu anda kurutmayı başlatamıyor',
       startingDrying: 'Kurutma başlatılıyor...',
       toastCommandSent: 'Kurutma komutu gönderildi',
-      toastStopped: 'Kurutma durduruldu',
+      toastStopped: 'Durdurma komutu gönderildi',
       toastNotStarted: 'Yazıcı komutu kabul etti ancak AMS kurutmayı başlatmadı. AMS güç adaptörünün bağlı olduğundan ve yazıcının boşta olduğundan emin olun.',
       screenOnly: 'Bu yazıcıda AMS kurutma yalnızca yazıcının kendi ekranından kontrol edilebilir (Bambu kısıtlaması)',
       stoppingDrying: 'Kurutma durduruluyor...',
@@ -6040,6 +6040,8 @@ export default {
     },
     toast: {
       profileSaved: 'K-profili kaydedildi',
+      writeUnconfirmed: 'Yazıcıya gönderildi ancak onaylanmadı. Liste yenilendiğinde kontrol edin.',
+      writesUnconfirmed: 'Yazıcı bunlardan {{count}} tanesini onaylamadı. Liste yenilendiğinde kontrol edin.',
       profilesSaved: '{{count}} ekstrüdere K-profili kaydedildi',
       selectAtLeastOneExtruder: 'Lütfen en az bir ekstrüder seçin',
       selectFilament: 'Önce bir filament seçin',

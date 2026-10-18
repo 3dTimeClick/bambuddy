@@ -764,7 +764,7 @@ export default {
       cannotDryNow: 'AMS 当前无法开始干燥',
       startingDrying: '正在启动干燥...',
       toastCommandSent: '已发送干燥命令',
-      toastStopped: '已停止干燥',
+      toastStopped: '已发送停止命令',
       toastNotStarted: '打印机已接受命令，但 AMS 未开始干燥。请检查 AMS 电源适配器是否已连接，以及打印机是否处于空闲状态。',
       screenOnly: '此打印机的 AMS 干燥只能在打印机自带的屏幕上操作（Bambu 的限制）',
       stoppingDrying: '正在停止干燥...',
@@ -6063,6 +6063,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K 值配置已保存',
+      writeUnconfirmed: '已发送到打印机，但打印机未确认。刷新后请检查列表。',
+      writesUnconfirmed: '其中 {{count}} 项打印机未确认。刷新后请检查列表。',
       profilesSaved: 'K 值配置已保存到 {{count}} 个挤出机',
       selectAtLeastOneExtruder: '请至少选择一个挤出机',
       selectFilament: '请先选择耗材',

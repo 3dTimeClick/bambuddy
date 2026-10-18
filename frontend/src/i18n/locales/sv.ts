@@ -767,7 +767,7 @@ export default {
       cannotDryNow: 'AMS kan inte börja torka just nu',
       startingDrying: 'Startar torkning...',
       toastCommandSent: 'Torkningskommando skickat',
-      toastStopped: 'Torkning stoppad',
+      toastStopped: 'Stoppkommando skickat',
       toastNotStarted: 'Skrivaren accepterade kommandot men AMS startade aldrig torkning. Kontrollera att AMS-strömadaptern är ansluten och att skrivaren är inaktiv.',
       screenOnly: 'AMS-torkning på denna skrivare kan endast kontrolleras från skrivarens egen skärm (Bambu-begränsning)',
       stoppingDrying: 'Stoppar torkning...',
@@ -6125,6 +6125,8 @@ errors: {
     // Toast
     toast: {
       profileSaved: 'K-profil sparad',
+      writeUnconfirmed: 'Skickat till skrivaren, men den bekräftade inte. Kontrollera listan när den uppdaterats.',
+      writesUnconfirmed: 'Skrivaren bekräftade inte {{count}} av dem. Kontrollera listan när den uppdaterats.',
       profilesSaved: 'K-profil sparad till {{count}} extrudrar',
       selectAtLeastOneExtruder: 'Välj minst en extruder',
       selectFilament: 'Välj ett filament först',

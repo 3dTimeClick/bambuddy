@@ -767,7 +767,7 @@ export default {
       cannotDryNow: 'AMS kan op dit moment niet beginnen met drogen',
       startingDrying: 'Drogen starten...',
       toastCommandSent: 'Droogopdracht verzonden',
-      toastStopped: 'Drogen gestopt',
+      toastStopped: 'Stopopdracht verzonden',
       toastNotStarted: 'De printer heeft de opdracht geaccepteerd, maar de AMS is niet begonnen met drogen. Controleer of de AMS-voedingsadapter is aangesloten en de printer inactief is.',
       screenOnly: 'AMS-drogen op deze printer kan alleen via het eigen scherm van de printer worden bediend (Bambu-beperking)',
       stoppingDrying: 'Drogen stoppen...',
@@ -6127,6 +6127,8 @@ export default {
     // Toast
     toast: {
       profileSaved: 'K-profiel opgeslagen',
+      writeUnconfirmed: 'Naar de printer verzonden, maar niet bevestigd. Controleer de lijst na het verversen.',
+      writesUnconfirmed: 'De printer heeft er {{count}} niet bevestigd. Controleer de lijst na het verversen.',
       profilesSaved: 'K-profiel opgeslagen naar {{count}} extruders',
       selectAtLeastOneExtruder: 'Selecteer ten minste één extruder',
       selectFilament: 'Selecteer eerst een filament',
