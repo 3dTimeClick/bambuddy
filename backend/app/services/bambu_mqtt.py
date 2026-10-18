@@ -1549,6 +1549,9 @@ class BambuMQTTClient:
         # H2D only reports slot number (0-3) in tray_now, not global tray ID
         # We use our tracked value to resolve the correct global ID
         self._last_load_tray_id: int | None = None
+        # Whether the frame being handled carried the nozzles' snow: only then
+        # may snow overrule the slot the same frame reports as tray_now.
+        self._snow_in_frame = False
 
         # The captured ams_mapping lives on the state (print_ams_mapping), so
         # the status the card reads carries it; see _captured_ams_mapping.
@@ -2308,6 +2311,7 @@ class BambuMQTTClient:
         # Wrap in try/except to prevent breaking the MQTT connection
         if "ams" in payload:
             try:
+                self._snow_in_frame = False  # a bare AMS frame carries no extruder data
                 self._handle_ams_data(payload["ams"])
             except Exception as e:
                 logger.error("[%s] Error handling AMS data: %s", self.serial_number, e)
@@ -2445,6 +2449,11 @@ class BambuMQTTClient:
             # switch is installed. Parsing them the other way round would lose
             # the binding on every frame where the two arrive together.
             self._parse_fila_switch(print_data)
+
+            # Before _handle_ams_data too: an H2D's tray_now is a bare slot that
+            # this frame's extruder data places (which nozzle, which AMS).
+            self._snow_in_frame = self._parse_extruder_position(print_data)
+            self._parse_extruder_slots(print_data)
 
             # Handle AMS data that comes inside print key
             if "ams" in print_data:
@@ -3146,6 +3155,81 @@ class BambuMQTTClient:
             info=int(fs_data.get("info", 0) or 0),
         )
 
+    def _parse_extruder_position(self, data: dict) -> bool:
+        """Read which nozzle is active and which tray each nozzle holds.
+
+        From ``device.extruder``: ``state`` bit 8 is the active nozzle, each
+        ``info`` entry's ``snow`` names its AMS and slot. Run on a frame before
+        its AMS block, because an H2D's tray_now is a bare slot that only the
+        extruder data of the same frame places. Returns True when the frame
+        carried the active nozzle's snow. A malformed value is skipped, never
+        raised: this runs ahead of everything else the frame carries.
+        """
+        device = data.get("device")
+        extruder = device.get("extruder") if isinstance(device, dict) else None
+        if not isinstance(extruder, dict):
+            return False
+        try:
+            state_val = int(extruder["state"]) if "state" in extruder else None
+        except (TypeError, ValueError):
+            state_val = None
+        if state_val is not None:
+            # Extract bit 8 for extruder position
+            new_extruder = (state_val >> 8) & 0x1
+            if new_extruder != self.state.active_extruder:
+                logger.debug(
+                    f"[{self.serial_number}] ACTIVE EXTRUDER CHANGED (state bit 8): {self.state.active_extruder} -> {new_extruder} (0=right, 1=left) [state={state_val}]"
+                )
+                self.state.active_extruder = new_extruder
+        extruder_info = extruder.get("info")
+        if not isinstance(extruder_info, list) or len(extruder_info) < 2:
+            return False
+        # Parse H2D snow field (slot now) for accurate tray_now disambiguation
+        # snow encodes AMS ID in high byte: ams_id = snow >> 8, slot = snow & 0xFF
+        snow_read: set[int] = set()
+        for ext_info in extruder_info:
+            if not isinstance(ext_info, dict) or "id" not in ext_info or "snow" not in ext_info:
+                continue
+            try:
+                ext_id = int(ext_info["id"])
+                snow = int(ext_info["snow"])
+            except (TypeError, ValueError):
+                continue
+            if ext_id <= 1:
+                snow_read.add(ext_id)
+                # Normalize H2D snow value to global tray ID
+                ams_id = snow >> 8
+                slot = snow & 0xFF
+                if 0 <= ams_id <= 3:
+                    # Regular AMS slot
+                    global_tray = ams_id * 4 + (slot & 0x03)
+                    old_val = self.state.h2d_extruder_snow.get(ext_id)
+                    if old_val != global_tray:
+                        logger.debug(
+                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: "
+                            f"raw={snow} (AMS {ams_id} slot {slot}) -> global tray {global_tray}"
+                        )
+                    self.state.h2d_extruder_snow[ext_id] = global_tray
+                elif ams_id == 254 or ams_id == 255:
+                    # External spool or unloaded
+                    normalized = 254 if slot != 255 else 255
+                    old_val = self.state.h2d_extruder_snow.get(ext_id)
+                    if old_val != normalized:
+                        logger.debug(
+                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: "
+                            f"raw={snow} -> {'external' if normalized == 254 else 'unloaded'}"
+                        )
+                    self.state.h2d_extruder_snow[ext_id] = normalized
+                elif 128 <= ams_id <= 135:
+                    # External spool with hub mapping
+                    old_val = self.state.h2d_extruder_snow.get(ext_id)
+                    if old_val != ams_id:
+                        logger.debug(
+                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: raw={snow} -> external hub {ams_id}"
+                        )
+                    self.state.h2d_extruder_snow[ext_id] = ams_id
+        return self.state.active_extruder in snow_read
+
     def _parse_extruder_slots(self, data: dict) -> None:
         """Read which AMS slot each extruder is fed from — ``device.extruder.info``.
 
@@ -3312,11 +3396,23 @@ class BambuMQTTClient:
 
                         # Best source: use snow value from device.extruder.info if available
                         snow_tray = self.state.h2d_extruder_snow.get(active_ext)
-                        if snow_tray is not None and snow_tray != 255:
+                        # Regular AMS: slot = global_id % 4; AMS HT (128-135): single slot = 0
+                        snow_slot = (
+                            None
+                            if snow_tray is None
+                            else snow_tray % 4
+                            if snow_tray < 128
+                            else (0 if snow_tray <= 135 else -1)
+                        )
+                        # A snow from an earlier frame may predate a swap: it
+                        # names the tray only while it agrees with the slot.
+                        snow_usable = (
+                            snow_tray is not None
+                            and snow_tray != 255
+                            and (snow_slot == parsed_tray_now or self._snow_in_frame)
+                        )
+                        if snow_usable and snow_tray is not None:
                             # snow_tray is already normalized to global ID
-                            # Verify the slot matches what we see in tray_now
-                            # Regular AMS: slot = global_id % 4; AMS HT (128-135): single slot = 0
-                            snow_slot = snow_tray % 4 if snow_tray < 128 else (0 if snow_tray <= 135 else -1)
                             if snow_slot == parsed_tray_now:
                                 if self.state.tray_now != snow_tray:
                                     logger.debug(
@@ -3325,7 +3421,8 @@ class BambuMQTTClient:
                                     )
                                 self.state.tray_now = snow_tray
                             else:
-                                # Slot mismatch - snow field may not have updated yet, trust snow
+                                # Slot mismatch in one frame: the extruder's own
+                                # report is the complete answer, trust snow
                                 logger.debug(
                                     f"[{self.serial_number}] H2D tray_now: ams.tray_now slot {parsed_tray_now} "
                                     f"!= snow slot {snow_slot}, using snow value {snow_tray}"
@@ -4572,15 +4669,7 @@ class BambuMQTTClient:
                         sorted(device.keys()),
                     )
                 self._device_id_logged = True
-            if "extruder" in device and "state" in device["extruder"]:
-                state_val = device["extruder"]["state"]
-                # Extract bit 8 for extruder position
-                new_extruder = (state_val >> 8) & 0x1
-                if new_extruder != self.state.active_extruder:
-                    logger.debug(
-                        f"[{self.serial_number}] ACTIVE EXTRUDER CHANGED (state bit 8): {self.state.active_extruder} -> {new_extruder} (0=right, 1=left) [state={state_val}]"
-                    )
-                    self.state.active_extruder = new_extruder
+            self._parse_extruder_position(data)
 
         # Log device.extruder structure for active extruder
         if "device" in data and isinstance(data.get("device"), dict):
@@ -4802,45 +4891,8 @@ class BambuMQTTClient:
                             if not respect_local_target:
                                 temps["nozzle_target"] = 0.0
                             temps["nozzle_heating"] = False  # Direct = not heating
-                    # Parse H2D snow field (slot now) for accurate tray_now disambiguation
-                    # snow encodes AMS ID in high byte: ams_id = snow >> 8, slot = snow & 0xFF
-                    if has_h2d_extruder_info:
-                        for ext_info in extruder_info:
-                            ext_id = ext_info.get("id")
-                            snow = ext_info.get("snow")
-                            if ext_id is not None and snow is not None and ext_id <= 1:
-                                # Normalize H2D snow value to global tray ID
-                                ams_id = snow >> 8
-                                slot = snow & 0xFF
-                                if 0 <= ams_id <= 3:
-                                    # Regular AMS slot
-                                    global_tray = ams_id * 4 + (slot & 0x03)
-                                    old_val = self.state.h2d_extruder_snow.get(ext_id)
-                                    if old_val != global_tray:
-                                        logger.debug(
-                                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: "
-                                            f"raw={snow} (AMS {ams_id} slot {slot}) -> global tray {global_tray}"
-                                        )
-                                    self.state.h2d_extruder_snow[ext_id] = global_tray
-                                elif ams_id == 254 or ams_id == 255:
-                                    # External spool or unloaded
-                                    normalized = 254 if slot != 255 else 255
-                                    old_val = self.state.h2d_extruder_snow.get(ext_id)
-                                    if old_val != normalized:
-                                        logger.debug(
-                                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: "
-                                            f"raw={snow} -> {'external' if normalized == 254 else 'unloaded'}"
-                                        )
-                                    self.state.h2d_extruder_snow[ext_id] = normalized
-                                elif 128 <= ams_id <= 135:
-                                    # External spool with hub mapping
-                                    old_val = self.state.h2d_extruder_snow.get(ext_id)
-                                    if old_val != ams_id:
-                                        logger.debug(
-                                            f"[{self.serial_number}] H2D extruder[{ext_id}] snow: "
-                                            f"raw={snow} -> external hub {ams_id}"
-                                        )
-                                    self.state.h2d_extruder_snow[ext_id] = ams_id
+                    # The extruder snow is read by _parse_extruder_position, before the
+                    # AMS block of the same frame (tray_now resolution needs it first).
                 # Parse bed heating state from device.bed.info.temp encoding
                 # temp > 500 means encoded (target*65536+current), heating = target > 0 AND current < target
                 bed_data = device.get("bed", {})

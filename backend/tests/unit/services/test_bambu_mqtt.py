@@ -2932,8 +2932,8 @@ class TestTrayNowDualNozzleH2DSnow(_H2DFixtureMixin):
 
     def test_snow_disambiguates_ams0_slot(self, h2d_client):
         """snow ext[0]=AMS 0 slot 2, tray_now='2' → global 2."""
-        # Send snow update FIRST (snow is parsed AFTER tray_now in the same message,
-        # so we need it in a prior message).
+        # Snow in a prior message here; a frame carrying both is covered in
+        # test_h2d_tray_now_same_frame_g11.py.
         snow_val = 0 << 8 | 2  # AMS 0 slot 2 = raw 2
         h2d_client._process_message(
             _extruder_info_payload(
