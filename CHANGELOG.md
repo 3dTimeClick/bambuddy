@@ -164,6 +164,10 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Spoolman AMS syncs keep a spool assigned by hand, and say what they changed** — Three cases:
+  - **A spool assigned to an AMS slot by hand** while the automatic Spoolman sync was waiting for Spoolman could be replaced by the spool the sync had read before. The syncs now change only the slots whose spool they found different, and only while the slot still holds what they read.
+  - **The Sync buttons in Spoolman settings** changed slots without telling other open pages, and without updating the slot's filament preset, so the printer card could keep the previous spool's preset name. They now do both, as the automatic sync does.
+  - **The Sync buttons** gave a newly created Spoolman spool the remaining weight of a built-in inventory spool last assigned to that slot before the switch to Spoolman, when the printer reported no weight of its own. That leftover weight is no longer used, as in the automatic sync.
 - **Spoolman inventory: five requests refused or reported correctly** —
   - **Deleting a storage location while Spoolman was unreachable** counted its spools from the built-in inventory, found none, and deleted a location Spoolman spools still used. The delete is now refused until Spoolman answers.
   - **Printing labels for an archived Spoolman spool** failed the whole batch with "not found", as Spoolman leaves archived spools out of its plain spool list.

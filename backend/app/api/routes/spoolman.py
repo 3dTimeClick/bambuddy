@@ -29,6 +29,7 @@ from backend.app.models.user import User
 from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId
 from backend.app.services import slot_unlink_grace
 from backend.app.services.ams_slot_presence import spool_present
+from backend.app.services.inventory_mode import spoolman_owns_assignments
 from backend.app.services.printer_manager import PrinterManager, printer_manager
 from backend.app.services.slicer_filament_resolver import resolve_slicer_filament
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
@@ -41,6 +42,7 @@ from backend.app.services.spoolman import (
     get_spoolman_client,
     init_spoolman_client,
 )
+from backend.app.services.spoolman_slot_sync import write_slot_results
 from backend.app.utils.filament_ids import (
     GENERIC_FILAMENT_IDS,
     filament_id_to_setting_id,
@@ -233,6 +235,24 @@ def _empty_slot_may_be_unlinked(state, tray_data: dict) -> bool:
     return spool_present(tray_data) is not True
 
 
+async def _refresh_slot_preset(db: AsyncSession, spool: dict, tray, printer_id: int, ams_id: int) -> None:
+    """The slot's preset row follows the spool synced into it, as in the
+    automatic pass: the slot card reads that row ahead of the live tray, so it
+    kept the previous spool's preset name (SSA-2)."""
+    from backend.app.services.slot_preset_writer import upsert_slot_preset_for_spoolman_spool
+
+    await upsert_slot_preset_for_spoolman_spool(
+        db=db,
+        spoolman_spool=spool,
+        tray_info_idx=tray.tray_info_idx or "",
+        tray_sub_brands=tray.tray_sub_brands or "",
+        tray_type=tray.tray_type or "",
+        printer_id=printer_id,
+        ams_id=ams_id,
+        tray_id=tray.tray_id,
+    )
+
+
 @router.post("/sync/{printer_id}", response_model=SyncResult)
 async def sync_printer_ams(
     printer_id: int,
@@ -327,30 +347,36 @@ async def sync_printer_ams(
             detail=f"Failed to connect to Spoolman after multiple retries: {str(e)}",
         )
 
-    # Load inventory weights as fallback (when AMS MQTT data lacks remain values)
+    # Load inventory weights as fallback (when AMS MQTT data lacks remain values).
+    # Inert in Spoolman mode, as in the automatic pass (main.on_ams_change): the
+    # built-in slot rows are left over from before the switch, and a new Spoolman
+    # spool would be seeded with an unrelated weight (SM-C3).
     inv_weights: dict[tuple[int, int], float] = {}
-    try:
-        assign_result = await db.execute(
-            select(SpoolAssignment)
-            .options(selectinload(SpoolAssignment.spool))
-            .where(SpoolAssignment.printer_id == printer_id)
-        )
-        for assignment in assign_result.scalars().all():
-            spool = assignment.spool
-            if spool and spool.label_weight > 0:
-                remaining = max(0.0, spool.label_weight - (spool.weight_used or 0))
-                inv_weights[(assignment.ams_id, assignment.tray_id)] = remaining
-    except Exception as e:
-        logger.debug("Could not load inventory weights for printer %s: %s", printer_id, e)
+    if not await spoolman_owns_assignments(db):
+        try:
+            assign_result = await db.execute(
+                select(SpoolAssignment)
+                .options(selectinload(SpoolAssignment.spool))
+                .where(SpoolAssignment.printer_id == printer_id)
+            )
+            for assignment in assign_result.scalars().all():
+                spool = assignment.spool
+                if spool and spool.label_weight > 0:
+                    remaining = max(0.0, spool.label_weight - (spool.weight_used or 0))
+                    inv_weights[(assignment.ams_id, assignment.tray_id)] = remaining
+        except Exception as e:
+            logger.debug("Could not load inventory weights for printer %s: %s", printer_id, e)
 
     # Load existing Spoolman slot assignments for the no-RFID fallback path
     spoolman_slot_map: dict[tuple[int, int], int] = {}
+    slot_map_read = False
     try:
         slot_result = await db.execute(
             select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.printer_id == printer_id)
         )
         for slot in slot_result.scalars().all():
             spoolman_slot_map[(slot.ams_id, slot.tray_id)] = slot.spoolman_spool_id
+        slot_map_read = True
     except Exception as e:
         logger.warning("Could not load Spoolman slot assignments for printer %s: %s", printer_id, e)
 
@@ -405,6 +431,7 @@ async def sync_printer_ams(
                         if not spool_exists:
                             cached_spools.append(sync_result)
                             logger.debug("Added newly created spool %s to cache", sync_result["id"])
+                        await _refresh_slot_preset(db, sync_result, tray, printer_id, ams_id)
                     logger.info(
                         "Synced %s from %s AMS %s tray %s", tray.tray_sub_brands, printer.name, ams_id, tray.tray_id
                     )
@@ -433,29 +460,18 @@ async def sync_printer_ams(
                 logger.error(error_msg)
                 errors.append(error_msg)
 
-    # Persist slot assignment changes to the local table
+    # Persist slot assignment changes to the local table: only what changed,
+    # and only where the slot still holds what was read (SSA-3).
     if slot_changes or empty_slots:
         try:
-            for ams_id, tray_id, spool_id in slot_changes:
-                await db.execute(
-                    text(
-                        "INSERT INTO spoolman_slot_assignments"
-                        " (printer_id, ams_id, tray_id, spoolman_spool_id)"
-                        " VALUES (:printer_id, :ams_id, :tray_id, :spool_id)"
-                        " ON CONFLICT(printer_id, ams_id, tray_id)"
-                        " DO UPDATE SET spoolman_spool_id = excluded.spoolman_spool_id"
-                    ),
-                    {"printer_id": printer_id, "ams_id": ams_id, "tray_id": tray_id, "spool_id": spool_id},
-                )
-            for ams_id, tray_id in empty_slots:
-                await db.execute(
-                    delete(SpoolmanSlotAssignment).where(
-                        SpoolmanSlotAssignment.printer_id == printer_id,
-                        SpoolmanSlotAssignment.ams_id == ams_id,
-                        SpoolmanSlotAssignment.tray_id == tray_id,
-                    )
-                )
-            await db.commit()
+            await write_slot_results(
+                db,
+                {(printer_id, a_id, t_id): spool_id for (a_id, t_id), spool_id in spoolman_slot_map.items()}
+                if slot_map_read
+                else None,
+                [(printer_id, a_id, t_id, spool_id) for a_id, t_id, spool_id in slot_changes],
+                [(printer_id, a_id, t_id) for a_id, t_id in empty_slots],
+            )
         except Exception as e:
             await db.rollback()
             logger.error("Error persisting Spoolman slot assignments for printer %s: %s", printer_id, e)
@@ -522,24 +538,28 @@ async def sync_all_printers(
 
     # Load inventory assignments for weight fallback (when AMS MQTT data lacks remain values)
     # Key: (printer_id, ams_id, tray_id) → remaining_weight in grams
+    # Inert in Spoolman mode, as in sync_printer_ams above (SM-C3).
     inventory_weights: dict[tuple[int, int, int], float] = {}
-    try:
-        assign_result = await db.execute(select(SpoolAssignment).options(selectinload(SpoolAssignment.spool)))
-        for assignment in assign_result.scalars().all():
-            spool = assignment.spool
-            if spool and spool.label_weight > 0:
-                remaining = max(0.0, spool.label_weight - (spool.weight_used or 0))
-                inventory_weights[(assignment.printer_id, assignment.ams_id, assignment.tray_id)] = remaining
-    except Exception as e:
-        logger.debug("Could not load inventory assignments for weight fallback: %s", e)
+    if not await spoolman_owns_assignments(db):
+        try:
+            assign_result = await db.execute(select(SpoolAssignment).options(selectinload(SpoolAssignment.spool)))
+            for assignment in assign_result.scalars().all():
+                spool = assignment.spool
+                if spool and spool.label_weight > 0:
+                    remaining = max(0.0, spool.label_weight - (spool.weight_used or 0))
+                    inventory_weights[(assignment.printer_id, assignment.ams_id, assignment.tray_id)] = remaining
+        except Exception as e:
+            logger.debug("Could not load inventory assignments for weight fallback: %s", e)
 
     # Load all Spoolman slot assignments for the no-RFID fallback
     # Key: (printer_id, ams_id, tray_id) → spoolman_spool_id
     all_slot_map: dict[tuple[int, int, int], int] = {}
+    all_slot_map_read = False
     try:
         slot_result = await db.execute(select(SpoolmanSlotAssignment))
         for slot in slot_result.scalars().all():
             all_slot_map[(slot.printer_id, slot.ams_id, slot.tray_id)] = slot.spoolman_spool_id
+        all_slot_map_read = True
     except Exception as e:
         logger.warning("Could not load Spoolman slot assignments: %s", e)
 
@@ -625,6 +645,7 @@ async def sync_all_printers(
                             if not spool_exists:
                                 cached_spools.append(sync_result)
                                 logger.debug("Added newly created spool %s to cache", sync_result["id"])
+                            await _refresh_slot_preset(db, sync_result, tray, printer.id, ams_id)
                     elif spool_tag and not auto_add_unknown_rfid:
                         all_skipped.append(
                             SkippedSpool(
@@ -648,29 +669,11 @@ async def sync_all_printers(
                 except Exception as e:
                     all_errors.append(f"{printer.name} AMS {ams_id}:{tray.tray_id}: {e}")
 
-    # Persist slot assignment changes across all printers
+    # Persist slot assignment changes across all printers: only what changed,
+    # and only where the slot still holds what was read (SSA-3).
     if all_slot_changes or all_empty_slots:
         try:
-            for p_id, ams_id, tray_id, spool_id in all_slot_changes:
-                await db.execute(
-                    text(
-                        "INSERT INTO spoolman_slot_assignments"
-                        " (printer_id, ams_id, tray_id, spoolman_spool_id)"
-                        " VALUES (:printer_id, :ams_id, :tray_id, :spool_id)"
-                        " ON CONFLICT(printer_id, ams_id, tray_id)"
-                        " DO UPDATE SET spoolman_spool_id = excluded.spoolman_spool_id"
-                    ),
-                    {"printer_id": p_id, "ams_id": ams_id, "tray_id": tray_id, "spool_id": spool_id},
-                )
-            for p_id, ams_id, tray_id in all_empty_slots:
-                await db.execute(
-                    delete(SpoolmanSlotAssignment).where(
-                        SpoolmanSlotAssignment.printer_id == p_id,
-                        SpoolmanSlotAssignment.ams_id == ams_id,
-                        SpoolmanSlotAssignment.tray_id == tray_id,
-                    )
-                )
-            await db.commit()
+            await write_slot_results(db, all_slot_map if all_slot_map_read else None, all_slot_changes, all_empty_slots)
         except Exception as e:
             await db.rollback()
             logger.error("Error persisting Spoolman slot assignments: %s", e)

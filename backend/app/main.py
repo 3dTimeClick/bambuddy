@@ -3242,12 +3242,14 @@ async def on_ams_change(printer_id: int, ams_data: list):
 
             # Load existing Spoolman slot assignments for the no-RFID fallback path
             spoolman_slot_map: dict[tuple[int, int], int] = {}
+            slot_map_read = False
             try:
                 slot_result = await db.execute(
                     select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.printer_id == printer_id)
                 )
                 for slot in slot_result.scalars().all():
                     spoolman_slot_map[(slot.ams_id, slot.tray_id)] = slot.spoolman_spool_id
+                slot_map_read = True
             except Exception as e:
                 logger.warning("Could not load Spoolman slot assignments for printer %s: %s", printer_id, e)
 
@@ -3392,57 +3394,27 @@ async def on_ams_change(printer_id: int, ams_data: list):
             if synced > 0:
                 logger.info("Auto-synced %s AMS trays to Spoolman for printer %s", synced, printer_id)
 
-            # Persist slot assignment changes to the local table
+            # Persist slot assignment changes to the local table: only slots
+            # whose spool this pass changed, and only while they still hold what
+            # it read before awaiting Spoolman, so a spool assigned by hand in
+            # between stays (SSA-3). The changed slots are announced: the slot
+            # card reads slot_preset_mappings (rewritten above) ahead of the live
+            # tray, so with no event it kept the previous spool's preset name.
             if slot_changes or empty_slots:
+                from backend.app.services.spoolman_slot_sync import write_slot_results
+
                 try:
-                    for ams_id, tray_id, spool_id in slot_changes:
-                        await db.execute(
-                            text(
-                                "INSERT INTO spoolman_slot_assignments"
-                                " (printer_id, ams_id, tray_id, spoolman_spool_id)"
-                                " VALUES (:printer_id, :ams_id, :tray_id, :spool_id)"
-                                " ON CONFLICT(printer_id, ams_id, tray_id)"
-                                " DO UPDATE SET spoolman_spool_id = excluded.spoolman_spool_id"
-                            ),
-                            {
-                                "printer_id": printer_id,
-                                "ams_id": ams_id,
-                                "tray_id": tray_id,
-                                "spool_id": spool_id,
-                            },
-                        )
-                    for ams_id, tray_id in empty_slots:
-                        await db.execute(
-                            delete(SpoolmanSlotAssignment).where(
-                                SpoolmanSlotAssignment.printer_id == printer_id,
-                                SpoolmanSlotAssignment.ams_id == ams_id,
-                                SpoolmanSlotAssignment.tray_id == tray_id,
-                            )
-                        )
-                    await db.commit()
+                    await write_slot_results(
+                        db,
+                        {(printer_id, a_id, t_id): spool_id for (a_id, t_id), spool_id in spoolman_slot_map.items()}
+                        if slot_map_read
+                        else None,
+                        [(printer_id, a_id, t_id, spool_id) for a_id, t_id, spool_id in slot_changes],
+                        [(printer_id, a_id, t_id) for a_id, t_id in empty_slots],
+                    )
                 except Exception as e:
                     await db.rollback()
                     logger.error("Error persisting Spoolman slot assignments for printer %s: %s", printer_id, e)
-                else:
-                    # Tell open browsers the slot changed. This loop rewrites
-                    # slot_preset_mappings via upsert_slot_preset_for_spoolman_spool
-                    # above, and the AMS slot card reads that row ahead of the
-                    # live tray_info_idx -- so with no event the card keeps
-                    # showing the previous spool's preset name. Internal mode
-                    # raises spool_auto_assigned for the same reason; this loop
-                    # broadcast nothing at all, which made Spoolman mode the
-                    # worse half of the same bug. On the else branch so a
-                    # failed commit stays silent and a broadcast failure cannot
-                    # roll back rows that are already committed.
-                    for ams_id, tray_id, *_ in (*slot_changes, *empty_slots):
-                        await ws_manager.broadcast(
-                            {
-                                "type": "spool_assignment_changed",
-                                "printer_id": printer_id,
-                                "ams_id": ams_id,
-                                "tray_id": tray_id,
-                            }
-                        )
 
     except Exception as e:
         logging.getLogger(__name__).error("Spoolman AMS sync failed for printer %s: %s", printer_id, e)
