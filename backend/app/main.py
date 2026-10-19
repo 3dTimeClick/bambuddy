@@ -1257,16 +1257,25 @@ def register_expected_print(
         base = filename[:-4]
         _expected_prints[(printer_id, base)] = archive_id
         _expected_prints[(printer_id, f"{base}.gcode")] = archive_id
-    # Store AMS mapping for usage tracking at print completion
+    # Store AMS mapping for usage tracking at print completion, and plate_id for
+    # a single-plate dispatch from a multi-plate 3MF — without it, the direct-Print
+    # path attributes the whole file's filament total to the spool instead of just
+    # the printed plate (#1697). They describe this dispatch: one that has none
+    # drops what an earlier dispatch of the archive left (sent, never started),
+    # unless a plate of the archive is printing now and still needs them.
+    archive_printing = archive_id in set(_active_prints.values())
     if ams_mapping is not None:
         _print_ams_mappings[archive_id] = ams_mapping
+    elif not archive_printing:
+        _print_ams_mappings.pop(archive_id, None)
     if cost_center_id is not None:
         _print_cost_center_ids[archive_id] = cost_center_id
-    # Store plate_id for usage tracking when this is a single-plate dispatch from
-    # a multi-plate 3MF — without this, the direct-Print path attributes the whole
-    # file's filament total to the spool instead of just the printed plate (#1697).
+    elif not archive_printing:
+        _print_cost_center_ids.pop(archive_id, None)
     if plate_id is not None:
         _print_plate_ids[archive_id] = plate_id
+    elif not archive_printing:
+        _print_plate_ids.pop(archive_id, None)
     # Store created_by_id so the user start email can be sent even when the archive
     # itself has no created_by_id (e.g. library-file-based queue prints)
     if created_by_id is not None:
@@ -1319,7 +1328,9 @@ def unregister_expected_print(printer_id: int, filename: str, archive_id: int) -
         _expected_print_creators.pop(key, None)
         _expected_print_registered_at.pop(key, None)
 
-    if archive_id not in set(_expected_prints.values()):
+    # Still needed by another expected print of the archive, or a plate of it
+    # that is printing, as in the sweep.
+    if archive_id not in set(_expected_prints.values()) | set(_active_prints.values()):
         _print_ams_mappings.pop(archive_id, None)
         _print_cost_center_ids.pop(archive_id, None)
         _print_plate_ids.pop(archive_id, None)
@@ -8371,9 +8382,12 @@ async def on_print_complete(printer_id: int, data: dict):
     usage_results: list[dict] = []
     # Prefer ams_mapping captured from MQTT request topic (works for all print sources)
     stored_ams_mapping = data.get("ams_mapping")
-    # Fallback to _print_ams_mappings for queue/reprint (set before print starts)
-    if not stored_ams_mapping and archive_id:
-        stored_ams_mapping = _print_ams_mappings.pop(archive_id, None)
+    # Fallback to _print_ams_mappings for queue/reprint (set before print starts).
+    # Drained either way, like the plate below: left over, it would be read by
+    # the archive's next run, dispatched without a mapping.
+    registered_ams_mapping = _print_ams_mappings.pop(archive_id, None) if archive_id else None
+    if not stored_ams_mapping:
+        stored_ams_mapping = registered_ams_mapping
 
     # Always drain the plate_id register on completion — the session already
     # consumed it at print-start injection; leaving it would leak into the next

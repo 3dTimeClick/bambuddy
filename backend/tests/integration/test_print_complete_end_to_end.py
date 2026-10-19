@@ -87,7 +87,7 @@ async def queued_print(db_session, printer_factory):
     return {"printer": printer.id, "user": user.id, "center": center.id, "archive": archive.id, "item": item.id}
 
 
-async def _complete(test_engine, printer_id: int, status: str, name: str = "part") -> None:
+async def _complete(test_engine, printer_id: int, status: str, name: str = "part", extra: dict | None = None) -> None:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     tasks_before = set(asyncio.all_tasks())
     with (
@@ -110,7 +110,13 @@ async def _complete(test_engine, printer_id: int, status: str, name: str = "part
         plug.on_print_complete = AsyncMock()
         await main_module.on_print_complete(
             printer_id,
-            {"status": status, "filename": f"{name}.gcode", "subtask_name": name, "timelapse_was_active": False},
+            {
+                "status": status,
+                "filename": f"{name}.gcode",
+                "subtask_name": name,
+                "timelapse_was_active": False,
+                **(extra or {}),
+            },
         )
         spawned = asyncio.all_tasks() - tasks_before
         if spawned:
@@ -325,3 +331,15 @@ async def test_the_layer_timelapse_is_attached_for_the_run_that_ended(test_engin
     attach.assert_awaited_once()
     archive_id, path, _plate, run_started_at = attach.await_args.args
     assert (archive_id, path, run_started_at) == (queued_print["archive"], stitched, datetime(2026, 10, 19, 8, 0))
+
+
+async def test_the_registered_mapping_is_drained_when_the_printer_reported_one(test_engine, db_session, queued_print):
+    """PAM/I3: left behind, the archive's next run (sent without a mapping)
+    would charge its usage through this run's trays."""
+    main_module._print_ams_mappings[queued_print["archive"]] = [4]
+    try:
+        await _complete(test_engine, queued_print["printer"], "completed", extra={"ams_mapping": [0]})
+
+        assert queued_print["archive"] not in main_module._print_ams_mappings
+    finally:
+        main_module._print_ams_mappings.pop(queued_print["archive"], None)
