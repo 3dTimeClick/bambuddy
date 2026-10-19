@@ -965,6 +965,45 @@ class TestRestoreSpools:
         assert spools[0].created_at == datetime(2026, 1, 5, 12, 0, 0)
 
     @pytest.mark.asyncio
+    async def test_restores_the_total_consumed_reset_point(self, db_session):
+        """WU-7: a restore lost every "Reset Total Consumed"."""
+        await _service()._restore_spools(
+            db_session,
+            {"spools": [self._spool_entry(weight_used=500, weight_used_baseline=300)]},
+            None,
+            False,
+            _CategoryTally(),
+            {},
+        )
+        await db_session.commit()
+
+        assert (await db_session.execute(select(Spool))).scalar_one().weight_used_baseline == 300
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("backed_up", "expected"),
+        [({"weight_used_baseline": 300}, 300), ({}, 650), ({"weight_used_baseline": "300"}, 650)]
+        + [({"weight_used_baseline": bad}, 650) for bad in (-5, float("inf"), None, True)],
+    )
+    async def test_overwriting_a_spool_takes_the_backups_reset_point(self, db_session, backed_up, expected):
+        """Only a real amount: an older backup without one, or a damaged
+        value, keeps the live point."""
+        db_session.add(Spool(material="PLA", tag_uid="AABBCCDD", weight_used=700, weight_used_baseline=650))
+        await db_session.commit()
+
+        await _service()._restore_spools(
+            db_session,
+            {"spools": [self._spool_entry(weight_used=500, **backed_up)]},
+            None,
+            True,
+            _CategoryTally(),
+            {},
+        )
+        await db_session.commit()
+
+        assert (await db_session.execute(select(Spool))).scalar_one().weight_used_baseline == expected
+
+    @pytest.mark.asyncio
     async def test_restores_the_owners_own_bookkeeping_fields(self, db_session):
         """#2870 + #729: purchasing number, category, threshold, storage."""
         tally = _CategoryTally()

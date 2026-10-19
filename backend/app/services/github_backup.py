@@ -793,6 +793,8 @@ class GitHubBackupService:
                 "label_weight": s.label_weight,
                 "core_weight": s.core_weight,
                 "weight_used": s.weight_used,
+                # The "Reset Total Consumed" point (WU-7).
+                "weight_used_baseline": s.weight_used_baseline,
                 "weight_locked": s.weight_locked,
                 "slicer_filament": s.slicer_filament,
                 "slicer_filament_name": s.slicer_filament_name,
