@@ -1336,17 +1336,12 @@ async def bulk_update_queue_items(
             continue
 
         item_update_data = update_data.copy()
-        if "printer_id" in item_update_data and item_update_data["printer_id"] != item.printer_id:
-            # A job with printer alternatives picks its own printer (#671),
-            # as the single edit refuses to override.
-            if item.variants:
-                skipped_count += 1
-                continue
-            # Now bound to this printer: not to a model, and nothing worked
-            # out for the old printer carries over.
-            item.target_model = None
-            item.target_location = None
-            drop_printer_resolved(item)
+        rebinds = "printer_id" in item_update_data and item_update_data["printer_id"] != item.printer_id
+        # A job with printer alternatives picks its own printer (#671), as the
+        # single edit refuses to override.
+        if rebinds and item.variants:
+            skipped_count += 1
+            continue
         if validates_billing_fields:
             trusted_estimated_cost = await _trusted_item_estimated_cost(
                 db,
@@ -1364,6 +1359,25 @@ async def bulk_update_queue_items(
                 exclude_queue_item_id=item.id,
             )
 
+        # Re-check right before changing it, as the single edit does (#2615):
+        # the validations above are awaited, and a scheduler worker may have
+        # claimed the row (or it stopped being pending) meanwhile. Nothing on
+        # this row has been changed yet, so skipping it leaves it as it is.
+        current = (
+            await db.execute(
+                select(PrintQueueItem.status, PrintQueueItem.dispatching_at).where(PrintQueueItem.id == item.id)
+            )
+        ).one_or_none()
+        if current is None or current.status != "pending" or current.dispatching_at is not None:
+            skipped_count += 1
+            continue
+
+        if rebinds:
+            # Now bound to this printer: not to a model, and nothing worked
+            # out for the old printer carries over.
+            item.target_model = None
+            item.target_location = None
+            drop_printer_resolved(item)
         for field, value in item_update_data.items():
             setattr(item, field, value)
         updated_count += 1

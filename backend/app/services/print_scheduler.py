@@ -733,6 +733,41 @@ def _int_or(value, default: int) -> int:
         return default
 
 
+# What a queue job's dispatch is worked out from, and an edit can change.
+_DISPATCH_INPUTS = (
+    "printer_id",
+    "status",
+    "ams_mapping",
+    "plate_id",
+    "filament_overrides",
+    "skip_filament_check",
+    "target_model",
+    "target_location",
+)
+
+
+async def _edited_since_loaded(db: AsyncSession, item: PrintQueueItem) -> bool:
+    """Whether ``item`` was changed or removed since ``check_queue`` loaded it.
+
+    The pass works on the jobs as loaded at its start, and it may have waited
+    since: a plug powering a printer on takes minutes. A job edited meanwhile
+    (moved to another printer, given a mapping or another plate, cancelled)
+    is left to the next pass, which reads it fresh: deciding from the stale
+    copy would overwrite the edit, or send the job where it no longer goes.
+    The query flushes the pass's own pending changes first, so those don't
+    count as edits.
+    """
+    row = (
+        await db.execute(
+            select(*(getattr(PrintQueueItem, name) for name in _DISPATCH_INPUTS)).where(PrintQueueItem.id == item.id)
+        )
+    ).one_or_none()
+    if row is not None and all(getattr(item, name) == value for name, value in zip(_DISPATCH_INPUTS, row, strict=True)):
+        return False
+    logger.info("Queue item %s changed during this pass; leaving it to the next", item.id)
+    return True
+
+
 def _global_tray_id(ams_id: int, tray_id: int) -> int:
     """Bambu's flat tray addressing: ``ams_id * 4 + tray_id`` for a four-slot
     unit, and the bare unit id for an AMS-HT (ids from 128, one tray each).
@@ -2131,6 +2166,9 @@ class PrintScheduler:
                     # (all -1). A stored all-[-1] mapping is a bug artifact — a
                     # frontend status-load race can persist [-1] (#2589) — and
                     # must be recomputed from live trays rather than trusted.
+                    if await _edited_since_loaded(db, item):
+                        continue
+
                     unmappable = await self._ensure_ams_mapping(db, item.printer_id, item)
                     if unmappable:
                         await self._fail_unmappable_item(db, item, item.printer_id, unmappable)
@@ -2396,6 +2434,9 @@ class PrintScheduler:
                             skip_reasons["library_row_in_use"] = skip_reasons.get("library_row_in_use", 0) + 1
                             continue
 
+                        if await _edited_since_loaded(db, item):
+                            continue
+
                         # Assign printer and start - clear waiting reason
                         item.printer_id = printer_id
                         item.waiting_reason = None
@@ -2655,7 +2696,7 @@ class PrintScheduler:
             # routes reject reassignment (409), so printer_id can't change out from
             # under the in-flight upload and split the queue row from the
             # archive/expected-print/physical command.
-            if not await self._claim_for_dispatch(item_db, item_id):
+            if not await self._claim_for_dispatch(item_db, item_id, selected_printer_id):
                 logger.info(
                     "Queue item %s not claimable for dispatch (cancelled, removed, or already claimed) — skipping",
                     item_id,
@@ -2959,19 +3000,24 @@ class PrintScheduler:
             sorted(pin),
         )
 
-    async def _claim_for_dispatch(self, db: AsyncSession, item_id: int) -> bool:
+    async def _claim_for_dispatch(self, db: AsyncSession, item_id: int, printer_id: int | None = None) -> bool:
         """Atomically stamp ``dispatching_at`` on a still-pending, unclaimed row.
 
         Returns True if this call won the claim, False if the row was already
         claimed, no longer pending (cancelled mid-tick), or removed. The CAS is
-        the load-bearing guard against reassign-during-dispatch (#2615)."""
-        res = await db.execute(
+        the load-bearing guard against reassign-during-dispatch (#2615).
+        ``printer_id`` is the printer the item was selected for: a row moved to
+        another printer since is not claimed, and the next pass selects it for
+        that one."""
+        query = (
             update(PrintQueueItem)
             .where(PrintQueueItem.id == item_id)
             .where(PrintQueueItem.status == "pending")
             .where(PrintQueueItem.dispatching_at.is_(None))
-            .values(dispatching_at=datetime.now(timezone.utc))
         )
+        if printer_id is not None:
+            query = query.where(PrintQueueItem.printer_id == printer_id)
+        res = await db.execute(query.values(dispatching_at=datetime.now(timezone.utc)))
         await db.commit()
         return res.rowcount > 0
 
@@ -7630,6 +7676,11 @@ class PrintScheduler:
         if not printer:
             logger.error("Printer %s not found in database", printer_id)
             return False
+        # End the pass's transaction before waiting up to minutes for the boot:
+        # held open, it pins a pooled connection idle in transaction
+        # (PostgreSQL) and a stale read snapshot (SQLite). Nothing below reads
+        # through it.
+        await db.commit()
 
         # Wait for printer to boot (give it some time before trying to connect)
         logger.info("Waiting 30s for printer %s to boot...", printer_id)
