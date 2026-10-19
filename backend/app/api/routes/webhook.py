@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.routes.print_queue import _assert_can_queue_archive
+from backend.app.api.routes.print_queue import _assert_can_queue_archive, saved_slicer_ams_mapping
 from backend.app.core.auth import (
     ApiKeyActor,
     api_key_printer_scope,
@@ -168,6 +168,8 @@ async def webhook_add_to_queue(
         manual_start=await is_auth_enabled(db) and queue_review_required_for(await resolve_apikey_owner(db, api_key)),
         # No print options in the request: the install's defaults.
         **await default_print_options(db),
+        # The slicer's slots, as a reprint from the UI reuses them
+        ams_mapping=saved_slicer_ams_mapping(archive, data.printer_id),
     )
     db.add(queue_item)
     await db.commit()

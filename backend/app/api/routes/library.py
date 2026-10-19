@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.api.routes.cloud import resolve_api_key_cloud_owner
 from backend.app.api.routes.library_variants import normalize_model_name, resolve_variant_model
-from backend.app.api.routes.print_queue import _extract_filament_types_from_3mf
+from backend.app.api.routes.print_queue import _extract_filament_types_from_3mf, printed_plate_of_multi_plate_file
 from backend.app.core.auth import (
     ApiKeyActor,
     QueueReviewRequired,
@@ -3203,17 +3203,19 @@ async def add_files_to_queue(
     # silently declines when it finds nothing, because there, owning no such
     # printer is the user's situation rather than their mistake -- the file
     # still queues, as the unassigned row it has always been.
-    active_models: set[str] = set()
+    # Keyed without regard to case, as the scheduler matches a model, to the
+    # printers' own spelling, which the items store.
+    active_models: dict[str, str] = {}
     if request.printer_id is None:
-        active_models = {
-            model
-            for (model,) in (
-                await db.execute(select(Printer.model).where(Printer.is_active == True).distinct())  # noqa: E712
-            ).all()
-            if model
-        }
-        if target_model_norm and target_model_norm not in active_models:
-            raise HTTPException(400, f"No active printers for model: {target_model_norm}")
+        for (model,) in (
+            await db.execute(select(Printer.model).where(Printer.is_active == True).order_by(Printer.id))  # noqa: E712
+        ).all():
+            if model:
+                active_models.setdefault(model.lower(), model)
+        if target_model_norm:
+            if target_model_norm.lower() not in active_models:
+                raise HTTPException(400, f"No active printers for model: {target_model_norm}")
+            target_model_norm = active_models[target_model_norm.lower()]
 
     # Get all requested files
     result = await db.execute(LibraryFile.active().where(LibraryFile.id.in_(request.file_ids)))
@@ -3312,11 +3314,16 @@ async def add_files_to_queue(
                     item_target_model = target_model_norm
                 else:
                     inferred = resolve_variant_model(lib_file)
-                    item_target_model = inferred if inferred in active_models else None
+                    item_target_model = active_models.get(inferred.lower()) if inferred else None
 
             # Filament the scheduler must match before handing a model-based
             # item to hardware. Without it the item goes to whichever printer
             # of that model is idle, whatever is loaded in it.
+            # The plate that prints: added without one, a multi-plate file
+            # prints its default plate. Stored on the item, so the filament a
+            # printer must have, the AMS mapping and the unmatched-filament
+            # check all read that plate rather than every plate.
+            printed_plate = await asyncio.to_thread(printed_plate_of_multi_plate_file, file_path)
             required_filament_types = None
             if item_target_model:
                 # POST /queue/'s own extractor, borrowed rather than
@@ -3328,7 +3335,7 @@ async def add_files_to_queue(
                 # bulk add of a few hundred -- especially from an external
                 # folder on a NAS -- the zip reads add up to a stall the whole
                 # event loop takes, status ingest included.
-                filament_types = await asyncio.to_thread(_extract_filament_types_from_3mf, file_path)
+                filament_types = await asyncio.to_thread(_extract_filament_types_from_3mf, file_path, printed_plate)
                 if filament_types:
                     required_filament_types = json.dumps(filament_types)
 
@@ -3338,6 +3345,7 @@ async def add_files_to_queue(
                 printer_id=item_printer_id,
                 target_model=item_target_model,
                 required_filament_types=required_filament_types,
+                plate_id=printed_plate,
                 library_file_id=file_id,
                 project_id=lib_file.project_id
                 or (folder_projects.get(lib_file.folder_id) if lib_file.folder_id is not None else None),

@@ -450,7 +450,7 @@ async def _pick_assignments(
         (
             await db.execute(
                 select(Printer)
-                .where(Printer.model == pipeline.target_model_class)
+                .where(func.lower(Printer.model) == (pipeline.target_model_class or "").lower())
                 .where(Printer.is_active.is_(True))
                 .order_by(Printer.id)
             )
@@ -475,8 +475,9 @@ async def _pick_assignments(
         # ``matching[i % len(matching)]``. Each item gets a fixed printer_id.
         return [(matching[i % len(matching)].id, None) for i in range(copies)]
     # max_parallel — leave printer_id=None, set target_model so the scheduler
-    # picks any free X1C / P1S / … for each item independently.
-    return [(None, pipeline.target_model_class)] * copies
+    # picks any free X1C / P1S / … for each item independently. In the
+    # printers' own spelling: the class is matched without regard to case.
+    return [(None, matching[0].model)] * copies
 
 
 def _make_orchestration_callable(

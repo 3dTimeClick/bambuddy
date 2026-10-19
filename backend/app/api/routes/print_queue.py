@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -616,6 +617,65 @@ def _enrich_response(item: PrintQueueItem) -> PrintQueueItemResponse:
     return response
 
 
+def saved_slicer_ams_mapping(archive: PrintArchive | None, printer_id: int | None) -> str | None:
+    """The AMS slots the slicer picked when *archive* printed, as JSON, for a
+    reprint on that same printer; None otherwise.
+
+    Slot numbers mean something only on the printer they were picked on, so a
+    model-based job (no printer) or one for another printer gets none.
+    """
+    if archive is None or not archive.extra_data or printer_id is None:
+        return None
+    saved = archive.extra_data.get("slicer_ams_mapping")
+    if (
+        isinstance(saved, dict)
+        and saved.get("printer_id") == printer_id
+        and isinstance(saved.get("mapping"), list)
+        and saved["mapping"]
+    ):
+        return json.dumps(saved["mapping"])
+    return None
+
+
+def printed_plate_of_multi_plate_file(file_path: Path | None) -> int | None:
+    """The plate a dispatch of *file_path* prints when no plate is named, for
+    a file with more than one sliced plate; None otherwise.
+
+    Stored on a queue job that names none, it makes every later step (the
+    filament a printer must have, the AMS mapping, the unmatched-filament
+    check, charging) read the plate that prints rather than all of them.
+    What prints does not change: the dispatch resolves the same plate.
+    """
+    if file_path is None or not file_path.name.lower().endswith(".3mf") or not file_path.exists():
+        return None
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            plates = [n for n in zf.namelist() if re.fullmatch(r"Metadata/plate_\d+\.gcode", n)]
+    except (OSError, zipfile.BadZipFile):
+        return None
+    if len(plates) < 2:
+        return None
+    from backend.app.services.print_scheduler import _effective_plate_id
+
+    return _effective_plate_id(None, file_path)
+
+
+async def _active_printer_model(db: AsyncSession, model: str) -> str | None:
+    """The model as an active printer spells it, matched without regard to case
+    as the scheduler matches it ("x1c" finds the X1Cs); None when no active
+    printer is of that model. Stored in that spelling, a job compares equal
+    wherever its model is compared exactly."""
+    return (
+        await db.execute(
+            select(Printer.model)
+            .where(func.lower(Printer.model) == model.lower())
+            .where(Printer.is_active == True)  # noqa: E712
+            .order_by(Printer.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 @router.get("/", response_model=list[PrintQueueItemResponse])
 async def list_queue(
     printer_id: int | None = Query(None, description="Filter by printer (-1 for unassigned)"),
@@ -758,24 +818,17 @@ async def _resolve_queue_variants(
                 f"{library_file.filename} was sliced for {sliced_for} and cannot be dispatched to {model} printers",
             )
 
-        if model in seen_models:
+        # The printers' own spelling, matched without regard to case
+        has_printer = await _active_printer_model(db, model)
+        model = has_printer or model
+        if model.lower() in seen_models:
             raise HTTPException(
                 400,
-                f"{library_file.filename} and {seen_models[model]} are both for {model} — "
+                f"{library_file.filename} and {seen_models[model.lower()]} are both for {model} — "
                 "variants must target different printers",
             )
-        seen_models[model] = library_file.filename
-
-        has_printer = (
-            (
-                await db.execute(
-                    select(Printer).where(Printer.model == model).where(Printer.is_active == True)  # noqa: E712
-                )
-            )
-            .scalars()
-            .first()
-        )
-        any_active_printer = any_active_printer or bool(has_printer)
+        seen_models[model.lower()] = library_file.filename
+        any_active_printer = any_active_printer or has_printer is not None
 
         resolved.append((spec, library_file, model))
 
@@ -905,11 +958,10 @@ async def add_to_queue(
     # target_model there is just the first candidate, and _resolve_queue_variants
     # has already required that *some* candidate has a printer.
     if target_model_norm and not data.variants:
-        result = await db.execute(
-            select(Printer).where(Printer.model == target_model_norm).where(Printer.is_active == True)  # noqa: E712
-        )
-        if not result.scalars().first():
+        active_model = await _active_printer_model(db, target_model_norm)
+        if active_model is None:
             raise HTTPException(400, f"No active printers for model: {target_model_norm}")
+        target_model_norm = active_model
 
     # Validate archive exists (if provided) and get it for filament extraction
     archive = None
@@ -965,9 +1017,10 @@ async def add_to_queue(
     elif library_file:
         lib_path = Path(library_file.file_path)
         file_path = lib_path if lib_path.is_absolute() else settings.base_dir / library_file.file_path
+    plate_id = data.plate_id or printed_plate_of_multi_plate_file(file_path)
     if target_model_norm:
         if file_path and file_path.exists():
-            filament_types = _extract_filament_types_from_3mf(file_path, data.plate_id)
+            filament_types = _extract_filament_types_from_3mf(file_path, plate_id)
             if filament_types:
                 required_filament_types = json.dumps(filament_types)
                 logger.info("Extracted filament types for model-based queue: %s", filament_types)
@@ -1126,7 +1179,7 @@ async def add_to_queue(
             db,
             archive=archive,
             library_file=library_file,
-            plate_id=data.plate_id,
+            plate_id=plate_id,
             ams_mapping=data.ams_mapping,
             printer_id=data.printer_id,
         )
@@ -1172,21 +1225,8 @@ async def add_to_queue(
     wants_live_color_match = any(
         isinstance(o, dict) and o.get("force_color_match") for o in (data.filament_overrides or [])
     )
-    if (
-        ams_mapping_json is None
-        and not wants_live_color_match
-        and archive
-        and archive.extra_data
-        and data.printer_id is not None
-    ):
-        saved = archive.extra_data.get("slicer_ams_mapping")
-        if (
-            isinstance(saved, dict)
-            and saved.get("printer_id") == data.printer_id
-            and isinstance(saved.get("mapping"), list)
-            and saved["mapping"]
-        ):
-            ams_mapping_json = json.dumps(saved["mapping"])
+    if ams_mapping_json is None and not wants_live_color_match:
+        ams_mapping_json = saved_slicer_ams_mapping(archive, data.printer_id)
     items = []
     for i in range(quantity):
         item = PrintQueueItem(
@@ -1208,7 +1248,7 @@ async def add_to_queue(
             skip_filament_check=data.skip_filament_check,
             ams_mapping=ams_mapping_json,
             nozzle_rack_choice=nozzle_rack_choice_json,
-            plate_id=data.plate_id,
+            plate_id=plate_id,
             bed_levelling=data.bed_levelling,
             flow_cali=data.flow_cali,
             vibration_cali=data.vibration_cali,
@@ -2154,11 +2194,10 @@ async def update_queue_item(
 
     # Validate target_model has active printers
     if "target_model" in update_data and update_data["target_model"]:
-        result = await db.execute(
-            select(Printer).where(Printer.model == update_data["target_model"]).where(Printer.is_active == True)  # noqa: E712
-        )
-        if not result.scalars().first():
+        active_model = await _active_printer_model(db, update_data["target_model"])
+        if active_model is None:
             raise HTTPException(400, f"No active printers for model: {update_data['target_model']}")
+        update_data["target_model"] = active_model
 
         # Cross-model safety gate (#2578) — same check as the create route, so
         # a mismatched target can't be introduced by editing either.

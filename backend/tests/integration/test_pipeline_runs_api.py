@@ -667,6 +667,31 @@ class TestPipelineC:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_class_eligibility_matches_the_model_regardless_of_case(
+        self,
+        async_client: AsyncClient,
+        pipeline_factory,
+        printer_factory,
+        library_file_factory,
+    ):
+        """As the queue and the scheduler match a model (Q-U8)."""
+        await printer_factory(model="X1C")
+        pipeline = await pipeline_factory()
+        await async_client.put(
+            f"/api/v1/slicer-pipelines/{pipeline['id']}",
+            json={"target_kind": "printer_class", "target_printer_id": 0, "target_model_class": "x1c"},
+        )
+        src = await library_file_factory()
+        resp = await async_client.post(
+            f"/api/v1/slicer-pipelines/{pipeline['id']}/check-eligibility",
+            json={"source_library_file_id": src.id},
+        )
+        body = resp.json()
+        assert len(body["printer_reports"]) == 1
+        assert not any(i["kind"] == "no_class_matches" for i in body["issues"])
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_class_eligibility_no_matching_printers(
         self,
         async_client: AsyncClient,
