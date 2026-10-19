@@ -14,7 +14,9 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, inspect as sa_inspect, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -11099,6 +11101,28 @@ app = FastAPI(
 # Added first so it sits innermost, next to the routes: a refused header's value
 # (often a stored token) masked in every JSON body. See core.response_redaction.
 app.add_middleware(RefusedHeaderResponseMask)
+
+
+def _json_safe(value):
+    """The validation errors with every non-finite number written as text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI's own 422, except that it survives a non-finite number.
+
+    A body may carry ``Infinity`` or ``NaN`` (Python's JSON reader accepts
+    them), and the default handler echoes the input back in its errors,
+    which JSON cannot hold: the request ended in an error instead of a 422.
+    """
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
 
 
 # =============================================================================

@@ -111,6 +111,21 @@ async def write_log_entry(
     return entry
 
 
+async def mirror_archive_cost(db: AsyncSession, archive, previous_cost: float | None) -> None:
+    """Give the archive's newest run the archive's new cost, if it had the old one.
+
+    Statistics, project totals and batch sums read a run's cost. A completed
+    run without its own spool price took the archive's (or none), so a new
+    archive cost belongs to it too. A run its spools priced keeps that price,
+    and a failed or cancelled run keeps its own: it printed only part of it.
+    """
+    entry = await db.scalar(
+        select(PrintLogEntry).where(PrintLogEntry.archive_id == archive.id).order_by(PrintLogEntry.id.desc()).limit(1)
+    )
+    if entry is not None and entry.status == "completed" and entry.cost in (None, previous_cost):
+        entry.cost = archive.cost
+
+
 async def other_runs_of(db: AsyncSession, archive) -> int:
     """How many log entries *archive* has from runs other than its current one.
 

@@ -17,7 +17,8 @@ class ArchiveBase(BaseModel):
     is_favorite: bool | None = None
     tags: str | None = None
     notes: str | None = None
-    cost: float | None = None
+    # Added to every total: a negative (or infinite) cost would wreck them
+    cost: Annotated[float | None, Field(ge=0, le=1_000_000)] = None
     failure_reason: str | None = None
     # Number of items printed. 0 is a legal answer -- a plate that jammed and
     # came off ruined produced nothing, and the project's completed-items count

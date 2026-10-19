@@ -1939,6 +1939,8 @@ async def update_archive(
     # Read before the writes below: the mirror needs to know whether the run's
     # figure was inherited from this archive or measured on its own (#1820).
     previous_filament_grams = archive.filament_used_grams
+    previous_cost = archive.cost
+    previous_status = archive.status
 
     update_payload = update_data.model_dump(exclude_unset=True)
     # Later runs of the archive are charged from its cost and weight: a caller
@@ -2006,9 +2008,11 @@ async def update_archive(
     # ENTRY's grams, not the archive's, so correcting only the archive would fix
     # the card and leave every aggregate reading the old figure -- or, for a
     # print that archived without its 3MF, no figure at all.
+    # While the archive is being reprinted its newest entry is the previous
+    # run's, whose outcome this edit is not about.
     mirror_fields = {"failure_reason", "status", "filament_used_grams", "user_verdict"}
     to_mirror = {k: v for k, v in update_payload.items() if k in mirror_fields}
-    if to_mirror:
+    if to_mirror and previous_status != "printing":
         from backend.app.models.print_log import PrintLogEntry
 
         latest_entry = await db.scalar(
@@ -2035,6 +2039,13 @@ async def update_archive(
 
             for field, value in to_mirror.items():
                 setattr(latest_entry, field, value)
+
+    # A cost set by hand reaches the run that had the archive's (statistics,
+    # project totals and batch sums read the run's cost).
+    if "cost" in update_payload and previous_status != "printing":
+        from backend.app.services.print_log import mirror_archive_cost
+
+        await mirror_archive_cost(db, archive, previous_cost)
 
     await db.commit()
 
@@ -2218,6 +2229,7 @@ async def recalculate_all_costs(
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Recalculate costs for all archives based on filament usage and prices."""
+    from backend.app.services.print_log import mirror_archive_cost
 
     # Only the archives of the caller's printers, as the archive list shows them.
     query = select(PrintArchive)
@@ -2297,7 +2309,10 @@ async def recalculate_all_costs(
             else:
                 new_cost = None
         if new_cost is not None and archive.cost != new_cost:
+            previous_cost = archive.cost
             archive.cost = new_cost
+            # Its run had the old figure: statistics read the run's cost.
+            await mirror_archive_cost(db, archive, previous_cost)
             updated += 1
 
     await db.commit()
