@@ -219,6 +219,43 @@ class TestAStopWhileThePrinterIsOffline:
         ]
         assert ws.send_archive_updated.await_args.args[0] == {"id": queued_print["archive"], "status": "cancelled"}
 
+    async def test_frees_the_budget_held_for_the_print(self, async_client, db_session, queued_print):
+        """QS/I5: no completion will come to release it, which left the cost
+        centre's budget reserved until Bambuddy restarted."""
+        from backend.app.models.finance import BudgetReservation
+
+        hold = BudgetReservation(
+            cost_center_id=queued_print["center"], amount=5.0, source_type="print_queue", source_id=queued_print["item"]
+        )
+        db_session.add(hold)
+        await db_session.commit()
+
+        await self._stop(async_client, queued_print)
+
+        await db_session.refresh(hold)
+        assert hold.status == "released"
+
+    async def test_a_stop_that_reached_the_printer_leaves_it_to_the_print_s_end(
+        self, async_client, db_session, queued_print
+    ):
+        """The print's end charges the run and releases the hold itself."""
+        from backend.app.models.finance import BudgetReservation
+
+        hold = BudgetReservation(
+            cost_center_id=queued_print["center"], amount=5.0, source_type="print_queue", source_id=queued_print["item"]
+        )
+        db_session.add(hold)
+        await db_session.commit()
+
+        with (
+            patch("backend.app.services.print_control.stop_print_by_user", return_value=True),
+            patch("backend.app.api.routes.print_queue.ws_manager"),
+        ):
+            await async_client.post(f"/api/v1/queue/{queued_print['item']}/stop")
+
+        await db_session.refresh(hold)
+        assert hold.status == "active"
+
     async def test_a_completion_that_arrives_after_all_replaces_it(
         self, async_client, test_engine, db_session, queued_print
     ):
@@ -343,3 +380,21 @@ async def test_the_registered_mapping_is_drained_when_the_printer_reported_one(t
         assert queued_print["archive"] not in main_module._print_ams_mappings
     finally:
         main_module._print_ams_mappings.pop(queued_print["archive"], None)
+
+
+async def test_a_hung_sd_cleanup_does_not_hold_up_the_print_s_end(test_engine, db_session, queued_print, monkeypatch):
+    """QS/I9: the job is closed (and billed) by its end, not by the stranded-job
+    closer, however long the printer takes to answer a delete."""
+    import asyncio
+
+    async def hangs(*_args, **_kwargs):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(main_module, "_SD_CLEANUP_BUDGET_SECONDS", 0.2)
+    monkeypatch.setattr(main_module, "_cleanup_sd_card_after_print", hangs)
+
+    await asyncio.wait_for(_complete(test_engine, queued_print["printer"], "completed"), timeout=15)
+
+    _archive, item, _logs, charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
+    assert item.status == "completed"
+    assert len(charges) == 1

@@ -2648,6 +2648,11 @@ async def stop_queue_item(
                 created_by_id=archive.created_by_id,
             )
             closed_archive_id = archive.id
+    if not stop_sent:
+        # No print end will come to charge the run and release what the job
+        # held of its cost centre's budget, so release it here, as a cancel
+        # does. A stop that reached the printer leaves it to the print's end.
+        await release_budget_reservation(db, source_type="print_queue", source_id=item.id, status="released")
 
     await db.commit()
     await refresh_batches_after([item.id])

@@ -474,6 +474,45 @@ class TestCancelRun:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_cancel_stops_the_queue_entry_like_a_queue_cancel(
+        self,
+        async_client: AsyncClient,
+        pipeline_factory,
+        printer_factory,
+        library_file_factory,
+        db_session,
+    ):
+        """QS/I7: a preheating entry stops heating, its budget hold is freed."""
+        from backend.app.models.finance import BudgetReservation, CostCenter
+        from backend.app.models.pipeline_run import PipelineJob, PipelineRun
+        from backend.app.models.print_queue import PrintQueueItem
+
+        printer = await printer_factory()
+        pipeline = await pipeline_factory(target_printer_id=printer.id)
+        src = await library_file_factory()
+        center = CostCenter(name="Lab", is_active=True, is_private=False)
+        entry = PrintQueueItem(printer_id=printer.id, library_file_id=src.id, status="pending")
+        db_session.add_all([center, entry])
+        await db_session.flush()
+        run = PipelineRun(pipeline_id=pipeline["id"], source_library_file_id=src.id, status="running", copies=1)
+        db_session.add(run)
+        await db_session.flush()
+        db_session.add(PipelineJob(pipeline_run_id=run.id, queue_entry_id=entry.id, status="queued"))
+        hold = BudgetReservation(cost_center_id=center.id, amount=5.0, source_type="print_queue", source_id=entry.id)
+        db_session.add(hold)
+        await db_session.commit()
+
+        with patch("backend.app.services.print_scheduler.scheduler.notify_dispatch_cancelled") as notify:
+            response = await async_client.post(f"/api/v1/pipeline-runs/{run.id}/cancel")
+
+        assert response.status_code == 200, response.text
+        notify.assert_called_once_with(entry.id)
+        await db_session.refresh(hold)
+        await db_session.refresh(entry)
+        assert (entry.status, hold.status) == ("cancelled", "released")
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_run_accepts_archive_source(
         self,
         async_client: AsyncClient,

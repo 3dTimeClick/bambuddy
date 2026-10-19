@@ -907,3 +907,33 @@ class TestWatchdogNamesDryingAsTheObstacle:
             item = await db.get(PrintQueueItem, 1)
         assert item.status == "printing"
         assert (item.dispatch_attempts or 0) == 0
+
+
+class TestARefusedStart:
+    """FW-C1: the printer answered the start with a refusal. Nothing will
+    start, and the command was not lost: no full wait, no reconnect."""
+
+    @pytest.mark.asyncio
+    async def test_reverts_at_once_without_a_reconnect(self, db_session):
+        get_status = MagicMock(return_value=_status("FINISH", "OLD_SUBTASK", gcode_file="/old.3mf"))
+        client = MagicMock(last_start_refusal=("FAIL", "file not found"))
+
+        with (
+            patch("backend.app.services.print_scheduler.printer_manager.get_status", get_status),
+            patch("backend.app.services.print_scheduler.printer_manager.get_client", MagicMock(return_value=client)),
+            patch("backend.app.services.print_scheduler.async_session", db_session),
+            patch("backend.app.core.database.async_session", db_session),
+        ):
+            await PrintScheduler._watchdog_print_start(
+                queue_item_id=1,
+                printer_id=42,
+                pre_state="FINISH",
+                pre_subtask_id="OLD_SUBTASK",
+                pre_gcode_file="/old.3mf",
+                timeout=30,
+                poll_interval=0.05,
+            )
+
+        client.force_reconnect_stale_session.assert_not_called()
+        async with db_session() as db:
+            assert (await db.get(PrintQueueItem, 1)).status == "pending"

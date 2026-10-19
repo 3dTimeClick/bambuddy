@@ -7884,6 +7884,10 @@ async def _recover_fallback_from_cache_before_eviction(printer_id: int, data: di
             logger.debug("[RECOVER] Pre-eviction recovery for %s failed: %s", name, e)
 
 
+# Longest the print's end waits for its file to be deleted from the SD card
+_SD_CLEANUP_BUDGET_SECONDS = 45.0
+
+
 async def _cleanup_sd_card_after_print(
     printer_id: int, subtask_name: str | None, archive_id: int | None, logger
 ) -> None:
@@ -8188,7 +8192,25 @@ async def on_print_complete(printer_id: int, data: dict):
                 if archive:
                     archive_id = archive.id
 
-    await _cleanup_sd_card_after_print(printer_id, subtask_name, archive_id, logger)
+    # Bounded: a printer whose FTP hangs on DELE took up to 3 candidates x 3
+    # attempts x a 60 s timeout, about nine minutes, before the queue item was
+    # closed below. The stranded-job closer gives up after five and closed it
+    # first, so the job's auto-off and its billing never ran. Inline rather
+    # than in the background, so the next job of the same file isn't released
+    # (and uploaded under the name being deleted) while the cleanup still
+    # works on it. A delete already sent may still finish in its FTP thread
+    # after the cutoff, as one past delete_file_async's own timeout always did.
+    try:
+        await asyncio.wait_for(
+            _cleanup_sd_card_after_print(printer_id, subtask_name, archive_id, logger),
+            timeout=_SD_CLEANUP_BUDGET_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning(
+            "SD card cleanup on printer %s took over %ss; leaving the file there and closing the print",
+            printer_id,
+            _SD_CLEANUP_BUDGET_SECONDS,
+        )
 
     log_timing("SD card cleanup")
 

@@ -999,6 +999,9 @@ async def cancel_run(
     if not run.error_message:
         run.error_message = "Cancelled by user"
 
+    from backend.app.services.finance_budget import release_budget_reservation
+
+    cancelled_entries: list[int] = []
     job_rows = (await db.execute(select(PipelineJob).where(PipelineJob.pipeline_run_id == run.id))).scalars().all()
     for job in job_rows:
         queue_entry = None
@@ -1009,6 +1012,11 @@ async def cancel_run(
             if queue_entry is not None and queue_entry.status in ("pending", "queued"):
                 queue_entry.status = "cancelled"
                 queue_entry.completed_at = datetime.now(timezone.utc)
+                # As a cancel from the queue does: its budget hold is freed
+                await release_budget_reservation(
+                    db, source_type="print_queue", source_id=queue_entry.id, status="released"
+                )
+                cancelled_entries.append(queue_entry.id)
         if job.status in ("queued", "printing") and queue_entry is None:
             # Dispatched, its entry gone: whether it printed is unknown, and
             # calling it cancelled would make retry print it again.
@@ -1018,6 +1026,15 @@ async def cancel_run(
             job.completed_at = datetime.now(timezone.utc)
 
     await db.commit()
+    if cancelled_entries:
+        from backend.app.services.print_batch import refresh_batches_after
+        from backend.app.services.print_scheduler import scheduler
+
+        await refresh_batches_after(cancelled_entries)
+        # A preheating entry's dispatch is parked in a sleep and cannot see the
+        # status written above (#2727): told, it stops heating the printer.
+        for entry_id in cancelled_entries:
+            scheduler.notify_dispatch_cancelled(entry_id)
     await db.refresh(run)
     await _publish_run_event(db, run)
     return await _materialise_run(db, run)

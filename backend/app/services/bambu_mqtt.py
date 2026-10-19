@@ -1455,6 +1455,10 @@ class BambuMQTTClient:
         # printer hasn't reported it yet, letting queue/scheduled archives
         # persist a restart-stable id from the moment they dispatch (#1485).
         self.last_dispatch_subtask_id: str | None = None
+        # The printer's answer to the last print start it refused, as (result,
+        # reason); cleared when the next start is sent. The start watchdog
+        # reads it to stop waiting for a print that will not come.
+        self.last_start_refusal: tuple[str, str | None] | None = None
         self._is_dual_nozzle: bool = False  # Set when device.extruder.info has >= 2 entries
         self._message_log: deque[MQTTLogEntry] = deque(maxlen=100)
         self._logging_enabled: bool = False
@@ -2210,8 +2214,18 @@ class BambuMQTTClient:
         if not isinstance(print_data, dict) or print_data.get("command") != "project_file":
             return
         # A refused dispatch names a file that was never written. Acting on it
-        # would pin an archive on a destination nothing ever went to.
-        if print_data.get("result") != "SUCCESS":
+        # would pin an archive on a destination nothing ever went to. Logged:
+        # nothing else says the printer refused a print it was sent.
+        result = str(print_data.get("result") or "")
+        if result.upper() != "SUCCESS":
+            logger.info(
+                "[%s] Printer refused a print start (project_file): result=%s reason=%s url=%s",
+                self.serial_number,
+                result,
+                print_data.get("reason"),
+                print_data.get("url"),
+            )
+            self.last_start_refusal = (result, print_data.get("reason"))
             return
         url = print_data.get("url")
         if not isinstance(url, str) or not url:
@@ -4378,12 +4392,20 @@ class BambuMQTTClient:
         if "gcode_file" in data:
             self.state.gcode_file = data["gcode_file"]
             self.state.current_print = data["gcode_file"]
-        if "subtask_name" in data:
+        # The answer to a print start the printer refused names the job it
+        # refused, not one it runs: read as status, its job id told the start
+        # watchdog the file had landed.
+        refused_start = (
+            data.get("command") == "project_file"
+            and data.get("result") is not None
+            and str(data["result"]).upper() != "SUCCESS"
+        )
+        if "subtask_name" in data and not refused_start:
             self.state.subtask_name = data["subtask_name"]
             # Prefer subtask_name as current_print if available
             if data["subtask_name"]:
                 self.state.current_print = data["subtask_name"]
-        if "subtask_id" in data:
+        if "subtask_id" in data and not refused_start:
             self.state.subtask_id = data["subtask_id"]
         if "mc_percent" in data:
             # Billing: retain this frame's latest positive value immediately.
@@ -6353,6 +6375,7 @@ class BambuMQTTClient:
             # Remember it so on_print_start can persist a restart-stable id on
             # the archive even before the printer echoes subtask_id back (#1485).
             self.last_dispatch_subtask_id = submission_id
+            self.last_start_refusal = None
 
             # Tri-state calibration options → BambuStudio's getValueInt encoding:
             # off=0 (never), on=1 (force every print), auto=2 (printer runs it

@@ -9622,6 +9622,9 @@ class PrintScheduler:
         # once is what matters — it is the state the printer was in when it
         # declined to start (#2758).
         drying_ams_ids: list[int] = []
+        # The printer answered the start with a refusal: nothing will start,
+        # and the command was not lost, so no reconnect either.
+        start_refusal: tuple[str, str | None] | None = None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             await asyncio.sleep(poll_interval)
@@ -9660,6 +9663,10 @@ class PrintScheduler:
             # this ordering costs the detection nothing.
             if _mqtt_commands_rejected(status):
                 command_rejected = True
+                break
+            refusal = getattr(printer_manager.get_client(printer_id), "last_start_refusal", None)
+            if isinstance(refusal, tuple):
+                start_refusal = refusal
                 break
             if pre_subtask_id is not None and status.subtask_id is not None and status.subtask_id != pre_subtask_id:
                 # Phase A exit — printer accepted the file (subtask_id flipped
@@ -9865,7 +9872,16 @@ class PrintScheduler:
             )
             await scheduler._notify_dispatch_gave_up(queue_item_id, printer_id, created_by_id)
         elif revert_outcome == "reverted":
-            if landed_on_subtask:
+            if start_refusal is not None:
+                logger.warning(
+                    "Queue item %s: printer %d refused the print start (result=%s, reason=%s) — "
+                    "reverted to 'pending' for retry",
+                    queue_item_id,
+                    printer_id,
+                    start_refusal[0],
+                    start_refusal[1],
+                )
+            elif landed_on_subtask:
                 logger.warning(
                     "Queue item %s: printer %d accepted project_file (subtask_id "
                     "advanced) but never transitioned to an active state within "
@@ -9891,7 +9907,7 @@ class PrintScheduler:
         # project_file landed on the printer. A forced reconnect at this point
         # would interrupt the printer's parse and trigger 0500_4003 (#1150) —
         # skip the recovery entirely.
-        if landed_on_subtask:
+        if landed_on_subtask or start_refusal is not None:
             return
 
         # Phase A timeout path: if the printer's gcode_file changed since
