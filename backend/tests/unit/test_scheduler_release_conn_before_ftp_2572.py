@@ -131,7 +131,7 @@ async def test_connection_released_before_preheat_soak(dispatch_case):
 
     item = SimpleNamespace(id=1, preheat_override="on", preheat_chamber_target_override=None)
     printer = SimpleNamespace(id=7, model="P1S")  # no chamber sensor → straight to soak
-    archive = SimpleNamespace(bed_temperature=60)
+    archive = SimpleNamespace(file_path=None, bed_temperature=60)
 
     async with dispatch_case.session_maker() as db:
         # Simulate the caller's earlier reads holding an open transaction.

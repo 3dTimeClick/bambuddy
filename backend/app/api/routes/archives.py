@@ -4758,6 +4758,8 @@ async def get_archive_plates(
                                     "slot_id": int(filament_id),
                                     "type": filament_type,
                                     "color": filament_color,
+                                    # The preset the slicer assigned (GFA01, ...): names the product line
+                                    "tray_info_idx": filament_elem.get("tray_info_idx", "") or "",
                                     "used_grams": round(used_grams, 1),
                                     "used_meters": float(used_m) if used_m else 0,
                                 }

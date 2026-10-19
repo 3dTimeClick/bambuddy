@@ -89,6 +89,7 @@ from backend.app.utils.threemf_tools import (
     default_plate_number,
     extract_rack_plan_from_3mf,
     extract_slot_extruders_from_3mf,
+    plate_bed_temperature,
     select_plate_gcode_name,
 )
 
@@ -1051,6 +1052,22 @@ def _unmatched_filament_message(required: list[dict], loaded: list[dict]) -> str
         f"the printer has {have} and no AMS. Load the required filament on the "
         f"external spool holder, or send this job to a printer that has it."
     )
+
+
+async def _queued_plate_bed_temperature(item: PrintQueueItem, archive: PrintArchive | None) -> int:
+    """Bed temperature for the plate a queued job prints, 0 when unknown.
+
+    The archive stores the highest bed temperature of any filament in the
+    project, while the job may print another plate than the one archived: a
+    PLA plate of a project that also holds PETG is heated for PLA. Read from
+    the archive's file for the job's own plate, falling back to the stored
+    value when the file can't be read.
+    """
+    stored = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+    if archive is None or not archive.file_path:
+        return stored
+    temperature = await asyncio.to_thread(plate_bed_temperature, settings.base_dir / archive.file_path, item.plate_id)
+    return temperature or stored
 
 
 def _effective_plate_id(explicit_plate_id: int | None, file_path: Path) -> int:
@@ -3585,16 +3602,18 @@ class PrintScheduler:
                 tray_color = tray.get("tray_color") or ""
                 if tray_type:
                     color_norm = tray_color.replace("#", "").lower()[:6]
-                    loaded.add((tray_type.upper(), color_norm))
+                    loaded.add((canonical_filament_type(tray_type), color_norm))
         for vt in raw_data.get("vt_tray") or []:
             vt_type = vt.get("tray_type")
             if vt_type:
                 color_norm = (vt.get("tray_color", "") or "").replace("#", "").lower()[:6]
-                loaded.add((vt_type.upper(), color_norm))
+                loaded.add((canonical_filament_type(vt_type), color_norm))
 
+        # Types compared as the type check compares them: a PA12-CF override
+        # is met by PA-CF in its colour.
         matches = 0
         for o in overrides:
-            o_type = (o.get("type") or "").upper()
+            o_type = canonical_filament_type(o.get("type") or "")
             o_color = (o.get("color") or "").replace("#", "").lower()[:6]
             if (o_type, o_color) in loaded:
                 matches += 1
@@ -7018,7 +7037,7 @@ class PrintScheduler:
             # missing bed_temperature (Orca gcode.3mf exports parse without
             # one) does NOT skip the hold — chamber need gates the feature.
             archive = next_item.archive
-            item_bed = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+            item_bed = await _queued_plate_bed_temperature(next_item, archive)
             bed_target = max(item_bed, hold_temp)
             if bed_target <= 0:
                 continue
@@ -7392,7 +7411,7 @@ class PrintScheduler:
             self._preheat_flap_to_cooling(item.id, printer)
             return True
 
-        bed_target = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+        bed_target = await _queued_plate_bed_temperature(item, archive)
         if bed_target <= 0:
             # No bed temperature in the slicer metadata. When the print needs a
             # hot chamber the bed is simply how we heat it, so fall back to the

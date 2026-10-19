@@ -1050,7 +1050,7 @@ _BED_TEMP_KEYS: dict[str, tuple[str, str]] = {
 _GENERIC_BED_TEMP_KEYS = ("bed_temperature_initial_layer", "bed_temperature")
 
 
-def _plate_temperature(val) -> int | None:
+def _plate_temperature(val, filament_indexes: list[int] | None = None) -> int | None:
     """Bed temperature from one plate-temperature entry, or None.
 
     The plate arrays carry one entry per filament in the project, and a 0 means
@@ -1058,8 +1058,15 @@ def _plate_temperature(val) -> int | None:
     so the print runs at the highest its filaments ask for -- taking entry 0 the
     way the neighbouring scalar settings do would store a 0 for any project
     whose first filament is not one this plate is heated for.
+
+    ``filament_indexes`` (0-based) are the filaments the printed plate uses:
+    only theirs count, so a PLA plate of a project that also holds PETG is not
+    heated to the PETG temperature. Without them every filament counts.
     """
     values = val if isinstance(val, list) else [val]
+    if filament_indexes and isinstance(val, list):
+        picked = [values[i] for i in filament_indexes if 0 <= i < len(values)]
+        values = picked or values
     temps = []
     for entry in values:
         if isinstance(entry, bool) or not isinstance(entry, (int, float, str)):
@@ -1071,18 +1078,19 @@ def _plate_temperature(val) -> int | None:
     return max(temps) if temps else None
 
 
-def bed_temperature_from_config(data: dict) -> int | None:
+def bed_temperature_from_config(data: dict, filament_indexes: list[int] | None = None) -> int | None:
     """Bed temperature for the plate *data* is sliced for, or None (#2989).
 
     *data* is a parsed ``Metadata/project_settings.config``. Lives here rather
     than beside the archive parser so the ingest path and the one-shot backfill
     that repairs archives written before the fix read it exactly the same way.
+    ``filament_indexes``: the printed plate's filaments, see _plate_temperature.
     """
     bed_type = str(data.get("curr_bed_type") or "").strip()
     for key in (*_BED_TEMP_KEYS.get(bed_type, ()), *_GENERIC_BED_TEMP_KEYS):
         if key not in data:
             continue
-        temperature = _plate_temperature(data[key])
+        temperature = _plate_temperature(data[key], filament_indexes)
         # A plate array of all zeros means no filament in the project prints on
         # this plate, which is not a bed temperature -- keep looking rather than
         # recording a 0 that reads as "cold bed".
@@ -1172,6 +1180,69 @@ def _plate_number_of(name: str) -> int | None:
     try:
         return int(name[idx + len(marker) : -len(".gcode")])
     except ValueError:
+        return None
+
+
+def used_filament_indexes(plates: list, plate_number: int | None) -> list[int]:
+    """Positions, in the project's per-filament settings, of the filaments the
+    printed plate uses, sorted: empty when that can't be told.
+
+    *plates* are the ``<plate>`` elements of ``slice_info.config``, whose
+    filament ids are 1-based. ``project_settings`` lists one value per filament
+    of the whole project, so the printed plate's own filaments pick which apply.
+    Without a plate number, the only plate decides.
+    """
+    if plate_number:
+        printed = [
+            plate
+            for plate in plates
+            if any(
+                meta.get("key") == "index" and meta.get("value") == str(plate_number)
+                for meta in plate.findall("metadata")
+            )
+        ]
+    else:
+        printed = plates if len(plates) == 1 else []
+    used: list[int] = []
+    for plate in printed[:1]:
+        for filament in plate.findall("filament"):
+            try:
+                if float(filament.get("used_g", "0")) > 0:
+                    used.append(int(filament.get("id", "")))
+            except (TypeError, ValueError):
+                continue
+    return sorted(fid - 1 for fid in set(used) if fid > 0)
+
+
+def plate_bed_temperature(file_path: Path, plate_id: int | None) -> int | None:
+    """Bed temperature for the plate of *file_path* that prints, or None.
+
+    An archive stores one bed temperature, the highest any filament of the
+    project asks for, while a queued job may print any plate of it: a PLA plate
+    of a project that also holds PETG is heated for PLA. *plate_id* as a queue
+    job holds it; none (or 0) means the file's default plate, the one dispatched.
+    None when the file can't be read or names no bed temperature, so the caller
+    falls back to the stored value.
+
+    Every failure is None, as in extract_bed_temperature_from_3mf: preheat and
+    keep-warm run this for every job, and a damaged file raises well beyond the
+    expected few (zlib.error from corrupt deflate data, OverflowError from an
+    "inf" temperature). Escaping here would fail the dispatch every round, or
+    end keep-warm for every printer.
+    """
+    try:
+        with zipfile.ZipFile(file_path, "r") as zf:
+            names = zf.namelist()
+            if "Metadata/project_settings.config" not in names:
+                return None
+            data = json.loads(zf.read("Metadata/project_settings.config").decode())
+            slice_info = zf.read("Metadata/slice_info.config") if "Metadata/slice_info.config" in names else None
+        if not isinstance(data, dict):
+            return None
+        plates = ET.fromstring(slice_info).findall("plate") if slice_info else []
+        plate_number = plate_id if plate_id is not None and plate_id > 0 else default_plate_number(names)
+        return bed_temperature_from_config(data, used_filament_indexes(plates, plate_number))
+    except Exception:
         return None
 
 

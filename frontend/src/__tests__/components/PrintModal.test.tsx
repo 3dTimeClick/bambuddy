@@ -20,6 +20,7 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { http, HttpResponse } from 'msw';
 import { setAuthToken } from '../../api/client';
 import { server } from '../mocks/server';
+import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 import type { PrintQueueItem } from '../../api/client';
 
 const mockPrinters = [
@@ -2381,6 +2382,92 @@ describe('PrintModal — per-plate filament override in model mode (#2552)', () 
       expect.objectContaining({ slot_id: 2, force_color_match: true }),
     ]);
   });
+
+  // The queue page shows the stored colour name. The same blue is "Marine
+  // Blue" in PLA Matte; the plain type "PLA" only reaches the generic name (SN-C9).
+  it("stores a forced slot's colour name within its sliced product line", async () => {
+    setColorCatalog({ '0000ff': 'Blue' }, { 'PLA Matte|0000ff': 'Marine Blue' });
+    type Queued = { plate_id: number; filament_overrides?: Array<{ slot_id: number; color_name?: string }> | null };
+    const queued: Queued[] = [];
+    server.use(
+      http.get('/api/v1/archives/:id/filament-requirements', () =>
+        HttpResponse.json({ filaments: [{ ...SLOT_2_BLUE, tray_info_idx: 'GFA01' }] }),
+      ),
+      http.get('/api/v1/cloud/builtin-filaments', () =>
+        HttpResponse.json([{ filament_id: 'GFA01', name: 'Bambu PLA Matte' }]),
+      ),
+      http.get('/api/v1/cloud/filament-id-map', () => HttpResponse.json({})),
+      http.post('/api/v1/queue/', async ({ request }) => {
+        queued.push((await request.json()) as Queued);
+        return HttpResponse.json({ id: queued.length, status: 'pending' });
+      }),
+    );
+
+    try {
+      const user = userEvent.setup();
+      renderWithCache(
+        <PrintModal mode="create" archiveId={1} archiveName="Two.gcode.3mf" onClose={mockOnClose} />,
+        (qc) => qc.setQueryData(['archive-plates', 1], PLATES),
+      );
+      await selectAnyX1CAndBothPlates(user);
+      await waitFor(() => expect(screen.getByText(/Filament Override — Plate 2/)).toBeInTheDocument());
+      // Wait for the preset names, which the stored colour name is derived from.
+      await waitFor(() => expect(screen.getAllByText(/PLA Matte/).length).toBeGreaterThan(0));
+
+      await user.click(screen.getAllByRole('checkbox', { name: /force color match/i })[1]);
+      await user.click(document.querySelector('button[type="submit"]') as HTMLElement);
+
+      await waitFor(() => expect(queued.length).toBe(2));
+      expect(queued.find((q) => q.plate_id === 2)?.filament_overrides).toEqual([
+        expect.objectContaining({ slot_id: 2, color_name: 'Marine Blue' }),
+      ]);
+    } finally {
+      __resetColorCatalogForTests();
+    }
+  });
+
+  it("does not name a swapped slot's colour by the preset it was sliced with", async () => {
+    setColorCatalog({ '00ff00': 'Green' }, { 'PLA Matte|00ff00': 'Matte Green' });
+    type Queued = { plate_id: number; filament_overrides?: Array<{ slot_id: number; color_name?: string }> | null };
+    const queued: Queued[] = [];
+    server.use(
+      http.get('/api/v1/archives/:id/filament-requirements', () =>
+        HttpResponse.json({ filaments: [{ ...SLOT_2_BLUE, tray_info_idx: 'GFA01' }] }),
+      ),
+      http.get('/api/v1/cloud/builtin-filaments', () =>
+        HttpResponse.json([{ filament_id: 'GFA01', name: 'Bambu PLA Matte' }]),
+      ),
+      http.get('/api/v1/cloud/filament-id-map', () => HttpResponse.json({})),
+      http.post('/api/v1/queue/', async ({ request }) => {
+        queued.push((await request.json()) as Queued);
+        return HttpResponse.json({ id: queued.length, status: 'pending' });
+      }),
+    );
+
+    try {
+      const user = userEvent.setup();
+      renderWithCache(
+        <PrintModal mode="create" archiveId={1} archiveName="Two.gcode.3mf" onClose={mockOnClose} />,
+        (qc) => qc.setQueryData(['archive-plates', 1], PLATES),
+      );
+      await selectAnyX1CAndBothPlates(user);
+      await waitFor(() => expect(screen.getByText(/Filament Override — Plate 2/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText(/PLA Matte/).length).toBeGreaterThan(0));
+
+      // Swap the PLA Matte blue for the loaded PLA Basic green.
+      const pickers = screen.getAllByRole('combobox', { name: /filament override for/i });
+      await user.click(pickers[pickers.length - 1]);
+      await user.click(within(await screen.findByRole('listbox')).getByText(/Green/));
+      await user.click(document.querySelector('button[type="submit"]') as HTMLElement);
+
+      await waitFor(() => expect(queued.length).toBe(2));
+      expect(queued.find((q) => q.plate_id === 2)?.filament_overrides).toEqual([
+        expect.objectContaining({ slot_id: 2, color: '#00FF00', color_name: 'Green' }),
+      ]);
+    } finally {
+      __resetColorCatalogForTests();
+    }
+  });
 });
 
 describe('PrintModal — per-plate quantity (#342)', () => {
@@ -2783,6 +2870,50 @@ describe('PrintModal — override survives "Any model" -> "Specific Printer" (#3
     expect(patched[0].filament_overrides).toEqual([
       expect.objectContaining({ slot_id: 1, tray_info_idx: 'GFA01', force_color_match: true }),
     ]);
+  });
+
+  it("names a kept pin's colour within its product line when the file's filaments can't be read", async () => {
+    const hex = BROWN.replace('#', '').toLowerCase();
+    setColorCatalog({ [hex]: 'Brown' }, { [`PLA Matte|${hex}`]: 'Matte Brown' });
+    server.use(
+      http.get('/api/v1/archives/:id/filament-requirements', () => HttpResponse.json({ detail: 'gone' }, { status: 500 })),
+    );
+    const vpItem = createMockQueueItem({
+      printer_id: null,
+      target_model: 'P2S',
+      filament_overrides: [
+        { slot_id: 1, type: 'PLA', color: BROWN, tray_info_idx: 'GFA01', force_color_match: true },
+      ],
+    } as Partial<PrintQueueItem>);
+    // The preset names are known from the first render, so the save can't race them.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queryClient.setQueryData(['builtin-filaments'], [{ filament_id: 'GFA01', name: 'Bambu PLA Matte' }]);
+    queryClient.setQueryData(['filament-id-map'], {});
+
+    try {
+      const user = userEvent.setup();
+      rtlRender(
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <AuthProvider>
+              <ThemeProvider>
+                <ToastProvider>
+                  <PrintModal mode="edit-queue-item" archiveId={1} archiveName="Job" queueItem={vpItem} onClose={mockOnClose} />
+                </ToastProvider>
+              </ThemeProvider>
+            </AuthProvider>
+          </BrowserRouter>
+        </QueryClientProvider>,
+      );
+      await submit(user);
+
+      await waitFor(() => expect(patched).toHaveLength(1));
+      expect(patched[0].filament_overrides).toEqual([
+        expect.objectContaining({ slot_id: 1, tray_info_idx: 'GFA01', color_name: 'Matte Brown' }),
+      ]);
+    } finally {
+      __resetColorCatalogForTests();
+    }
   });
 
   it('carries an override picked in model mode into a specific-printer job when creating', async () => {

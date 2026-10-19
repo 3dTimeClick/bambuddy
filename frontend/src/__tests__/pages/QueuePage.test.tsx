@@ -10,6 +10,7 @@ import { QueuePage } from '../../pages/QueuePage';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { setAuthToken } from '../../api/client';
+import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 
 // Mock queue data
 const mockQueueItems = [
@@ -631,6 +632,99 @@ describe('QueuePage', () => {
           '#000000',
           '#C2BAA7',
         ]);
+      });
+    });
+
+    // The colour catalogue is keyed by product line: the same black is
+    // "Charcoal" in PLA Matte and "Black" in PLA Basic. The plate's type is
+    // only "PLA"; its slicer preset (tray_info_idx) names the line (SN-C9).
+    describe('colour names by product line', () => {
+      const plateWith = (filament: Record<string, unknown>) =>
+        HttpResponse.json({
+          file_id: 16,
+          filename: 'matte.3mf',
+          plates: [
+            {
+              index: 1,
+              name: 'Plate 1',
+              objects: ['Part'],
+              has_thumbnail: false,
+              thumbnail_url: null,
+              print_time_seconds: 3600,
+              filament_used_grams: 20,
+              filaments: [{ slot_id: 1, type: 'PLA', color: '#000000', used_grams: 20, used_meters: 6.7, ...filament }],
+            },
+          ],
+          is_multi_plate: false,
+        });
+
+      const show = async (plateFilament: Record<string, unknown> | null, overrides: unknown = null) => {
+        const item = {
+          ...mockQueueItems[0],
+          id: 85,
+          printer_id: null,
+          target_model: 'P2S',
+          archive_id: null,
+          library_file_id: 16,
+          archive_name: null,
+          library_file_name: 'Product line test',
+          plate_id: 1,
+          filament_overrides: overrides,
+        };
+        server.use(
+          http.get('/api/v1/queue/', () => HttpResponse.json([item])),
+          http.get('/api/v1/library/files/16/plates', () =>
+            plateFilament ? plateWith(plateFilament) : HttpResponse.json({ detail: 'Not found' }, { status: 404 }),
+          ),
+          http.get('/api/v1/cloud/builtin-filaments', () =>
+            HttpResponse.json([
+              { filament_id: 'GFA01', name: 'Bambu PLA Matte' },
+              { filament_id: 'GFA00', name: 'Bambu PLA Basic' },
+            ]),
+          ),
+          http.get('/api/v1/cloud/filament-id-map', () => HttpResponse.json({})),
+        );
+        render(<QueuePage />);
+        await screen.findByText('Product line test');
+        return screen.getByText('Product line test').closest('.group') as HTMLElement;
+      };
+
+      beforeEach(() => {
+        setColorCatalog({ '000000': 'Black' }, { 'PLA Matte|000000': 'Charcoal' });
+      });
+      afterEach(() => {
+        __resetColorCatalogForTests();
+      });
+
+      it("names the plate colour within the preset's product line", async () => {
+        const row = await show({ tray_info_idx: 'GFA01' });
+
+        expect(await within(row).findByText('Charcoal')).toBeInTheDocument();
+      });
+
+      it("names an override within the override's own preset", async () => {
+        const row = await show({ tray_info_idx: 'GFA00' }, [
+          { slot_id: 1, type: 'PLA', color: '#000000', tray_info_idx: 'GFA01', force_color_match: false },
+        ]);
+
+        expect(await within(row).findByText('Charcoal')).toBeInTheDocument();
+      });
+
+      it('names an override within its preset when the file has no plate listing', async () => {
+        const row = await show(null, [
+          { slot_id: 1, type: 'PLA', color: '#000000', tray_info_idx: 'GFA01', force_color_match: false },
+        ]);
+
+        expect(await within(row).findByText('Charcoal')).toBeInTheDocument();
+      });
+
+      it("does not lend the plate's preset to an override of another filament", async () => {
+        const row = await show({ tray_info_idx: 'GFA01' }, [
+          { slot_id: 1, type: 'PETG', color: '#000000', force_color_match: false },
+        ]);
+
+        expect(await within(row).findByText('Black')).toBeInTheDocument();
+        expect(within(row).queryByText('Charcoal')).toBeNull();
       });
     });
 

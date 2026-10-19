@@ -26,7 +26,7 @@ from backend.app.utils.archive_paths import archive_dir as resolve_archive_dir
 from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
 from backend.app.utils.filename import clean_display_name
 from backend.app.utils.safe_path import PathTraversalError, assert_under, safe_join_under
-from backend.app.utils.threemf_tools import bed_temperature_from_config
+from backend.app.utils.threemf_tools import bed_temperature_from_config, used_filament_indexes
 
 logger = logging.getLogger(__name__)
 
@@ -277,36 +277,6 @@ class ThreeMFParser:
             )
         return self.metadata
 
-    def _first_used_filament_index(self, plates: list) -> int:
-        """Position, in the project's per-filament settings, of the first
-        filament the printed plate uses: 0 when that can't be told.
-
-        ``project_settings`` lists one value per filament of the whole
-        project, so the printed plate's own filament picks which applies
-        (a plate printing only filament 3 has filament 3's nozzle
-        temperature). Without a plate number, the only plate decides.
-        """
-        if self.plate_number:
-            printed = [
-                plate
-                for plate in plates
-                if any(
-                    meta.get("key") == "index" and meta.get("value") == str(self.plate_number)
-                    for meta in plate.findall("metadata")
-                )
-            ]
-        else:
-            printed = plates if len(plates) == 1 else []
-        used: list[int] = []
-        for plate in printed[:1]:
-            for filament in plate.findall("filament"):
-                try:
-                    if float(filament.get("used_g", "0")) > 0:
-                        used.append(int(filament.get("id", "")))
-                except (TypeError, ValueError):
-                    continue
-        return min(used) - 1 if used and min(used) > 0 else 0
-
     def _parse_slice_info(self, zf: zipfile.ZipFile):
         """Parse slice_info.config for print settings and printable objects."""
         try:
@@ -395,7 +365,7 @@ class ThreeMFParser:
                         if printable_objects:
                             self.metadata["printable_objects"] = printable_objects
 
-                self._plate_filament_index = self._first_used_filament_index(plates)
+                self._plate_filament_indexes = used_filament_indexes(plates, self.plate_number)
 
                 if any_time_seen:
                     self.metadata["print_time_seconds"] = summed_time
@@ -626,7 +596,7 @@ class ThreeMFParser:
                 if key in data:
                     val = data[key]
                     if isinstance(val, list) and val:
-                        index = getattr(self, "_plate_filament_index", 0)
+                        index = (getattr(self, "_plate_filament_indexes", None) or [0])[0]
                         self.metadata["nozzle_temperature"] = int(float(val[index if index < len(val) else 0]))
                     elif isinstance(val, (int, float, str)):
                         self.metadata["nozzle_temperature"] = int(float(val))

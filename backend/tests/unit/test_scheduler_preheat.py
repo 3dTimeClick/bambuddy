@@ -36,7 +36,7 @@ def item():
 
 @pytest.fixture
 def archive():
-    return SimpleNamespace(bed_temperature=60)
+    return SimpleNamespace(file_path=None, bed_temperature=60)
 
 
 def _make_printer(model: str, printer_id: int = 7):
@@ -417,7 +417,7 @@ async def test_no_bed_temperature_but_chamber_needed_heats_bed_to_configured_tem
     """
     db = AsyncMock()
     client = _make_client()
-    bare_archive = SimpleNamespace(bed_temperature=None)
+    bare_archive = SimpleNamespace(file_path=None, bed_temperature=None)
 
     with (
         patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
@@ -449,7 +449,7 @@ async def test_no_bed_temperature_and_no_chamber_target_still_skips(scheduler, i
     """
     db = AsyncMock()
     client = _make_client()
-    bare_archive = SimpleNamespace(bed_temperature=None)
+    bare_archive = SimpleNamespace(file_path=None, bed_temperature=None)
 
     with (
         patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),

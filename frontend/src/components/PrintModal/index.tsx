@@ -17,6 +17,7 @@ import {
 } from '../../hooks/useFilamentMapping';
 import { useMultiPrinterFilamentMapping, type PerPrinterConfig } from '../../hooks/useMultiPrinterFilamentMapping';
 import { getColorName } from '../../utils/colors';
+import { productLineOf, useFilamentNameByIdx } from './useFilamentLabels';
 import { isGcodeCompatible, isPrinterCurrentlyDispatchable } from '../../utils/printer';
 import { getCurrencySymbol } from '../../utils/currency';
 import { getBedTypeInfo } from '../../utils/bedType';
@@ -521,6 +522,8 @@ export function PrintModal({
   );
 
   // Fetch available filaments for model-based assignment (for filament override UI)
+  // Preset id -> name, to store a colour name within its product line (SN-C9)
+  const filamentNameByIdx = useFilamentNameByIdx();
   const { data: availableFilaments } = useQuery({
     queryKey: ['available-filaments', targetModel, targetLocation],
     queryFn: () => api.getAvailableFilaments(targetModel!, targetLocation ?? undefined),
@@ -1224,7 +1227,11 @@ export function PrintModal({
 
           // Include slot if user changed the filament OR force_color_match is enabled
           if (userOverride || isForceColor) {
-            entries.push({ slot_id: req.slot_id, type: effectiveType, color: effectiveColor, color_name: getColorName(effectiveColor), ...storedVariantFor(req.slot_id, effectiveType, effectiveColor), force_color_match: isForceColor });
+            const variant = storedVariantFor(req.slot_id, effectiveType, effectiveColor);
+            // A slot left as sliced keeps its own preset; a swapped one only a stored matching one.
+            const preset = variant.tray_info_idx ?? (userOverride ? undefined : req.tray_info_idx);
+            const colorName = getColorName(effectiveColor, productLineOf(preset, effectiveType, filamentNameByIdx));
+            entries.push({ slot_id: req.slot_id, type: effectiveType, color: effectiveColor, color_name: colorName, ...variant, force_color_match: isForceColor });
           }
         }
       } else {
@@ -1232,7 +1239,9 @@ export function PrintModal({
         for (const [slotId, { type, color }] of Object.entries(filamentOverrides)) {
           const id = parseInt(slotId, 10);
           const isForceColor = forceColorMatch[id] ?? false;
-          entries.push({ slot_id: id, type, color, color_name: getColorName(color), ...storedVariantFor(id, type, color), force_color_match: isForceColor });
+          const variant = storedVariantFor(id, type, color);
+          const colorName = getColorName(color, productLineOf(variant.tray_info_idx, type, filamentNameByIdx));
+          entries.push({ slot_id: id, type, color, color_name: colorName, ...variant, force_color_match: isForceColor });
         }
       }
 
