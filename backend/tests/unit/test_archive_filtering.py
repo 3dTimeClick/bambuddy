@@ -690,6 +690,7 @@ class TestConvertTimelapseToMp4:
             patch("backend.app.services.archive.settings") as mock_settings,
             patch("backend.app.utils.archive_paths.settings") as mock_paths_settings,
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
+            patch("backend.app.services.archive._announce_timelapse", AsyncMock()) as announce,
         ):
             mock_settings.base_dir = tmp_path
             mock_paths_settings.base_dir = tmp_path
@@ -702,7 +703,21 @@ class TestConvertTimelapseToMp4:
 
             await _convert_timelapse_to_mp4(42, source)
 
+        mock_session.announce = announce
         return mock_exec, mock_session, mock_archive, mp4_path
+
+    @pytest.mark.asyncio
+    async def test_the_converted_video_is_announced(self, tmp_path):
+        """Open Archives pages refresh to the MP4 (TL-5)."""
+        _, session, _, _ = await self._convert(tmp_path, shown="video.avi")
+
+        session.announce.assert_awaited_once_with(42, attached=True)
+
+    @pytest.mark.asyncio
+    async def test_a_discarded_conversion_is_not_announced(self, tmp_path):
+        _, session, _, _ = await self._convert(tmp_path, shown="other.avi")
+
+        session.announce.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_converts_avi_to_mp4(self, tmp_path):
@@ -794,6 +809,8 @@ class TestAttachTimelapseBackgroundConversion:
             patch("backend.app.services.archive.settings") as mock_settings,
             patch("backend.app.utils.archive_paths.settings") as mock_paths_settings,
             patch("asyncio.create_task") as mock_create_task,
+            # Its broadcast opens a session task of its own
+            patch("backend.app.services.archive._announce_timelapse", AsyncMock()),
         ):
             mock_settings.base_dir = tmp_path
             mock_paths_settings.base_dir = tmp_path
@@ -823,6 +840,8 @@ class TestAttachTimelapseBackgroundConversion:
             patch("backend.app.services.archive.settings") as mock_settings,
             patch("backend.app.utils.archive_paths.settings") as mock_paths_settings,
             patch("asyncio.create_task") as mock_create_task,
+            # Its broadcast opens a session task of its own
+            patch("backend.app.services.archive._announce_timelapse", AsyncMock()),
         ):
             mock_settings.base_dir = tmp_path
             mock_paths_settings.base_dir = tmp_path

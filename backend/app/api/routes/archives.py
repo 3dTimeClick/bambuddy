@@ -2958,6 +2958,9 @@ async def delete_timelapse(
     archive.timelapse_plate_id = None
     await db.commit()
 
+    from backend.app.services.archive import _announce_timelapse
+
+    await _announce_timelapse(archive_id, attached=False)
     return {"status": "deleted"}
 
 
@@ -3053,19 +3056,23 @@ async def scan_timelapse(
     # into a confident wrong answer. Those strategies stay for archives created
     # before the baseline was persisted.
     used_baseline = archive.timelapse_baseline is not None
+    # A video another archive of this printer holds is that print's, whichever
+    # strategy below would pick it (a short name like "1" is in every video's
+    # timestamp). Picking by hand still offers it: that is how a wrong match
+    # is corrected.
+    offered = video_files
+    async with async_session() as db:
+        claimed = await _claimed_timelapse_stems(db, archive.printer_id, archive_id)
+    video_files = [f for f in video_files if Path(f.get("name", "")).stem not in claimed]
     if used_baseline:
         baseline = set(archive.timelapse_baseline)
-        async with async_session() as db:
-            claimed = await _claimed_timelapse_stems(db, archive.printer_id, archive_id)
-        candidates = [
-            f for f in video_files if f.get("name", "") not in baseline and Path(f.get("name", "")).stem not in claimed
-        ]
+        candidates = [f for f in video_files if f.get("name", "") not in baseline]
         if len(candidates) == 1:
             matching_file = candidates[0]
             logger.info("Matched timelapse by print-start baseline: %s", matching_file.get("name"))
         elif candidates:
             # Ambiguous — offer only the plausible files instead of guessing.
-            video_files = candidates
+            offered = candidates
             logger.info("Baseline left %s unclaimed candidates for archive %s", len(candidates), archive_id)
         else:
             logger.info("Baseline shows no unclaimed new video on the printer for archive %s", archive_id)
@@ -3144,7 +3151,7 @@ async def scan_timelapse(
                 "size": f.get("size"),
                 "mtime": f.get("mtime").isoformat() if f.get("mtime") else None,
             }
-            for f in video_files
+            for f in offered
         ]
         # Sort by mtime descending (most recent first)
         available_files.sort(key=lambda x: x.get("mtime") or "", reverse=True)

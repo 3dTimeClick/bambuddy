@@ -1981,6 +1981,7 @@ class ArchiveService:
         archive.timelapse_path = str(timelapse_file.relative_to(settings.base_dir))
         archive.timelapse_plate_id = plate_id
         await self.db.commit()
+        await _announce_timelapse(archive_id, attached=True)
 
         # For non-MP4 videos (e.g. AVI from P1S), kick off background conversion
         if not filename.lower().endswith(".mp4"):
@@ -2015,6 +2016,16 @@ def _free_timelapse_name(target: Path, current_relpath: str | None, base_dir: Pa
         if not any(p.exists() for p in outputs(candidate)):
             return candidate
         n += 1
+
+
+async def _announce_timelapse(archive_id: int, *, attached: bool) -> None:
+    """Tell open Archives pages that this archive's timelapse changed."""
+    from backend.app.core.websocket import ws_manager
+
+    try:
+        await ws_manager.send_archive_updated({"id": archive_id, "timelapse_attached": attached})
+    except Exception:  # noqa: BLE001 -- a refresh hint must not fail the change it reports
+        logger.debug("Could not announce the timelapse of archive %s", archive_id, exc_info=True)
 
 
 async def _convert_timelapse_to_mp4(archive_id: int, source_path: Path) -> None:
@@ -2107,6 +2118,7 @@ async def _convert_timelapse_to_mp4(archive_id: int, source_path: Path) -> None:
                 return
             archive.timelapse_path = str(mp4_path.relative_to(settings.base_dir))
             await db.commit()
+        await _announce_timelapse(archive_id, attached=True)
 
         # Remove original non-MP4 file
         if source_path.exists():

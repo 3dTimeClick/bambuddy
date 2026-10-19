@@ -307,3 +307,21 @@ class TestACompletionNoArchiveWasBoundTo:
 
         db_session.expire_all()
         assert (await db_session.get(PrintArchive, own_id)).status == "completed"
+
+
+async def test_the_layer_timelapse_is_attached_for_the_run_that_ended(test_engine, db_session, queued_print, tmp_path):
+    """The run is read before the stitch, which can take long enough for the
+    archive to start printing again (TL-3)."""
+    stitched = tmp_path / "stitched.mp4"
+    stitched.write_bytes(b"layer video")
+    attach = AsyncMock()
+
+    with (
+        patch("backend.app.services.layer_timelapse.on_print_complete", AsyncMock(return_value=stitched)),
+        patch("backend.app.main._attach_layer_timelapse", attach),
+    ):
+        await _complete(test_engine, queued_print["printer"], "completed")
+
+    attach.assert_awaited_once()
+    archive_id, path, _plate, run_started_at = attach.await_args.args
+    assert (archive_id, path, run_started_at) == (queued_print["archive"], stitched, datetime(2026, 10, 19, 8, 0))

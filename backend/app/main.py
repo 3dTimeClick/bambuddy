@@ -6281,6 +6281,10 @@ async def _scan_for_timelapse_with_retries(
             if not archive.printer_id:
                 logger.warning("[TIMELAPSE] Archive %s has no printer, aborting", archive_id)
                 return
+            # The run this scan is for. The archive row passes to a newer run
+            # when it prints again (the next plate, a reprint), and that run's
+            # video is its own.
+            run_started_at = archive.started_at
 
             if baseline_names is not None:
                 logger.info(
@@ -6361,6 +6365,11 @@ async def _scan_for_timelapse_with_retries(
                 if archive.timelapse_path:
                     logger.info("[TIMELAPSE] Archive %s already has timelapse attached, stopping poll", archive_id)
                     return
+                if archive.started_at != run_started_at:
+                    logger.info(
+                        "[TIMELAPSE] Archive %s is printing again, stopping the previous run's poll", archive_id
+                    )
+                    return
 
                 result = await db.execute(select(Printer).where(Printer.id == archive.printer_id))
                 printer = result.scalar_one_or_none()
@@ -6398,6 +6407,7 @@ async def _scan_for_timelapse_with_retries(
                     quiet=not changed,
                     require_unambiguous=not baseline_trusted,
                     plate_id=plate_id,
+                    run_started_at=run_started_at,
                 )
                 if attached:
                     return
@@ -6421,6 +6431,55 @@ async def _scan_for_timelapse_with_retries(
     )
 
 
+async def _attach_layer_timelapse(
+    archive_id: int, timelapse_path: Path, plate_id: int | None, run_started_at: datetime | None
+) -> None:
+    """Attach the external camera's stitched timelapse to the archive.
+
+    The camera's video is the one the user set up in Bambuddy, so it wins
+    over the printer's own when both are on: it replaces the printer's video
+    (usually there first; stitching takes minutes) and that file is deleted,
+    leaving nothing in the archive folder unreferenced. ``run_started_at`` is
+    the run the frames were taken for: when the archive is printing again by
+    the time the stitch is done, the video is not the new run's and is
+    dropped. The stitched file is a temporary either way.
+    """
+    from backend.app.utils.safe_path import PathTraversalError, safe_join_under
+
+    logger = logging.getLogger(__name__)
+    try:
+        async with async_session() as db:
+            service = ArchiveService(db)
+            archive = await service.get_archive(archive_id)
+            if archive is None:
+                return
+            if archive.started_at != run_started_at:
+                logger.info(
+                    "[LAYER-TL] Archive %s is printing again; dropping the previous run's layer timelapse", archive_id
+                )
+                return
+            replaced = archive.timelapse_path
+            logger.info("[LAYER-TL] Attaching timelapse %s to archive %s", timelapse_path, archive_id)
+            timelapse_data = await asyncio.to_thread(timelapse_path.read_bytes)
+            if not await service.attach_timelapse(archive_id, timelapse_data, "layer_timelapse.mp4", plate_id=plate_id):
+                return
+            attached = archive.timelapse_path
+        logger.info("[LAYER-TL] Layer timelapse attached successfully")
+        if replaced and replaced != attached:
+            try:
+                old = safe_join_under(app_settings.base_dir, replaced, http=False)
+            except PathTraversalError:
+                return
+            await asyncio.to_thread(old.unlink, missing_ok=True)
+            logger.info("[LAYER-TL] Replaced the printer's timelapse %s on archive %s", replaced, archive_id)
+    finally:
+        await asyncio.to_thread(timelapse_path.unlink, missing_ok=True)
+
+
+# ``run_started_at`` not given: attach whichever run the archive is on.
+_ANY_RUN = object()
+
+
 async def _attach_first_unclaimed_timelapse(
     archive_id: int,
     printer,
@@ -6433,6 +6492,7 @@ async def _attach_first_unclaimed_timelapse(
     quiet: bool = False,
     require_unambiguous: bool = False,
     plate_id: int | None = None,
+    run_started_at: datetime | None | object = _ANY_RUN,
 ) -> bool:
     """Download and attach the one video that belongs to this print.
 
@@ -6495,7 +6555,7 @@ async def _attach_first_unclaimed_timelapse(
         )
 
     target = candidates[0]
-    file_name = target.get("name")
+    file_name = str(target.get("name") or "")  # every listed entry has one
     remote_path = target.get("path") or f"/timelapse/{file_name}"
     logger.info(
         "[TIMELAPSE] Attempt %s: New file detected: %s (downloading for archive %s)",
@@ -6540,15 +6600,28 @@ async def _attach_first_unclaimed_timelapse(
     ):
         return False
 
-    # Write phase: attach in a fresh short-lived session.
+    # Write phase: attach in a fresh short-lived session. The download took a
+    # while: by now the archive may have its video, or be printing again for a
+    # newer run, whose video this is not. Then nothing is attached or deleted,
+    # and the poll ends (True).
     async with async_session() as db:
-        success = await ArchiveService(db).attach_timelapse(archive_id, timelapse_data, file_name, plate_id=plate_id)
+        service = ArchiveService(db)
+        if run_started_at is not _ANY_RUN:
+            current = await service.get_archive(archive_id)
+            if current is None or current.timelapse_path or current.started_at != run_started_at:
+                logger.info(
+                    "[TIMELAPSE] Archive %s moved on during the download (video attached or printing again); "
+                    "%s stays on the printer",
+                    archive_id,
+                    file_name,
+                )
+                return True
+        success = await service.attach_timelapse(archive_id, timelapse_data, file_name, plate_id=plate_id)
     if not success:
         logger.warning("[TIMELAPSE] Failed to attach timelapse to archive %s", archive_id)
         return False
 
     logger.info("[TIMELAPSE] Successfully attached timelapse to archive %s", archive_id)
-    await ws_manager.send_archive_updated({"id": archive_id, "timelapse_attached": True})
 
     await delete_archived_timelapse(
         printer.ip_address,
@@ -9353,18 +9426,16 @@ async def on_print_complete(printer_id: int, data: dict):
         try:
             if print_status == "completed":
                 logger.info("[LAYER-TL] Stitching layer timelapse for printer %s", printer_id)
+                # The run the frames belong to, read before the stitch: it can
+                # take long enough for the archive to start printing again.
+                run_started_at = None
+                if archive_id:
+                    async with async_session() as db:
+                        run_archive = await ArchiveService(db).get_archive(archive_id)
+                        run_started_at = run_archive.started_at if run_archive else None
                 timelapse_path = await tl_complete(printer_id)
                 if timelapse_path and archive_id:
-                    logger.info("[LAYER-TL] Attaching timelapse %s to archive %s", timelapse_path, archive_id)
-                    async with async_session() as db:
-                        service = ArchiveService(db)
-                        timelapse_data = await asyncio.to_thread(timelapse_path.read_bytes)
-                        await service.attach_timelapse(
-                            archive_id, timelapse_data, "layer_timelapse.mp4", plate_id=notify_plate_id
-                        )
-                        # Clean up the temp file
-                        await asyncio.to_thread(timelapse_path.unlink, missing_ok=True)
-                        logger.info("[LAYER-TL] Layer timelapse attached successfully")
+                    await _attach_layer_timelapse(archive_id, timelapse_path, notify_plate_id, run_started_at)
                 elif timelapse_path:
                     # Timelapse created but no archive - just clean up
                     await asyncio.to_thread(timelapse_path.unlink, missing_ok=True)

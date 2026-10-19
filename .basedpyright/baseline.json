@@ -2022,14 +2022,6 @@
             {
                 "code": "reportArgumentType",
                 "range": {
-                    "startColumn": 88,
-                    "endColumn": 97,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
                     "startColumn": 27,
                     "endColumn": 39,
                     "lineCount": 1
