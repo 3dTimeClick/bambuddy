@@ -311,6 +311,62 @@ class TestBatches:
         assert batch.name == "theirs"
 
 
+class TestAnOwnOnlyOwner:
+    """An owner who may change only their own queue items.
+
+    Their key is refused at the permission gate (it needs the ``*_all``
+    permission of its owner), so it changes no other user's item, and an
+    owner's deactivation stops it.
+    """
+
+    async def _items(self, db_session, world) -> tuple[PrintQueueItem, PrintQueueItem]:
+        await _set(db_session, "billing_enabled", "false")
+        mine = await _archive(db_session, world["owner"].id, 1)
+        theirs = await _archive(db_session, world["other"].id, 2)
+        own = PrintQueueItem(
+            printer_id=world["printer"].id, archive_id=mine.id, status="pending", created_by_id=world["owner"].id
+        )
+        other = PrintQueueItem(
+            printer_id=world["printer"].id, archive_id=theirs.id, status="pending", created_by_id=world["other"].id
+        )
+        db_session.add_all([own, other])
+        await db_session.commit()
+        return own, other
+
+    async def test_another_users_item_is_left_alone(self, async_client, db_session, world):
+        own, other = await self._items(db_session, world)
+        key = await _key(db_session, world["owner"].id)
+
+        patched = await async_client.patch(f"/api/v1/queue/{other.id}", json={"manual_start": True}, headers=key)
+        bulk = await async_client.patch(
+            "/api/v1/queue/bulk", json={"item_ids": [own.id, other.id], "manual_start": True}, headers=key
+        )
+        deleted = await async_client.delete(f"/api/v1/queue/{other.id}", headers=key)
+
+        assert patched.status_code in (403, 404)
+        assert bulk.status_code in (200, 403), bulk.text
+        assert deleted.status_code in (403, 404)
+        await db_session.refresh(other)
+        assert other.manual_start is False
+        assert await db_session.get(PrintQueueItem, other.id) is not None
+
+    async def test_a_deactivated_owners_key_changes_nothing(self, async_client, db_session, world):
+        """An admin's key, so the deactivation alone is what refuses it."""
+        own, _other = await self._items(db_session, world)
+        key = await _key(db_session, world["admin"].id)
+        world["admin"].is_active = False
+        await db_session.commit()
+
+        patched = await async_client.patch(f"/api/v1/queue/{own.id}", json={"manual_start": True}, headers=key)
+        deleted = await async_client.delete(f"/api/v1/queue/{own.id}", headers=key)
+
+        assert patched.status_code in (401, 403)
+        assert deleted.status_code in (401, 403)
+        await db_session.refresh(own)
+        assert own.manual_start is False
+        assert await db_session.get(PrintQueueItem, own.id) is not None
+
+
 @pytest.fixture
 async def library_world(db_session, world):
     """The same owner, who may also upload, read stats and pipelines, and a

@@ -130,3 +130,20 @@ async def test_a_wrong_key_and_no_key_are_401s(async_client: AsyncClient, key):
     assert wrong.status_code == 401
     assert wrong.json()["detail"] == "Invalid API key"
     assert missing.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.parametrize("route", [ROUTE, "/api/v1/printers/"])
+@pytest.mark.parametrize("header", ["X-API-Key", "Authorization"])
+async def test_a_disabled_key_is_a_401(async_client: AsyncClient, key, db_session, route, header):
+    from backend.app.models.settings import Settings
+
+    db_session.add(Settings(key="auth_enabled", value="true"))
+    await db_session.execute(update(APIKey).values(enabled=False).where(APIKey.name == "webhook-key"))
+    await db_session.commit()
+    value = key if header == "X-API-Key" else f"Bearer {key}"
+
+    response = await async_client.get(route, headers={header: value})
+
+    assert response.status_code == 401, response.text
