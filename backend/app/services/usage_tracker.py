@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.spool import Spool
@@ -295,6 +295,34 @@ def _tray_map_from_json(mapping: dict | None) -> dict[tuple[int, int], int]:
         if key is not None and isinstance(value, int):
             result[key] = value
     return result
+
+
+async def _charge_spool(db: AsyncSession, spool: Spool, grams: float) -> bool:
+    """Add *grams* to the spool's usage in the database itself (WU-4).
+
+    The spool was loaded several awaits earlier; a weight set by hand or
+    weighed on the scale since then would be lost to a write of the value
+    computed from that copy. The loaded copy is set to the stored result: from
+    this statement until the commit, the transaction holds the row (the write
+    lock on SQLite), so writing it back on flush changes nothing.
+
+    False when the spool was deleted meanwhile: the caller skips it, since a
+    usage row for it would break its foreign key on PostgreSQL and roll back
+    the whole completion.
+    """
+    now = datetime.now(timezone.utc)
+    stored = await db.scalar(
+        update(Spool)
+        .where(Spool.id == spool.id)
+        .values(weight_used=func.coalesce(Spool.weight_used, 0) + grams, last_used=now)
+        .returning(Spool.weight_used)
+        .execution_options(synchronize_session=False)
+    )
+    if stored is None:
+        return False
+    spool.weight_used = stored
+    spool.last_used = now
+    return True
 
 
 async def persist_session(
@@ -926,8 +954,8 @@ async def on_print_complete(
                 weight_grams = (delta_pct / 100.0) * spool.label_weight
 
                 # Update spool
-                spool.weight_used = (spool.weight_used or 0) + weight_grams
-                spool.last_used = datetime.now(timezone.utc)
+                if not await _charge_spool(db, spool, weight_grams):
+                    continue
 
                 # Calculate cost for this usage
                 cost = None
@@ -1753,8 +1781,8 @@ async def _track_from_3mf(
                 if not spool:
                     continue
 
-                spool.weight_used = (spool.weight_used or 0) + segment_grams
-                spool.last_used = datetime.now(timezone.utc)
+                if not await _charge_spool(db, spool, segment_grams):
+                    continue
 
                 percent = round(segment_grams / (spool.label_weight or 1000) * 100)
 
@@ -1925,8 +1953,8 @@ async def _track_from_3mf(
             continue
 
         # Update spool
-        spool.weight_used = (spool.weight_used or 0) + weight_grams
-        spool.last_used = datetime.now(timezone.utc)
+        if not await _charge_spool(db, spool, weight_grams):
+            continue
 
         percent = round(weight_grams / (spool.label_weight or 1000) * 100)
 

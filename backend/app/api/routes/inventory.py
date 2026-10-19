@@ -61,6 +61,7 @@ from backend.app.schemas.supplier import (
     SupplierUpdate,
 )
 from backend.app.services import slot_unlink_grace
+from backend.app.services.ams_assignment_lock import get_ams_assignment_lock
 from backend.app.services.ams_slot_presence import spool_present
 from backend.app.services.location_service import (
     DUPLICATE_LOCATION_NAME,
@@ -2261,29 +2262,31 @@ async def assign_spool(
                     tray_state = raw_state
                 tray_has_spool = spool_present(tray)
 
-    # 3. Upsert assignment (replace if same printer+ams+tray)
-    existing = await db.execute(
-        select(SpoolAssignment).where(
-            SpoolAssignment.printer_id == data.printer_id,
-            SpoolAssignment.ams_id == data.ams_id,
-            SpoolAssignment.tray_id == data.tray_id,
+    # 3. Upsert assignment (replace if same printer+ams+tray), under the lock
+    # the AMS change handler writes the printer's slots with.
+    async with get_ams_assignment_lock(data.printer_id):
+        existing = await db.execute(
+            select(SpoolAssignment).where(
+                SpoolAssignment.printer_id == data.printer_id,
+                SpoolAssignment.ams_id == data.ams_id,
+                SpoolAssignment.tray_id == data.tray_id,
+            )
         )
-    )
-    old = existing.scalar_one_or_none()
-    if old:
-        await db.delete(old)
-        await db.flush()
+        old = existing.scalar_one_or_none()
+        if old:
+            await db.delete(old)
+            await db.flush()
 
-    assignment = SpoolAssignment(
-        spool_id=data.spool_id,
-        printer_id=data.printer_id,
-        ams_id=data.ams_id,
-        tray_id=data.tray_id,
-        fingerprint_color=fingerprint_color,
-        fingerprint_type=fingerprint_type,
-    )
-    db.add(assignment)
-    await db.commit()
+        assignment = SpoolAssignment(
+            spool_id=data.spool_id,
+            printer_id=data.printer_id,
+            ams_id=data.ams_id,
+            tray_id=data.tray_id,
+            fingerprint_color=fingerprint_color,
+            fingerprint_type=fingerprint_type,
+        )
+        db.add(assignment)
+        await db.commit()
     await db.refresh(assignment)
     slot_unlink_grace.forget_slot(data.printer_id, data.ams_id, data.tray_id)
 
@@ -2422,19 +2425,20 @@ async def unassign_spool(
     _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Unassign a spool from an AMS slot."""
-    result = await db.execute(
-        select(SpoolAssignment).where(
-            SpoolAssignment.printer_id == printer_id,
-            SpoolAssignment.ams_id == ams_id,
-            SpoolAssignment.tray_id == tray_id,
+    async with get_ams_assignment_lock(printer_id):
+        result = await db.execute(
+            select(SpoolAssignment).where(
+                SpoolAssignment.printer_id == printer_id,
+                SpoolAssignment.ams_id == ams_id,
+                SpoolAssignment.tray_id == tray_id,
+            )
         )
-    )
-    assignment = result.scalar_one_or_none()
-    if not assignment:
-        raise HTTPException(404, "Assignment not found")
+        assignment = result.scalar_one_or_none()
+        if not assignment:
+            raise HTTPException(404, "Assignment not found")
 
-    await db.delete(assignment)
-    await db.commit()
+        await db.delete(assignment)
+        await db.commit()
 
     await ws_manager.broadcast(
         {
@@ -3260,17 +3264,20 @@ async def create_spool_from_slot(
     if not is_valid_tag(tray.get("tag_uid", ""), tray.get("tray_uuid", "")):
         raise HTTPException(status_code=400, detail="Slot has no RFID tag")
 
-    spool = await create_spool_from_tray(db, tray)
-    await auto_assign_spool(
-        req.printer_id,
-        req.ams_id,
-        req.tray_id,
-        spool,
-        printer_manager,
-        db,
-        tray_info_idx=tray.get("tray_info_idx", ""),
-    )
-    await db.commit()
+    # Under the slot lock from the first write: on SQLite the spool insert takes
+    # the write lock, which an AMS update holding the slot lock would wait for.
+    async with get_ams_assignment_lock(req.printer_id):
+        spool = await create_spool_from_tray(db, tray)
+        await auto_assign_spool(
+            req.printer_id,
+            req.ams_id,
+            req.tray_id,
+            spool,
+            printer_manager,
+            db,
+            tray_info_idx=tray.get("tray_info_idx", ""),
+        )
+        await db.commit()
     await ws_manager.broadcast({"type": "inventory_changed"})
     await ws_manager.broadcast(
         {

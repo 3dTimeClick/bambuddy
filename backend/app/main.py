@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path, PurePosixPath
+from typing import cast
 from urllib.parse import urlparse
 
 from fastapi import FastAPI
@@ -18,7 +19,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import delete, inspect as sa_inspect, or_, select, text, update
+from sqlalchemy import delete, func, inspect as sa_inspect, or_, select, text, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -101,6 +103,7 @@ from backend.app.core.static_assets import AssetStaticFiles
 from backend.app.core.tasks import spawn_background_task
 from backend.app.core.websocket import ws_manager
 from backend.app.services import kprofile_drift, print_dispatch_context, slot_unlink_grace
+from backend.app.services.ams_assignment_lock import get_ams_assignment_lock
 from backend.app.services.archive import ArchiveService, peek_plate_index_in_3mf, swap_plate_suffix
 from backend.app.services.archive_cost_estimate import (
     schedule_archive_cost_estimate as _schedule_archive_cost_estimate,
@@ -705,35 +708,6 @@ def derive_failure_reason(status: str, hms_errors: list[dict] | None) -> str | N
 # the archive itself doesn't have created_by_id set (e.g. library-file-based prints).
 # {(printer_id, filename): created_by_id}
 _expected_print_creators: dict[tuple[int, str], int] = {}
-
-# Per-printer lock that serialises the spool-assignment side of on_ams_change
-# (auto-unlink stale + auto-assign new) when MQTT bursts deliver multiple AMS
-# updates for the same printer in quick succession (~30 ms apart, observed in
-# the wild on H2D + dual AMS).
-#
-# Without this serialisation, two concurrent on_ams_change callbacks each read
-# "no assignment for (printer, ams, tray)", each call auto_assign_spool, and
-# the second commit hits
-#   IntegrityError: duplicate key value violates unique constraint
-#                   "spool_assignment_printer_id_ams_id_tray_id_key"
-# SQLite's WAL serial-write semantics had been silently swallowing the race
-# until optional Postgres support landed (asyncpg allows true concurrent
-# transactions and surfaces the constraint violation).
-#
-# Scope is intentionally narrow: only the two DB-mutating blocks (unlink +
-# assign) are inside the lock. The Spoolman sync block further down stays
-# concurrent because it's network-bound and idempotent.
-_ams_assignment_locks: dict[int, asyncio.Lock] = {}
-
-
-def _get_ams_assignment_lock(printer_id: int) -> asyncio.Lock:
-    """Return the per-printer assignment lock, creating it on first use."""
-    lock = _ams_assignment_locks.get(printer_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _ams_assignment_locks[printer_id] = lock
-    return lock
-
 
 # Per-printer dedup for unknown_tag WS broadcasts. Keyed by
 # (ams_id, tray_id) -> (tag_uid, tray_uuid); we only re-broadcast when the
@@ -2453,7 +2427,7 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
     # per-printer assignment lock since #3186: the held-removal re-check runs
     # this outside any MQTT push, so it can now overlap one.
     try:
-        async with _get_ams_assignment_lock(printer_id), async_session() as db:
+        async with get_ams_assignment_lock(printer_id), async_session() as db:
             from sqlalchemy.orm import selectinload
 
             from backend.app.api.routes.inventory import _find_tray_in_ams_data
@@ -2979,14 +2953,14 @@ async def on_ams_change(printer_id: int, ams_data: list):
     await _unlink_stale_assignments(printer_id, ams_data, printing_now)
 
     # Auto-manage inventory spools from AMS tray data (skip if Spoolman manages AMS).
-    # Serialised per-printer via _ams_assignment_locks: MQTT bursts can deliver
+    # Serialised per-printer via services/ams_assignment_lock: MQTT bursts can deliver
     # two AMS pushes ~30 ms apart, and without the lock both callbacks read
     # "no existing assignment" for the same (printer, ams, tray) and race to
     # INSERT, hitting the spool_assignment_printer_id_ams_id_tray_id_key
     # unique constraint on Postgres. SQLite's WAL serialises writes so the
-    # bug stayed latent there. See _ams_assignment_locks comment for details.
+    # bug stayed latent there. See services/ams_assignment_lock for details.
     try:
-        async with _get_ams_assignment_lock(printer_id), async_session() as db:
+        async with get_ams_assignment_lock(printer_id), async_session() as db:
             from sqlalchemy.orm import selectinload
 
             from backend.app.api.routes.settings import get_setting
@@ -3055,16 +3029,31 @@ async def on_ams_change(printer_id: int, ams_data: list):
                                     new_used = round(lw * (100 - remain_val) / 100.0, 1)
                                     current_used = existing_assignment.spool.weight_used or 0
                                     if new_used > current_used + 1:
-                                        logger.info(
-                                            "Weight sync: spool %d weight_used %s -> %s (remain=%d)",
-                                            existing_assignment.spool_id,
-                                            current_used,
-                                            new_used,
-                                            remain_val,
+                                        # Rechecked in the statement: the spool was loaded
+                                        # before this, and a weight set by hand (or weighed)
+                                        # and locked since then must stay (WL-6).
+                                        result = cast(
+                                            CursorResult,
+                                            await db.execute(
+                                                update(Spool)
+                                                .where(
+                                                    Spool.id == existing_assignment.spool_id,
+                                                    Spool.weight_locked.is_not(True),
+                                                    func.coalesce(Spool.weight_used, 0) < new_used - 1,
+                                                )
+                                                .values(weight_used=new_used)
+                                            ),
                                         )
-                                        existing_assignment.spool.weight_used = new_used
                                         await db.commit()
-                                        await ws_manager.broadcast({"type": "inventory_changed"})
+                                        if result.rowcount:
+                                            logger.info(
+                                                "Weight sync: spool %d weight_used %s -> %s (remain=%d)",
+                                                existing_assignment.spool_id,
+                                                current_used,
+                                                new_used,
+                                                remain_val,
+                                            )
+                                            await ws_manager.broadcast({"type": "inventory_changed"})
 
                             # A K-profile the slot lost (the default K after a reset or
                             # power cycle) is put back by kprofile_drift on the next idle

@@ -34,8 +34,9 @@ GUARDED_FIELDS = [
             ("backend/app/main.py", "on_ams_change"): "AMS remain% sync while idle",
             ("backend/app/api/routes/inventory.py", "sync_weights_from_ams"): "manual Sync AMS weights",
             ("backend/app/api/routes/spoolbuddy.py", "update_spool_weight"): "SpoolBuddy scale reading",
-            ("backend/app/services/usage_tracker.py", "on_print_complete"): "AMS remain% delta fallback",
-            ("backend/app/services/usage_tracker.py", "_track_from_3mf"): "3MF per-filament usage",
+            ("backend/app/services/usage_tracker.py", "_charge_spool"): (
+                "a print's usage (3MF, 3MF split, AMS remain% delta), added in SQL"
+            ),
             ("backend/app/services/spool_tag_matcher.py", "create_spool_from_tray"): "new spool from an RFID tray",
             ("backend/app/core/database.py", "_migrate_repair_rfid_core_weight"): "one-shot #2909 backfill",
             ("backend/app/api/routes/inventory.py", "create_spool"): "Spool(**payload) from the add form",
