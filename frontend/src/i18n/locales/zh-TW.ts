@@ -4989,6 +4989,8 @@ export default {
       updateFailed: '批次更新失敗',
       updatePartial: '已更新 {{ok}} 個，{{failed}} 個失敗',
       updateAllFailed: '{{count}} 個料盤更新全部失敗 — 已保留選擇以便重試',
+      resetPartial: '已重設 {{ok}} 個料盤的計數器，{{failed}} 個失敗',
+      resetAllFailed: '未重設任何計數器：{{count}} 個全部失敗',
       deleteSuccess: '已刪除 {{count}} 個料盤',
       deleteFailed: '批次刪除失敗',
       deletePartial: '已刪除 {{ok}} 個，{{failed}} 個失敗',

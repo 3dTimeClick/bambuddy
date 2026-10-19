@@ -4790,6 +4790,8 @@ export default {
       updateFailed: '일괄 업데이트 실패',
       updatePartial: '{{ok}}개 업데이트, {{failed}}개 실패',
       updateAllFailed: '{{count}}개의 업데이트가 모두 실패했습니다 — 재시도를 위해 선택이 유지됩니다',
+      resetPartial: '{{ok}}개 카운터 초기화, {{failed}}개 실패',
+      resetAllFailed: '초기화된 카운터 없음: {{count}}개 모두 실패',
       deleteSuccess: '{{count}}개의 스풀 삭제됨',
       deleteFailed: '일괄 삭제 실패',
       deletePartial: '{{ok}}개 삭제, {{failed}}개 실패',

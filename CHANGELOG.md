@@ -164,6 +164,12 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **Spoolman inventory: five requests refused or reported correctly** —
+  - **Deleting a storage location while Spoolman was unreachable** counted its spools from the built-in inventory, found none, and deleted a location Spoolman spools still used. The delete is now refused until Spoolman answers.
+  - **Printing labels for an archived Spoolman spool** failed the whole batch with "not found", as Spoolman leaves archived spools out of its plain spool list.
+  - **An archived Spoolman spool could be assigned to an AMS slot** (or put on one by a tag link) and then charged the next print's usage. It is now refused, as in the built-in inventory.
+  - **A slot assignment or tag link for an AMS number no printer has** failed with a server error, and the link had already written the tag to Spoolman. Such a request is now refused before anything is written.
+  - **Resetting the "Total Consumed" counters** reported success even when some or all of them failed. The result now says how many failed, as the other bulk actions do.
 - **A Git backup restore keeps "Reset Total Consumed"** — The backup did not include the point each spool's "Total Consumed" counter was reset at, so a restore brought every reset counter back to its full lifetime figure. It is now backed up and restored; a backup made before this keeps the reset points the spools already have.
 - **A finished print's filament is charged once** — Two cases in the built-in inventory:
   - **An AMS update right as a print finished** could raise the spool's used weight from the AMS remain% while the print's exact usage was still being worked out, and that usage was then added on top: the print was charged twice. The AMS sync now waits until the print is charged, as it does while the print runs.

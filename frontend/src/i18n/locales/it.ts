@@ -4989,6 +4989,8 @@ export default {
       updateFailed: 'Aggiornamento in blocco fallito',
       updatePartial: '{{ok}} bobine aggiornate, {{failed}} fallite',
       updateAllFailed: 'Tutti i {{count}} aggiornamenti sono falliti — la selezione viene mantenuta per riprovare',
+      resetPartial: 'Contatore azzerato per {{ok}} bobina/e, {{failed}} non riuscite',
+      resetAllFailed: 'Nessun contatore azzerato: tutte le {{count}} operazioni sono fallite',
       deleteSuccess: '{{count}} bobine eliminate',
       deleteFailed: 'Eliminazione in blocco fallita',
       deletePartial: '{{ok}} bobine eliminate, {{failed}} fallite',

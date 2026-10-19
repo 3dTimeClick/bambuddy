@@ -5038,6 +5038,8 @@ export default {
       updateFailed: 'Bulkupdate mislukt',
       updatePartial: '{{ok}} spoelen bijgewerkt, {{failed}} mislukt',
       updateAllFailed: 'Alle {{count}} spoelupdates zijn mislukt — selectie blijft behouden zodat je opnieuw kunt proberen',
+      resetPartial: 'Teller gereset voor {{ok}} spoel(en), {{failed}} mislukt',
+      resetAllFailed: 'Geen teller gereset: alle {{count}} mislukt',
       deleteSuccess: '{{count}} spoelen verwijderd',
       deleteFailed: 'Bulkverwijdering mislukt',
       deletePartial: '{{ok}} spoelen verwijderd, {{failed}} mislukt',

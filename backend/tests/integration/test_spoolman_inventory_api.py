@@ -709,8 +709,38 @@ class TestSpoolmanInventoryCRUD:
         )
 
         assert response.status_code == 200
-        assert response.json() == {"reset": 3}
+        assert response.json() == {"reset": 3, "errors": []}
         assert mock_spoolman_client.reset_spool_consumed_counter.call_count == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_bulk_reset_reports_the_spools_it_could_not_reset(
+        self,
+        async_client: AsyncClient,
+        spoolman_settings,
+        mock_spoolman_client,
+    ):
+        """FO-C8: every failure was swallowed into {"reset": 0}, which the page
+        showed as a green "Counter reset for 0 spool(s)"."""
+        from backend.app.services.spoolman import SpoolmanNotFoundError, SpoolmanUnavailableError
+
+        def reset(spool_id):
+            if spool_id == 2:
+                raise SpoolmanNotFoundError("gone")
+            if spool_id == 3:
+                raise SpoolmanUnavailableError("down")
+
+        mock_spoolman_client.reset_spool_consumed_counter = AsyncMock(side_effect=reset)
+
+        response = await async_client.post(
+            "/api/v1/spoolman/inventory/spools/reset-consumed-counter-bulk",
+            json={"spool_ids": [1, 2, 3]},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["reset"] == 1
+        assert [(e["id"], e["status"]) for e in body["errors"]] == [(2, 404), (3, 503)]
 
     @pytest.mark.asyncio
     @pytest.mark.integration

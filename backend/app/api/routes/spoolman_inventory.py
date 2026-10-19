@@ -53,7 +53,7 @@ from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.supplier import SpoolmanSpoolSupplier, Supplier
 from backend.app.models.user import User
 from backend.app.schemas.spool import SpoolFilamentPresetBase, SpoolKProfileBase, naive_utc
-from backend.app.schemas.spoolman import SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
+from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId, SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
 from backend.app.schemas.supplier import SpoolSupplierLinkInput
 from backend.app.services import slot_unlink_grace
 from backend.app.services.location_service import (
@@ -456,9 +456,8 @@ class SpoolTagLinkRequest(BaseModel):
 class SpoolSlotAssignmentRequest(BaseModel):
     spoolman_spool_id: int = Field(..., gt=0)
     printer_id: int = Field(..., gt=0)
-    # ams_id 0–7 for physical AMS units; 255 = external/virtual spool extruder slot
-    ams_id: int = Field(..., ge=0, le=255)
-    tray_id: int = Field(..., ge=0, le=3)
+    ams_id: SlotAmsId
+    tray_id: SlotTrayId
 
 
 # ---------------------------------------------------------------------------
@@ -1280,8 +1279,10 @@ async def bulk_reset_spool_consumed_counter(
 
     Caller passes an explicit list of IDs — no "reset all" shortcut, since
     a typo on a wildcard would wipe the entire inventory's tracking.
-    Returns the count of spools successfully reset; individual failures are
-    logged but do not abort the batch.
+    Returns the count of spools reset and, like the other bulk actions, the
+    ones Spoolman refused in ``errors``: an individual failure does not abort
+    the batch, and a batch where every reset failed is not reported as a
+    success (FO-C8).
     """
     spool_ids = payload.get("spool_ids")
     if not isinstance(spool_ids, list) or not spool_ids:
@@ -1291,6 +1292,7 @@ async def bulk_reset_spool_consumed_counter(
 
     client = await _get_client(db)
     reset_count = 0
+    errors: list[dict] = []
     for spool_id in spool_ids:
         try:
             async with _translate_spoolman_errors():
@@ -1298,9 +1300,10 @@ async def bulk_reset_spool_consumed_counter(
             reset_count += 1
         except HTTPException as exc:
             logger.warning("Spoolman reset-consumed-counter failed for spool %s: %s", spool_id, exc.detail)
+            errors.append({"id": spool_id, "status": exc.status_code, "detail": exc.detail})
     if reset_count:
         await ws_manager.broadcast({"type": "inventory_changed"})
-    return {"reset": reset_count}
+    return {"reset": reset_count, "errors": errors}
 
 
 @router.patch("/spools/{spool_id}/weight")
@@ -1788,6 +1791,10 @@ async def assign_spoolman_slot(
     # This prevents ghost rows pointing at non-existent spool IDs.
     async with _translate_spoolman_errors():
         spool = await client.get_spool(body.spoolman_spool_id)
+    # As the built-in inventory refuses it: an archived spool on a slot would
+    # be charged the next print's usage (SSA-8).
+    if spool.get("archived"):
+        raise HTTPException(status_code=400, detail="Cannot assign an archived spool")
 
     # Spool confirmed in Spoolman — upsert into local slot-assignment table
     # assigned_at is intentionally not refreshed on re-assign (original timestamp preserved)

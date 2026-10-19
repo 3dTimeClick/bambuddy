@@ -4990,6 +4990,8 @@ export default {
       updateFailed: 'Mise à jour groupée échouée',
       updatePartial: '{{ok}} bobines mises à jour, {{failed}} échouées',
       updateAllFailed: 'Les {{count}} mises à jour ont échoué — la sélection est conservée pour réessayer',
+      resetPartial: 'Compteur réinitialisé pour {{ok}} bobine(s), {{failed}} en échec',
+      resetAllFailed: 'Aucun compteur réinitialisé : les {{count}} ont échoué',
       deleteSuccess: '{{count}} bobines supprimées',
       deleteFailed: 'Suppression groupée échouée',
       deletePartial: '{{ok}} bobines supprimées, {{failed}} échouées',

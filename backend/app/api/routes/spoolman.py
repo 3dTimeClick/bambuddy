@@ -26,6 +26,7 @@ from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.models.spoolman_k_profile import SpoolmanKProfile
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.user import User
+from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId
 from backend.app.services import slot_unlink_grace
 from backend.app.services.ams_slot_presence import spool_present
 from backend.app.services.printer_manager import PrinterManager, printer_manager
@@ -850,8 +851,8 @@ class LinkSpoolRequest(BaseModel):
     tray_uuid: str | None = None
     tag_uid: str | None = None
     printer_id: int | None = None
-    ams_id: int | None = None
-    tray_id: int | None = None
+    ams_id: SlotAmsId | None = None
+    tray_id: SlotTrayId | None = None
 
 
 @router.post("/spools/{spool_id}/link")
@@ -903,6 +904,18 @@ async def link_spool(
         if not printer_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Printer not found")
         printer_context = (request.printer_id, request.ams_id, request.tray_id)
+        # An archived spool on a slot would be charged the next print's usage;
+        # refused before anything is written, as the slot assignment does (SSA-8).
+        try:
+            linked = await client.get_spool(spool_id)
+        except SpoolmanNotFoundError:
+            raise HTTPException(status_code=404, detail="Spool not found in Spoolman")
+        except SpoolmanClientError:
+            raise HTTPException(status_code=502, detail="Spoolman rejected the request")
+        except SpoolmanUnavailableError:
+            raise HTTPException(status_code=503, detail="Spoolman is not reachable")
+        if linked.get("archived"):
+            raise HTTPException(status_code=400, detail="Cannot assign an archived spool")
 
     try:
         # Spoolman 0.27+: a tray UUID also becomes a native tag of the spool. The

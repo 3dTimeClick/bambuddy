@@ -5002,6 +5002,8 @@ export default {
       updateFailed: '一括更新に失敗しました',
       updatePartial: '{{ok}} 件更新、{{failed}} 件失敗',
       updateAllFailed: '{{count}} 件すべての更新に失敗しました — 再試行のため選択は維持されます',
+      resetPartial: '{{ok}} 件のカウンターをリセット、{{failed}} 件失敗',
+      resetAllFailed: 'カウンターはリセットされませんでした: {{count}} 件すべて失敗',
       deleteSuccess: '{{count}} 件のスプールを削除しました',
       deleteFailed: '一括削除に失敗しました',
       deletePartial: '{{ok}} 件削除、{{failed}} 件失敗',

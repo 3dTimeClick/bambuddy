@@ -5034,6 +5034,8 @@ export default {
       updateFailed: "Помилка масового оновлення",
       updatePartial: "Оновлено: {{ok}}; не вдалося оновити: {{failed}}",
       updateAllFailed: "Не вдалося оновити жодну з вибраних котушок ({{count}}). Вибір збережено для повторної спроби.",
+      resetPartial: "Лічильник скинуто: {{ok}}; не вдалося: {{failed}}",
+      resetAllFailed: "Жоден лічильник не скинуто: усі {{count}} з помилкою",
       deleteSuccess: "Котушок видалено: {{count}}",
       deleteFailed: "Не вдалося масово видалити",
       deletePartial: "Видалено: {{ok}}; не вдалося видалити: {{failed}}",

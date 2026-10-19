@@ -4780,6 +4780,8 @@ export default {
       updateFailed: "Ошибка массового обновления",
       updatePartial: "Обновлено: {{ok}}, с ошибкой: {{failed}}",
       updateAllFailed: "Не удалось обновить все {{count}} катушек. Выделение сохранено для повторной попытки.",
+      resetPartial: "Счётчик сброшен: {{ok}}, с ошибкой: {{failed}}",
+      resetAllFailed: "Ни один счётчик не сброшен: все {{count}} с ошибкой",
       deleteSuccess: "Удалено катушек: {{count}}",
       deleteFailed: "Ошибка массового удаления",
       deletePartial: "Удалено: {{ok}}, с ошибкой: {{failed}}",

@@ -7014,7 +7014,7 @@ export const api = {
   resetSpoolConsumedCounter: (id: number) =>
     request<InventorySpool>(`/inventory/spools/${id}/reset-consumed-counter`, { method: 'POST' }),
   bulkResetSpoolConsumedCounter: (spoolIds: number[]) =>
-    request<{ reset: number }>(`/inventory/spools/reset-consumed-counter-bulk`, {
+    request<{ reset: number; not_found?: number[]; errors?: Array<{ id: number; status: number; detail: string }> }>(`/inventory/spools/reset-consumed-counter-bulk`, {
       method: 'POST',
       body: JSON.stringify({ spool_ids: spoolIds }),
     }),
@@ -7250,7 +7250,7 @@ export const api = {
   resetSpoolmanInventorySpoolConsumedCounter: (id: number) =>
     request<InventorySpool>(`/spoolman/inventory/spools/${id}/reset-consumed-counter`, { method: 'POST' }),
   bulkResetSpoolmanInventorySpoolConsumedCounter: (spoolIds: number[]) =>
-    request<{ reset: number }>(`/spoolman/inventory/spools/reset-consumed-counter-bulk`, {
+    request<{ reset: number; not_found?: number[]; errors?: Array<{ id: number; status: number; detail: string }> }>(`/spoolman/inventory/spools/reset-consumed-counter-bulk`, {
       method: 'POST',
       body: JSON.stringify({ spool_ids: spoolIds }),
     }),

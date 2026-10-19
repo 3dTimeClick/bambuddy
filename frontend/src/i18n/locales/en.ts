@@ -5040,6 +5040,8 @@ export default {
       updateFailed: 'Bulk update failed',
       updatePartial: '{{ok}} spools updated, {{failed}} failed',
       updateAllFailed: 'All {{count}} spool updates failed — selection kept so you can retry',
+      resetPartial: 'Counter reset for {{ok}} spool(s), {{failed}} failed',
+      resetAllFailed: 'No counter was reset: all {{count}} failed',
       deleteSuccess: '{{count}} spools deleted',
       deleteFailed: 'Bulk delete failed',
       deletePartial: '{{ok}} spools deleted, {{failed}} failed',

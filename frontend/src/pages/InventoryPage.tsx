@@ -966,6 +966,13 @@ function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spo
     },
   });
 
+  // Helper: count items that didn't succeed across the two response shapes
+  // (internal mode returns not_found, Spoolman returns errors[]). When the
+  // success count is 0 OR any failures occurred, surface that to the user
+  // instead of the silent green-toast-and-clear flow the first cut shipped.
+  const failedCount = (data: { not_found?: number[]; errors?: Array<{ id: number }> }): number =>
+    (data.not_found?.length ?? 0) + (data.errors?.length ?? 0);
+
   const bulkResetConsumedCounterMutation = useMutation({
     mutationFn: (ids: number[]) =>
       spoolmanMode
@@ -973,7 +980,18 @@ function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spo
         : api.bulkResetSpoolConsumedCounter(ids),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: spoolsQueryKey });
-      showToast(t('inventory.allConsumedCountersReset', { count: data.reset }), 'success');
+      // As the other bulk actions: a reset that failed for some or all spools
+      // is not a success (FO-C8).
+      const failed = failedCount(data);
+      if (data.reset === 0 && failed > 0) {
+        showToast(t('inventory.bulk.resetAllFailed', { count: failed }), 'error');
+        return; // keep the selection so the user can retry
+      }
+      if (failed > 0) {
+        showToast(t('inventory.bulk.resetPartial', { ok: data.reset, failed }), 'warning');
+      } else {
+        showToast(t('inventory.allConsumedCountersReset', { count: data.reset }), 'success');
+      }
       // Close any open bulk-confirm modal + clear selection so the toolbar
       // collapses after the action — matches the other three bulk mutations
       // and stops the confirm dialog from lingering after Reset.
@@ -987,13 +1005,6 @@ function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spo
 
   // Bulk action mutations (#1795). Each invalidates the same query keys as
   // the per-spool equivalents so the table refreshes with the new state.
-  // Helper: count items that didn't succeed across the two response shapes
-  // (internal mode returns not_found, Spoolman returns errors[]). When the
-  // success count is 0 OR any failures occurred, surface that to the user
-  // instead of the silent green-toast-and-clear flow the first cut shipped.
-  const failedCount = (data: { not_found?: number[]; errors?: Array<{ id: number }> }): number =>
-    (data.not_found?.length ?? 0) + (data.errors?.length ?? 0);
-
   const bulkUpdateMutation = useMutation({
     mutationFn: async ({ ids, update }: { ids: number[]; update: Partial<Omit<InventorySpool, 'id' | 'archived_at' | 'created_at' | 'updated_at' | 'k_profiles'>> }): Promise<{ updated: number; not_found?: number[]; errors?: Array<{ id: number; status: number; detail: string }> }> => {
       if (spoolmanMode) return api.bulkUpdateSpoolmanInventorySpools(ids, update);

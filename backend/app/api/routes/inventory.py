@@ -641,14 +641,24 @@ async def _spool_counts_for_locations(
     db: AsyncSession,
     locations: list[Location],
     settings: dict[str, str],
+    *,
+    strict: bool = False,
 ) -> dict[int, int]:
+    """Spools at each location. In Spoolman mode they are Spoolman's; when it
+    can't be read the built-in counts are shown instead, which ``strict``
+    refuses with a 503 (SM-C13): the built-in table holds no Spoolman spools,
+    so a location still in use would count as empty and could be deleted."""
     if _spoolman_is_enabled(settings):
         client = await _ensure_spoolman_client(settings)
+        if not client and strict:
+            raise HTTPException(status_code=503, detail="Spoolman is unavailable")
         if client:
             try:
                 spools = await client.get_all_spools(allow_archived=False)
-            except Exception:
+            except Exception as exc:
                 logger.warning("Failed to fetch Spoolman spools for location counts", exc_info=True)
+                if strict:
+                    raise HTTPException(status_code=503, detail="Spoolman is unavailable") from exc
             else:
                 # Use the canonical key helper so this matches what the
                 # migration backfill, Location.name_key, and every other
@@ -791,7 +801,7 @@ async def delete_location(
         raise HTTPException(status_code=404, detail="Location not found")
 
     settings = await _load_settings_map(db)
-    counts = await _spool_counts_for_locations(db, [location], settings)
+    counts = await _spool_counts_for_locations(db, [location], settings, strict=True)
     if counts.get(location.id, 0) > 0:
         raise HTTPException(status_code=409, detail="Location has spools assigned and cannot be deleted")
 
@@ -1820,7 +1830,8 @@ async def bulk_reset_spool_consumed_counter(
         spool.weight_used_baseline = spool.weight_used or 0
     await db.commit()
     await ws_manager.broadcast({"type": "inventory_changed"})
-    return {"reset": len(spools)}
+    found = {spool.id for spool in spools}
+    return {"reset": len(spools), "not_found": [sid for sid in spool_ids if sid not in found]}
 
 
 class BulkUpdateRequest(BaseModel):

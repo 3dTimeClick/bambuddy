@@ -4991,6 +4991,8 @@ export default {
       updateFailed: 'Toplu güncelleme başarısız',
       updatePartial: '{{ok}} makara güncellendi, {{failed}} başarısız',
       updateAllFailed: '{{count}} güncellemenin tümü başarısız oldu — yeniden denemek için seçim korundu',
+      resetPartial: '{{ok}} makaranın sayacı sıfırlandı, {{failed}} başarısız',
+      resetAllFailed: 'Hiçbir sayaç sıfırlanmadı: {{count}} işlemin tümü başarısız',
       deleteSuccess: '{{count}} makara silindi',
       deleteFailed: 'Toplu silme başarısız',
       deletePartial: '{{ok}} makara silindi, {{failed}} başarısız',

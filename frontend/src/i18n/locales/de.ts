@@ -5002,6 +5002,8 @@ export default {
       updateFailed: 'Sammelaktualisierung fehlgeschlagen',
       updatePartial: '{{ok}} Spulen aktualisiert, {{failed}} fehlgeschlagen',
       updateAllFailed: 'Alle {{count}} Aktualisierungen fehlgeschlagen — Auswahl bleibt erhalten zum erneuten Versuch',
+      resetPartial: 'Zähler für {{ok}} Spule(n) zurückgesetzt, {{failed}} fehlgeschlagen',
+      resetAllFailed: 'Kein Zähler zurückgesetzt: alle {{count}} fehlgeschlagen',
       deleteSuccess: '{{count}} Spulen gelöscht',
       deleteFailed: 'Sammellöschung fehlgeschlagen',
       deletePartial: '{{ok}} Spulen gelöscht, {{failed}} fehlgeschlagen',

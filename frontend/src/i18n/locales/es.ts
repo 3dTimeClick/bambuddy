@@ -5004,6 +5004,8 @@ export default {
       updateFailed: 'Actualización masiva fallida',
       updatePartial: '{{ok}} bobinas actualizadas, {{failed}} fallidas',
       updateAllFailed: 'Las {{count}} actualizaciones fallaron — la selección se mantiene para reintentar',
+      resetPartial: 'Contador restablecido en {{ok}} bobina(s), {{failed}} fallidas',
+      resetAllFailed: 'No se restableció ningún contador: las {{count}} fallaron',
       deleteSuccess: '{{count}} bobinas eliminadas',
       deleteFailed: 'Eliminación masiva fallida',
       deletePartial: '{{ok}} bobinas eliminadas, {{failed}} fallidas',

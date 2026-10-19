@@ -5037,6 +5037,8 @@ errors: {
       updateFailed: 'Kunde inte uppdatera',
       updatePartial: '{{ok}} rullar uppdaterade, {{failed}} misslyckades',
       updateAllFailed: 'Alla {{count}} rulluppdateringar misslyckades — val bevaras så att du kan försöka igen',
+      resetPartial: 'Räknaren nollställd för {{ok}} rulle/rullar, {{failed}} misslyckades',
+      resetAllFailed: 'Ingen räknare nollställdes: alla {{count}} misslyckades',
       deleteSuccess: '{{count}} rullar borttagna',
       deleteFailed: 'Kunde inte ta bort',
       deletePartial: '{{ok}} rullar borttagna, {{failed}} misslyckades',

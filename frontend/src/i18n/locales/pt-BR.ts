@@ -4989,6 +4989,8 @@ export default {
       updateFailed: 'Atualização em massa falhou',
       updatePartial: '{{ok}} carretéis atualizados, {{failed}} falharam',
       updateAllFailed: 'Todas as {{count}} atualizações falharam — a seleção é mantida para nova tentativa',
+      resetPartial: 'Contador zerado em {{ok}} carretel(is), {{failed}} falharam',
+      resetAllFailed: 'Nenhum contador foi zerado: todos os {{count}} falharam',
       deleteSuccess: '{{count}} carretéis excluídos',
       deleteFailed: 'Exclusão em massa falhou',
       deletePartial: '{{ok}} carretéis excluídos, {{failed}} falharam',
