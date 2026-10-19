@@ -1348,6 +1348,55 @@ async def _reclassify_sliced_3mf_library_files(conn) -> None:
         )
 
 
+def _hash_hex_colors(value: str) -> str:
+    """``FF8800FF,#00AE42`` -> ``#FF8800,#00AE42``: bare 6- or 8-digit hex
+    tokens get the ``#`` and lose the alpha byte; everything else is kept."""
+    tokens = []
+    for token in value.split(","):
+        bare = token.strip()
+        if re.fullmatch(r"[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", bare):
+            token = f"#{bare[:6].upper()}"
+        tokens.append(token)
+    return ",".join(tokens)
+
+
+async def _repair_bare_hex_filament_colors(conn) -> None:
+    """Give the colours of archives made without their 3MF a ``#``.
+
+    Such archives took their colours from the printer's AMS report and stored
+    them as it sends them (``FF8800FF``), so their swatches stayed blank and the
+    colour filter listed them apart from the same colour elsewhere. New ones are
+    written as ``#FF8800``; this brings the existing archives, and the print log
+    entries copied from them, in line.
+
+    Repeatable rather than flagged, like the failure-reason repair: the query
+    only picks values with a token lacking ``#``, and a repaired value has
+    none, so a second run changes nothing, while a restored older database is
+    still repaired.
+    """
+    from sqlalchemy import text
+
+    async with conn.begin_nested():
+        # nosec B608 -- ``table`` comes from the literal tuple below.
+        for table in ("print_archives", "print_log_entries"):
+            rows = (
+                await conn.execute(
+                    text(
+                        f"SELECT id, filament_color FROM {table} "  # nosec B608
+                        "WHERE filament_color IS NOT NULL AND filament_color != '' "
+                        "AND (filament_color NOT LIKE '#%' OR REPLACE(filament_color, ',#', '') LIKE '%,%')"
+                    )
+                )
+            ).fetchall()
+            for row_id, color in rows:
+                repaired = _hash_hex_colors(color)
+                if repaired != color:
+                    await conn.execute(
+                        text(f"UPDATE {table} SET filament_color = :c WHERE id = :i"),  # nosec B608
+                        {"c": repaired, "i": row_id},
+                    )
+
+
 async def _backfill_archive_bed_temperature(conn) -> None:
     """Fill in ``print_archives.bed_temperature`` for archives written before #2989.
 
@@ -5403,6 +5452,10 @@ async def _run_migrations(conn):
     # the extractor looked for a key BambuStudio never writes. Re-reads the 3MF
     # already on disk. One-shot; see the function for why it is gated.
     await _backfill_archive_bed_temperature(conn)
+
+    # Repair: archives made without their 3MF stored bare hex colours
+    # (FF8800FF); repeatable, see the function.
+    await _repair_bare_hex_filament_colors(conn)
 
     # Backfill: library rows typed from the filename alone kept a sliced 3MF
     # named `Foo.3mf` filed as a source-only project (#2993). Re-reads the zip

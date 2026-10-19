@@ -1498,7 +1498,10 @@ def _extract_filament_data_from_mqtt(data: dict, ams_mapping: list[int] | None =
     if not isinstance(ams_units, list) or not ams_units:
         return result
 
-    # Map global tray id (unit * 4 + tray) → (type, color).
+    from backend.app.services.print_scheduler import _global_tray_id
+
+    # Map global tray id → (type, color), addressed as the print's ams_mapping
+    # is: unit * 4 + tray, or the bare unit id for an AMS-HT (from 128).
     loaded: dict[int, tuple[str, str]] = {}
     for unit in ams_units:
         if not isinstance(unit, dict):
@@ -1515,10 +1518,13 @@ def _extract_filament_data_from_mqtt(data: dict, ams_mapping: list[int] | None =
             except (TypeError, ValueError):
                 continue
             ttype = (tray.get("tray_type") or "").strip()
-            tcolor = (tray.get("tray_color") or "").strip().upper()
+            # RRGGBBAA from the printer, stored as the 3MF path stores it:
+            # "#RRGGBB" (the Archives page's swatches and colour filter).
+            hex_color = (tray.get("tray_color") or "").strip().upper()[:6]
+            tcolor = f"#{hex_color}" if re.fullmatch(r"[0-9A-F]{6}", hex_color) else ""
             if not ttype:
                 continue  # Empty / unloaded slot.
-            loaded[unit_id * 4 + tray_id] = (ttype, tcolor)
+            loaded[_global_tray_id(unit_id, tray_id)] = (ttype, tcolor)
 
     if not loaded:
         return result
@@ -3813,7 +3819,7 @@ _fallback_3mf_retry_tasks: dict[int, asyncio.Task] = {}
 _fallback_recovery_locks: dict[int, asyncio.Lock] = {}
 
 
-async def _recover_fallback_archive(archive_id: int, source_3mf: Path, printer_id: int) -> bool:
+async def _recover_fallback_archive(archive_id: int, source_3mf: Path, printer_id: int, *, price: bool = True) -> bool:
     """Fill in a no-3MF archive from a 3MF that turned up later.
 
     Returns True when the row was upgraded. Safe to call speculatively: it
@@ -3824,11 +3830,17 @@ async def _recover_fallback_archive(archive_id: int, source_3mf: Path, printer_i
     """
     lock = _fallback_recovery_locks.setdefault(printer_id, asyncio.Lock())
     async with lock:
-        return await _recover_fallback_archive_locked(archive_id, source_3mf, printer_id)
+        return await _recover_fallback_archive_locked(archive_id, source_3mf, printer_id, price=price)
 
 
-async def _recover_fallback_archive_locked(archive_id: int, source_3mf: Path, printer_id: int) -> bool:
-    """The body of :func:`_recover_fallback_archive`, under its per-printer lock."""
+async def _recover_fallback_archive_locked(
+    archive_id: int, source_3mf: Path, printer_id: int, *, price: bool = True
+) -> bool:
+    """The body of :func:`_recover_fallback_archive`, under its per-printer lock.
+
+    ``price`` is False when the print's end is being handled: the archive
+    still reads "printing" then, and its end prices it.
+    """
     import zipfile
 
     from backend.app.models.archive import PrintArchive
@@ -3871,6 +3883,19 @@ async def _recover_fallback_archive_locked(archive_id: int, source_3mf: Path, pr
             source_3mf,
             recovered.file_size,
         )
+        if price and recovered.status == "printing":
+            # Print start priced it from the default rate, having no 3MF to
+            # estimate from; now it has one. An ended print is left alone: its
+            # end prices it. A print Bambuddy didn't dispatch has no start
+            # plate; the one the archive just read from the 3MF stands in.
+            _schedule_archive_cost_estimate(
+                printer_id,
+                recovered.id,
+                printer_manager,
+                ams_mapping=_get_start_ams_mapping(print_data, recovered.id),
+                plate_id=_get_start_plate_id(recovered.id) or recovered.plate_id,
+                session_factory=async_session,
+            )
         # `archive_updated`, not `archive_created` — the row was already on the
         # Archives page as an empty card and is now filled in, not new.
         await ws_manager.send_archive_updated(
@@ -3885,7 +3910,7 @@ async def _recover_fallback_archive_locked(archive_id: int, source_3mf: Path, pr
         return True
 
 
-async def try_recover_fallback_archive(printer_id: int, name: str, path: Path) -> bool:
+async def try_recover_fallback_archive(printer_id: int, name: str, path: Path, *, price: bool = True) -> bool:
     """Offer a freshly-downloaded 3MF to this printer's running fallback archive.
 
     Called from the paths that pull a 3MF for a print that is already under way
@@ -3921,7 +3946,7 @@ async def try_recover_fallback_archive(printer_id: int, name: str, path: Path) -
             return False
 
     try:
-        return await _recover_fallback_archive(archive_id, path, printer_id)
+        return await _recover_fallback_archive(archive_id, path, printer_id, price=price)
     except Exception as e:
         # Recovery is opportunistic. A failure here must never take down the
         # caller, which is usually just trying to render a thumbnail.
@@ -7765,7 +7790,9 @@ async def _recover_fallback_from_cache_before_eviction(printer_id: int, data: di
     for name in names:
         try:
             cached = get_cached_3mf(printer_id, name)
-            if cached and await try_recover_fallback_archive(printer_id, name, cached):
+            # The print has ended: its completion prices the archive, so no
+            # print-start estimate is scheduled to race it.
+            if cached and await try_recover_fallback_archive(printer_id, name, cached, price=False):
                 return
         except Exception as e:
             logger.debug("[RECOVER] Pre-eviction recovery for %s failed: %s", name, e)

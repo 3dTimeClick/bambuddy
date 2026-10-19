@@ -277,6 +277,36 @@ class ThreeMFParser:
             )
         return self.metadata
 
+    def _first_used_filament_index(self, plates: list) -> int:
+        """Position, in the project's per-filament settings, of the first
+        filament the printed plate uses: 0 when that can't be told.
+
+        ``project_settings`` lists one value per filament of the whole
+        project, so the printed plate's own filament picks which applies
+        (a plate printing only filament 3 has filament 3's nozzle
+        temperature). Without a plate number, the only plate decides.
+        """
+        if self.plate_number:
+            printed = [
+                plate
+                for plate in plates
+                if any(
+                    meta.get("key") == "index" and meta.get("value") == str(self.plate_number)
+                    for meta in plate.findall("metadata")
+                )
+            ]
+        else:
+            printed = plates if len(plates) == 1 else []
+        used: list[int] = []
+        for plate in printed[:1]:
+            for filament in plate.findall("filament"):
+                try:
+                    if float(filament.get("used_g", "0")) > 0:
+                        used.append(int(filament.get("id", "")))
+                except (TypeError, ValueError):
+                    continue
+        return min(used) - 1 if used and min(used) > 0 else 0
+
     def _parse_slice_info(self, zf: zipfile.ZipFile):
         """Parse slice_info.config for print settings and printable objects."""
         try:
@@ -364,6 +394,8 @@ class ThreeMFParser:
                                     pass  # Skip objects with non-numeric identify_id
                         if printable_objects:
                             self.metadata["printable_objects"] = printable_objects
+
+                self._plate_filament_index = self._first_used_filament_index(plates)
 
                 if any_time_seen:
                     self.metadata["print_time_seconds"] = summed_time
@@ -588,12 +620,14 @@ class ThreeMFParser:
             if bed_temperature is not None:
                 self.metadata["bed_temperature"] = bed_temperature
 
-            # Nozzle temperature
+            # Nozzle temperature: one per filament, so the printed plate's own
+            # (nozzle diameter above is one per nozzle, not per filament).
             for key in ["nozzle_temperature_initial_layer", "nozzle_temperature"]:
                 if key in data:
                     val = data[key]
                     if isinstance(val, list) and val:
-                        self.metadata["nozzle_temperature"] = int(float(val[0]))
+                        index = getattr(self, "_plate_filament_index", 0)
+                        self.metadata["nozzle_temperature"] = int(float(val[index if index < len(val) else 0]))
                     elif isinstance(val, (int, float, str)):
                         self.metadata["nozzle_temperature"] = int(float(val))
                     break
