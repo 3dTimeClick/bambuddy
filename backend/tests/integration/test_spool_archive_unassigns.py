@@ -69,6 +69,29 @@ async def test_bulk_archiving_unassigns_every_spool(async_client: AsyncClient, d
     assert await _built_in_slots(db_session) == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_deleting_a_spool_announces_the_freed_slots(async_client: AsyncClient, db_session, printer_factory, bulk):
+    """SA-4: other tabs refresh slot views only on spool_assignment_changed;
+    inventory_changed alone left the deleted spool shown in its slot."""
+    ids = await _assigned_built_in_spools(db_session, printer_factory, count=2)
+
+    with patch("backend.app.api.routes.inventory.ws_manager") as ws:
+        ws.broadcast = AsyncMock()
+        if bulk:
+            response = await async_client.post("/api/v1/inventory/spools/bulk-delete", json={"ids": ids})
+        else:
+            response = await async_client.delete(f"/api/v1/inventory/spools/{ids[0]}")
+
+    assert response.status_code == 200
+    freed = sorted(
+        c.args[0]["tray_id"] for c in ws.broadcast.call_args_list if c.args[0]["type"] == "spool_assignment_changed"
+    )
+    assert freed == ([0, 1] if bulk else [0])
+    assert [a.tray_id for a in await _built_in_slots(db_session)] == ([] if bulk else [1])
+
+
 @pytest.fixture
 async def spoolman_slot(db_session, printer_factory):
     from backend.app.models.settings import Settings

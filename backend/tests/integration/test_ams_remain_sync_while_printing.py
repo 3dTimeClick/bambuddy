@@ -23,7 +23,9 @@ def _no_sessions():
     _active_sessions.clear()
 
 
-async def _weight_after_ams_push(test_engine, db_session, printer_factory, state: str) -> float:
+async def _weight_after_ams_push(
+    test_engine, db_session, printer_factory, state: str, sent: list[str] | None = None
+) -> float:
     from backend.app.main import on_ams_change
 
     printer = await printer_factory(name="X1C")
@@ -67,6 +69,9 @@ async def _weight_after_ams_push(test_engine, db_session, printer_factory, state
 
         await on_ams_change(printer.id, ams_data)
 
+    if sent is not None:
+        sent.extend(c.args[0]["type"] for c in mock_ws.broadcast.call_args_list)
+
     db_session.expire_all()
     return (await db_session.get(Spool, spool_id)).weight_used
 
@@ -82,3 +87,13 @@ async def test_no_sync_while_printing_without_a_tracker_session(test_engine, db_
 @pytest.mark.integration
 async def test_syncs_when_idle(test_engine, db_session, printer_factory):
     assert await _weight_after_ams_push(test_engine, db_session, printer_factory, "IDLE") == 500
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_a_synced_weight_is_announced(test_engine, db_session, printer_factory):
+    """WU-9: other open tabs refresh weights only on inventory_changed."""
+    sent: list[str] = []
+
+    assert await _weight_after_ams_push(test_engine, db_session, printer_factory, "IDLE", sent) == 500
+    assert "inventory_changed" in sent

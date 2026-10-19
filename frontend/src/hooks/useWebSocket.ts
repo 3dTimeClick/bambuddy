@@ -488,6 +488,8 @@ export function useWebSocket() {
         debouncedInvalidate(inventorySuppliersQueryKey[0]);
         // The per-material-number aggregate is derived from the same rows (#2870).
         debouncedInvalidate('material-number-stats');
+        // Printer cards and slot views read a spool's weight from the slot rows.
+        debouncedInvalidate('spool-assignments');
         break;
 
       case 'spool_assignment_changed':
@@ -535,8 +537,10 @@ export function useWebSocket() {
         break;
 
       case 'spool_usage_logged':
-        // Filament consumption recorded - refresh spool data
+        // Filament consumption recorded - refresh spool data, and the slot rows
+        // printer cards read a spool's remaining weight from.
         debouncedInvalidate('inventory-spools');
+        debouncedInvalidate('spool-assignments');
         break;
 
       case 'unknown_tag': {

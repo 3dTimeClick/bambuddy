@@ -310,3 +310,27 @@ async def test_the_archive_purge_skips_an_archive_that_is_being_printed(
     reloaded = await _reload(db_session, PrintArchive, archive.id)
     assert reloaded is not None and reloaded.deleted_at is None
     assert await _reload(db_session, PrintQueueItem, item_id) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_deleting_a_printer_unassigns_its_spools(async_client: AsyncClient, db_session, printer_factory):
+    """SA-1: the spools of a deleted printer stayed "assigned" to it on SQLite."""
+    from backend.app.models.spool import Spool
+    from backend.app.models.spool_assignment import SpoolAssignment
+
+    printer = await printer_factory()
+    kept_printer = await printer_factory(name="Kept")
+    spool = Spool(material="PLA", label_weight=1000, weight_used=0)
+    db_session.add(spool)
+    await db_session.flush()
+    db_session.add(SpoolAssignment(spool_id=spool.id, printer_id=printer.id, ams_id=0, tray_id=0))
+    db_session.add(SpoolAssignment(spool_id=spool.id, printer_id=kept_printer.id, ams_id=0, tray_id=1))
+    await db_session.commit()
+
+    response = await async_client.delete(f"/api/v1/printers/{printer.id}")
+
+    assert response.status_code == 200, response.text
+    rows = (await db_session.execute(select(SpoolAssignment).execution_options(populate_existing=True))).scalars()
+    assert [row.printer_id for row in rows] == [kept_printer.id]
+    assert await _reload(db_session, Spool, spool.id) is not None

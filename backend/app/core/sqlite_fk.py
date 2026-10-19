@@ -90,6 +90,8 @@ APPLIED: frozenset[tuple[str, str]] = frozenset(
         ("active_print_spoolman", "printer_id"),
         ("pipeline_jobs", "assigned_printer_id"),
         ("slicer_pipelines", "target_printer_id"),
+        # A deleted printer's spools would stay "assigned" to it (SA-1).
+        ("spool_assignment", "printer_id"),
         # smart_plugs: a printer delete now deletes its plugs; their energy
         # history would pass to the next plug given the id.
         ("smart_plug_energy_snapshots", "plug_id"),

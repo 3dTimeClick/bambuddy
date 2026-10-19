@@ -133,3 +133,45 @@ async def test_a_disconnected_printers_last_report_is_not_used(async_client: Asy
     spool = await db_session.get(Spool, spool_id)
     await db_session.refresh(spool)
     assert spool.weight_used == 100
+
+
+def _broadcast_types(ws) -> list[str]:
+    return [c.args[0]["type"] for c in ws.broadcast.call_args_list]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_a_synced_weight_is_announced(async_client: AsyncClient, db_session, printer_factory):
+    """WU-9: other open tabs refresh only on inventory_changed."""
+    from unittest.mock import AsyncMock
+
+    await _assigned_spool(db_session, printer_factory, locked=False)
+
+    with patch("backend.app.api.routes.inventory.ws_manager") as ws:
+        ws.broadcast = AsyncMock()
+        await _sync(async_client, _printer("IDLE"))
+
+    assert "inventory_changed" in _broadcast_types(ws)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_a_weighed_spool_is_announced(async_client: AsyncClient, db_session):
+    from unittest.mock import AsyncMock
+
+    db_session.add(
+        SpoolBuddyDevice(
+            device_id="sb-1", hostname="spoolbuddy-1", ip_address="10.0.0.1", last_seen=datetime.now(timezone.utc)
+        )
+    )
+    spool = Spool(material="PLA", label_weight=1000, core_weight=250, weight_used=100)
+    db_session.add(spool)
+    await db_session.commit()
+
+    with patch("backend.app.api.routes.spoolbuddy.ws_manager") as ws:
+        ws.broadcast = AsyncMock()
+        await async_client.post(
+            "/api/v1/spoolbuddy/scale/update-spool-weight", json={"spool_id": spool.id, "weight_grams": 600}
+        )
+
+    assert "inventory_changed" in _broadcast_types(ws)

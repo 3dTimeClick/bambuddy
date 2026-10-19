@@ -1761,6 +1761,25 @@ class TestUpdateSpoolWeightSpoolman:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_spoolman_mode_announces_the_weight(self, async_client: AsyncClient, spoolman_settings):
+        """WU-9: other open Inventory tabs refresh only on inventory_changed."""
+        sm_spool = _spoolman_spool_fixture(42, spool_weight=196.0, filament_weight=1000.0)
+        mock_client = _mock_spoolman_client()
+        mock_client.get_spool = AsyncMock(return_value=sm_spool)
+        mock_client.update_spool = AsyncMock(return_value=sm_spool)
+
+        with (
+            patch("backend.app.services.spoolman.get_spoolman_client", AsyncMock(return_value=mock_client)),
+            patch("backend.app.services.spoolman.init_spoolman_client", AsyncMock(return_value=mock_client)),
+            patch("backend.app.api.routes.spoolbuddy.ws_manager") as ws,
+        ):
+            ws.broadcast = AsyncMock()
+            await async_client.post(f"{API}/scale/update-spool-weight", json={"spool_id": 42, "weight_grams": 750})
+
+        assert {"type": "inventory_changed"} in [c.args[0] for c in ws.broadcast.call_args_list]
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_spoolman_mode_clamps_remaining_to_zero(self, async_client: AsyncClient, spoolman_settings):
         """Scale weight below core weight → remaining_weight = 0."""
         sm_spool = _spoolman_spool_fixture(7, spool_weight=196.0, filament_weight=1000.0)

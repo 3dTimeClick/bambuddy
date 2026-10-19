@@ -1061,6 +1061,7 @@ async def update_spool_weight(
         # (as a hand-set one, see update_spool).
         spool.weight_locked = True
         await db.commit()
+        await ws_manager.broadcast({"type": "inventory_changed"})
         logger.info(
             "SpoolBuddy updated spool %d weight: %.1fg on scale, %.1fg used",
             spool.id,
@@ -1089,6 +1090,7 @@ async def update_spool_weight(
 
     async with _translate_spoolbuddy_errors():
         await sm_client.update_spool(spool_id=req.spool_id, remaining_weight=remaining_weight)
+    await ws_manager.broadcast({"type": "inventory_changed"})
 
     weight_used = max(0.0, label_weight - remaining_weight)
     logger.info(

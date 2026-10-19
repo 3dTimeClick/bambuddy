@@ -1686,18 +1686,23 @@ async def delete_spool(
     if not spool:
         raise HTTPException(404, "Spool not found")
 
+    freed = await _release_slots(db, [spool.id])
     await db.delete(spool)
     await db.commit()
     await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return {"status": "deleted"}
 
 
 async def _release_slots(db: AsyncSession, spool_ids: list[int]) -> list[tuple[int, int, int]]:
-    """Unassign archived spools from their AMS slots; returns the freed slots.
+    """Unassign archived or deleted spools from their AMS slots; returns the
+    freed slots.
 
     Assigning refuses an archived spool and nothing downstream checks the flag,
     so a slot left pointing at one would keep showing it and charge it the next
-    print's usage. The caller commits, then announces the slots.
+    print's usage. A deleted spool's slots go with it, but other tabs refresh
+    their slot views only when the slots are announced. The caller commits,
+    then announces the slots.
     """
     if not spool_ids:
         return []
@@ -1881,11 +1886,13 @@ async def bulk_delete_spools(
     spools = list(result.scalars().all())
     found_ids = {s.id for s in spools}
     not_found = [sid for sid in payload.ids if sid not in found_ids]
+    freed = await _release_slots(db, list(found_ids))
     for spool in spools:
         await db.delete(spool)
     await db.commit()
     if spools:
         await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return {"deleted": len(spools), "not_found": not_found}
 
 
@@ -2911,6 +2918,8 @@ async def sync_weights_from_ams(
             skipped += 1
 
     await db.commit()
+    if synced:
+        await ws_manager.broadcast({"type": "inventory_changed"})
     return {"synced": synced, "skipped": skipped, "printing": printing}
 
 

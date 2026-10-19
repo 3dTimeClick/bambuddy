@@ -2605,12 +2605,18 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
                         cur_state == 11 or (cur_state not in (9, 10) and cur_type.strip())
                     )
                     if not fp_type.strip() and loaded and assignment.spool:
+                        # The fingerprint ends this replay. Not recorded when nothing
+                        # could be sent (no MQTT client while the printer reconnects),
+                        # so the next AMS change tries again. An attempt that raised is
+                        # recorded as before: it may have sent part of the commands and
+                        # would raise again on every change, remain% steps included.
+                        configured: bool | None = False
                         try:
                             from backend.app.api.routes.inventory import (
                                 apply_spool_to_slot_via_mqtt,
                             )
 
-                            await apply_spool_to_slot_via_mqtt(
+                            configured = await apply_spool_to_slot_via_mqtt(
                                 db=db,
                                 current_user=None,
                                 spool=assignment.spool,
@@ -2621,13 +2627,6 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
                                 current_tray_type=cur_type,
                                 current_tray_sub_brands=current_tray.get("tray_sub_brands", ""),
                             )
-                            logger.info(
-                                "SpoolBuddy pre-config applied on insert: spool %d → printer %d AMS%d-T%d",
-                                assignment.spool_id,
-                                printer_id,
-                                assignment.ams_id,
-                                assignment.tray_id,
-                            )
                         except Exception:
                             logger.exception(
                                 "Pre-config apply failed for spool %d on printer %d AMS%d-T%d",
@@ -2636,8 +2635,27 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
                                 assignment.ams_id,
                                 assignment.tray_id,
                             )
-                        assignment.fingerprint_color = cur_color
-                        assignment.fingerprint_type = cur_type
+                            configured = None
+                        if configured is False:
+                            logger.warning(
+                                "Pre-config not sent for spool %d on printer %d AMS%d-T%d (no MQTT client); "
+                                "retrying on the next AMS change",
+                                assignment.spool_id,
+                                printer_id,
+                                assignment.ams_id,
+                                assignment.tray_id,
+                            )
+                        else:
+                            if configured:
+                                logger.info(
+                                    "SpoolBuddy pre-config applied on insert: spool %d → printer %d AMS%d-T%d",
+                                    assignment.spool_id,
+                                    printer_id,
+                                    assignment.ams_id,
+                                    assignment.tray_id,
+                                )
+                            assignment.fingerprint_color = cur_color
+                            assignment.fingerprint_type = cur_type
                         continue
 
                     if not _colors_similar(cur_color, fp_color) or cur_type.upper() != fp_type.upper():
@@ -3046,6 +3064,7 @@ async def on_ams_change(printer_id: int, ams_data: list):
                                         )
                                         existing_assignment.spool.weight_used = new_used
                                         await db.commit()
+                                        await ws_manager.broadcast({"type": "inventory_changed"})
 
                             # A K-profile the slot lost (the default K after a reset or
                             # power cycle) is put back by kprofile_drift on the next idle

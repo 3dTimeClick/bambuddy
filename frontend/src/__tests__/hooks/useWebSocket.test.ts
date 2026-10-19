@@ -512,8 +512,9 @@ describe('useWebSocket hook', () => {
         ws.simulateMessage({ type: 'inventory_changed' });
       });
 
+      // 3 s debounce, then one key every 500 ms.
       await act(async () => {
-        vi.advanceTimersByTime(5000);
+        vi.advanceTimersByTime(6000);
       });
 
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['inventory-spools'] });
@@ -524,6 +525,34 @@ describe('useWebSocket hook', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['inventory-suppliers'] });
       // The per-material-number aggregate is derived from the same rows (#2870).
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['material-number-stats'] });
+      // A weight synced or weighed elsewhere reaches printer cards through the slot rows (WU-9).
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['spool-assignments'] });
+
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it("refreshes the slot rows when a print's usage is logged", async () => {
+      // The printer card reads a spool's remaining weight from the slot rows;
+      // a finished print is the most common weight change.
+      vi.useFakeTimers();
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+      const ws = await waitForWs();
+      act(() => {
+        ws.open();
+      });
+
+      act(() => {
+        ws.simulateMessage({ type: 'spool_usage_logged', data: {} });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(6000);
+      });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['inventory-spools'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['spool-assignments'] });
 
       vi.useRealTimers();
       vi.unstubAllGlobals();
