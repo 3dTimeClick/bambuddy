@@ -789,6 +789,8 @@ class TestCostAggregation:
         filament_usage = [{"slot_id": 1, "used_g": 20.0, "type": "PLA", "color": "#FF0000"}]
 
         with (
+            # The first run of this archive
+            patch("backend.app.services.print_log.other_runs_of", AsyncMock(return_value=0)),
             patch("backend.app.core.config.settings") as mock_settings,
             patch("backend.app.api.routes.settings.get_setting", return_value="15.0"),
             patch("backend.app.utils.threemf_tools.extract_filament_usage_from_3mf", return_value=filament_usage),
@@ -872,6 +874,8 @@ class TestCostAggregation:
         filament_usage = [{"slot_id": 1, "used_g": 10.0, "type": "PLA", "color": "#FF0000"}]
 
         with (
+            # The first run of this archive
+            patch("backend.app.services.print_log.other_runs_of", AsyncMock(return_value=0)),
             patch("backend.app.core.config.settings") as mock_settings,
             patch("backend.app.api.routes.settings.get_setting", return_value="10.0"),
             patch("backend.app.utils.threemf_tools.extract_filament_usage_from_3mf", return_value=filament_usage),
@@ -955,6 +959,8 @@ class TestCostAggregation:
         filament_usage = [{"slot_id": 1, "used_g": 20.0, "type": "PLA", "color": "#FF0000"}]
 
         with (
+            # The first run of this archive
+            patch("backend.app.services.print_log.other_runs_of", AsyncMock(return_value=0)),
             patch("backend.app.core.config.settings") as mock_settings,
             patch("backend.app.api.routes.settings.get_setting", return_value="15.0"),
             patch("backend.app.utils.threemf_tools.extract_filament_usage_from_3mf", return_value=filament_usage),

@@ -28,6 +28,7 @@ from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.core.printer_scope import PrinterScope, ensure_model_target_allowed
+from backend.app.core.websocket import ws_manager
 from backend.app.models.archive import PrintArchive
 from backend.app.models.library import LibraryFile
 from backend.app.models.print_batch import PrintBatch, PrintBatchPlate
@@ -2562,6 +2563,7 @@ async def stop_queue_item(
     # archive 436). Close it out here, mirroring what the MQTT path would have
     # done. Only touch a still-"printing" archive so we never overwrite a real
     # completion that raced in.
+    closed_archive_id: int | None = None
     if not stop_sent and item.archive_id:
         archive = await db.get(PrintArchive, item.archive_id)
         if archive and archive.status == "printing":
@@ -2570,9 +2572,34 @@ async def stop_queue_item(
             # The vocabulary key every user cancel stores (#2974); that the
             # printer was offline is on the queue row's error_message.
             archive.failure_reason = "userCancelled"
+            # The run's log entry, so the stop counts in the print log and
+            # failure statistics. Without word from the printer, how far it got
+            # is unknown: no grams, cost or wear are entered. Should the printer
+            # report the real end after all, that entry is replaced.
+            from backend.app.services.print_log import write_log_entry
+
+            await write_log_entry(
+                db,
+                status="cancelled",
+                archive_id=archive.id,
+                queue_item_id=item.id,
+                print_name=archive.print_name,
+                printer_name=await db.scalar(select(Printer.name).where(Printer.id == printer_id)),
+                printer_id=printer_id,
+                started_at=archive.started_at,
+                completed_at=archive.completed_at,
+                filament_type=archive.filament_type,
+                filament_color=archive.filament_color,
+                failure_reason=archive.failure_reason,
+                thumbnail_path=archive.thumbnail_path,
+                created_by_id=archive.created_by_id,
+            )
+            closed_archive_id = archive.id
 
     await db.commit()
     await refresh_batches_after([item.id])
+    if closed_archive_id is not None:
+        await ws_manager.send_archive_updated({"id": closed_archive_id, "status": "cancelled"})
 
     logger.info("Stopped printing queue item %s (stop command sent: %s)", item_id, stop_sent)
 

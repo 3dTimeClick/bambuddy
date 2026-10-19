@@ -9,6 +9,7 @@ printer's SD card) is mocked; the printer manager knows no printer.
 """
 
 import asyncio
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -41,11 +42,17 @@ def _clean():
     printer_manager._awaiting_plate_clear.clear()
 
 
+@pytest.fixture(autouse=True)
+async def _no_finish_photo(db_session):
+    """The finish photo would open the printer's camera."""
+    db_session.add(Settings(key="capture_finish_photo", value="false"))
+    await db_session.commit()
+
+
 @pytest.fixture
 async def queued_print(db_session, printer_factory):
     printer = await printer_factory(name="P")
     db_session.add(Settings(key="billing_enabled", value="true"))
-    db_session.add(Settings(key="capture_finish_photo", value="false"))
     user = User(username="payer", password_hash="x", is_active=True)
     center = CostCenter(name="Lab", is_active=True, is_private=False)
     db_session.add_all([user, center])
@@ -57,6 +64,7 @@ async def queued_print(db_session, printer_factory):
         file_path="archives/test/part.3mf",
         file_size=1,
         status="printing",
+        started_at=datetime(2026, 10, 19, 8, 0),
         cost=5.0,
         created_by_id=user.id,
         billing_run_id=RUN,
@@ -79,7 +87,7 @@ async def queued_print(db_session, printer_factory):
     return {"printer": printer.id, "user": user.id, "center": center.id, "archive": archive.id, "item": item.id}
 
 
-async def _complete(test_engine, printer_id: int, status: str) -> None:
+async def _complete(test_engine, printer_id: int, status: str, name: str = "part") -> None:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     tasks_before = set(asyncio.all_tasks())
     with (
@@ -102,7 +110,7 @@ async def _complete(test_engine, printer_id: int, status: str) -> None:
         plug.on_print_complete = AsyncMock()
         await main_module.on_print_complete(
             printer_id,
-            {"status": status, "filename": "part.gcode", "subtask_name": "part", "timelapse_was_active": False},
+            {"status": status, "filename": f"{name}.gcode", "subtask_name": name, "timelapse_was_active": False},
         )
         spawned = asyncio.all_tasks() - tasks_before
         if spawned:
@@ -157,3 +165,145 @@ async def test_a_second_completion_charges_nothing_more(test_engine, db_session,
 
     _archive, _item, _logs, charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
     assert len(charges) == 1
+
+
+async def test_a_duplicate_completion_logs_the_run_once(test_engine, db_session, queued_print):
+    await _complete(test_engine, queued_print["printer"], "completed")
+    main_module._active_prints[(queued_print["printer"], "part.3mf")] = queued_print["archive"]
+    await _complete(test_engine, queued_print["printer"], "completed")
+
+    _archive, _item, logs, _charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
+    assert [(log.status, log.queue_item_id) for log in logs] == [("completed", queued_print["item"])]
+
+
+async def test_a_completion_takes_its_own_reason(test_engine, db_session, queued_print):
+    """A reprint that completes carries no reason of an earlier run."""
+    archive = await db_session.get(PrintArchive, queued_print["archive"])
+    archive.failure_reason = "spaghetti"
+    await db_session.commit()
+
+    await _complete(test_engine, queued_print["printer"], "completed")
+
+    archive, _item, logs, _charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
+    assert (archive.status, archive.failure_reason) == ("completed", None)
+    assert [(log.status, log.failure_reason) for log in logs] == [("completed", None)]
+
+
+class TestAStopWhileThePrinterIsOffline:
+    """The stop could not reach the printer, so no completion may ever come (#2603)."""
+
+    async def _stop(self, async_client, queued_print):
+        with (
+            patch("backend.app.services.print_control.stop_print_by_user", return_value=False),
+            patch("backend.app.api.routes.print_queue.ws_manager") as ws,
+        ):
+            ws.send_archive_updated = AsyncMock()
+            response = await async_client.post(f"/api/v1/queue/{queued_print['item']}/stop")
+        assert response.status_code == 200, response.text
+        return ws
+
+    async def test_logs_the_run_as_cancelled_and_tells_the_archives_page(self, async_client, db_session, queued_print):
+        ws = await self._stop(async_client, queued_print)
+
+        archive, item, logs, _charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
+        assert (archive.status, archive.failure_reason) == ("cancelled", "userCancelled")
+        assert item.status == "cancelled"
+        assert [(log.status, log.failure_reason, log.queue_item_id) for log in logs] == [
+            ("cancelled", "userCancelled", queued_print["item"])
+        ]
+        assert ws.send_archive_updated.await_args.args[0] == {"id": queued_print["archive"], "status": "cancelled"}
+
+    async def test_a_completion_that_arrives_after_all_replaces_it(
+        self, async_client, test_engine, db_session, queued_print
+    ):
+        """The printer finished the print offline and reports it on reconnect."""
+        await self._stop(async_client, queued_print)
+
+        await _complete(test_engine, queued_print["printer"], "completed")
+
+        archive, item, logs, _charges = await _rows(db_session, queued_print["archive"], queued_print["item"])
+        assert (archive.status, archive.failure_reason) == ("completed", None)
+        assert item.status == "cancelled"
+        assert [(log.status, log.failure_reason, log.queue_item_id) for log in logs] == [
+            ("completed", None, queued_print["item"])
+        ]
+
+
+class TestACompletionNoArchiveWasBoundTo:
+    """A print Bambuddy did not start is matched to its archive by name (L-W3)."""
+
+    async def _printing(self, db_session, printer_id: int, name: str) -> int:
+        archive = PrintArchive(
+            printer_id=printer_id,
+            filename=f"{name}.3mf",
+            print_name=name,
+            file_path=f"archives/test/{name}.3mf",
+            file_size=1,
+            status="printing",
+        )
+        db_session.add(archive)
+        await db_session.commit()
+        return archive.id
+
+    @pytest.mark.parametrize(
+        ("printed", "other"),
+        [
+            ("Clip", "Cable Clip"),  # a name inside another
+            ("Clip_A", "ClipXA"),  # "_" is a LIKE wildcard
+        ],
+    )
+    async def test_another_archive_whose_name_contains_it_is_left_alone(
+        self, test_engine, db_session, printer_factory, printed, other
+    ):
+        printer = await printer_factory(name="P")
+        other_id = await self._printing(db_session, printer.id, other)
+
+        await _complete(test_engine, printer.id, "completed", name=printed)
+
+        db_session.expire_all()
+        assert (await db_session.get(PrintArchive, other_id)).status == "printing"
+
+    async def test_its_own_archive_is_completed(self, test_engine, db_session, printer_factory):
+        printer = await printer_factory(name="P")
+        other_id = await self._printing(db_session, printer.id, "Cable Clip")
+        own_id = await self._printing(db_session, printer.id, "Clip")
+
+        await _complete(test_engine, printer.id, "completed", name="Clip")
+
+        db_session.expire_all()
+        assert (await db_session.get(PrintArchive, own_id)).status == "completed"
+        assert (await db_session.get(PrintArchive, other_id)).status == "printing"
+
+    async def test_the_printers_underscores_for_spaces_still_match(self, test_engine, db_session, printer_factory):
+        printer = await printer_factory(name="P")
+        own_id = await self._printing(db_session, printer.id, "Cable Clip")
+
+        await _complete(test_engine, printer.id, "completed", name="Cable_Clip")
+
+        db_session.expire_all()
+        assert (await db_session.get(PrintArchive, own_id)).status == "completed"
+
+    async def test_a_renamed_archive_is_found_by_its_file_name(self, test_engine, db_session, printer_factory):
+        printer = await printer_factory(name="P")
+        own_id = await self._printing(db_session, printer.id, "Clip")
+        own = await db_session.get(PrintArchive, own_id)
+        own.print_name = "Clip for the desk"
+        await db_session.commit()
+
+        await _complete(test_engine, printer.id, "completed", name="Clip")
+
+        db_session.expire_all()
+        assert (await db_session.get(PrintArchive, own_id)).status == "completed"
+
+    async def test_a_print_started_on_the_printer_reports_its_file_name(self, test_engine, db_session, printer_factory):
+        """The subtask then carries the extensions (#3009)."""
+        printer = await printer_factory(name="P")
+        own_id = await self._printing(db_session, printer.id, "Clip")
+        own = await db_session.get(PrintArchive, own_id)
+        own.filename = "Clip.gcode.3mf"
+        await db_session.commit()
+
+        await _complete(test_engine, printer.id, "completed", name="Clip.gcode.3mf")
+
+        db_session.expire_all()
+        assert (await db_session.get(PrintArchive, own_id)).status == "completed"

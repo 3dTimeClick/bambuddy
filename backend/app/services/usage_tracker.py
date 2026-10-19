@@ -989,10 +989,9 @@ async def on_print_complete(
     # so the overwrite must reconstruct the whole-print cost.
 
     if archive_id and results:
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
         from backend.app.models.archive import PrintArchive
-        from backend.app.models.print_log import PrintLogEntry
 
         archive_result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
         archive = archive_result.scalar_one_or_none()
@@ -1008,11 +1007,9 @@ async def on_print_complete(
                 # live in PrintLogEntry; the archive card keeps the first run's
                 # cost so a failed reprint doesn't visually clobber a successful
                 # 100 g/$X print with a 10 g/$X/10 partial (#1378).
-                _existing_runs_result = await db.execute(
-                    select(func.count(PrintLogEntry.id)).where(PrintLogEntry.archive_id == archive_id)
-                )
-                _existing_runs = _existing_runs_result.scalar()
-                if not _existing_runs:
+                from backend.app.services.print_log import other_runs_of
+
+                if not await other_runs_of(db, archive):
                     archive.cost = round(total_cost, 2)
                     await db.commit()
 

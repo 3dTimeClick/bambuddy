@@ -5465,65 +5465,68 @@ async def on_print_start(printer_id: int, data: dict):
             search_term = (subtask_name or filename).lower().replace(".gcode", "").replace(".3mf", "")
             logger.info("Direct FTP download failed, searching directories for '%s'", search_term)
             search_dirs = ["/cache", "/model", "/data", "/data/Metadata", "/"]
+            # Every folder is listed before one file is picked, so a file named
+            # for the print in a later folder wins over one that merely
+            # contains the name in an earlier folder.
+            listed_paths: list[str] = []
             for search_dir in search_dirs:
-                if downloaded_filename:
-                    break
                 try:
                     dir_files = await list_files_async(
                         printer.ip_address, printer.access_code, search_dir, printer_model=printer.model
                     )
-                    threemf_files = [f.get("name") for f in dir_files if f.get("name", "").endswith(".3mf")]
-                    if threemf_files:
-                        logger.info(
-                            f"Found {len(threemf_files)} 3MF files in {search_dir}: {threemf_files[:5]}{'...' if len(threemf_files) > 5 else ''}"
-                        )
-                    for f in dir_files:
-                        if f.get("is_directory"):
-                            continue
-                        fname = f.get("name", "")
-                        # Normalize both for comparison (spaces and underscores are equivalent)
-                        fname_normalized = fname.lower().replace(" ", "_")
-                        search_normalized = search_term.replace(" ", "_")
-                        if fname.endswith(".3mf") and search_normalized in fname_normalized:
-                            logger.info("Found matching file in %s: %s", search_dir, fname)
-                            temp_path = app_settings.archive_dir / "temp" / fname
-                            temp_path.parent.mkdir(parents=True, exist_ok=True)
-                            remote_full_path = posixpath.join(search_dir, fname)
-                            if ftp_retry_enabled:
-                                downloaded = await with_ftp_retry(
-                                    download_file_async,
-                                    printer.ip_address,
-                                    printer.access_code,
-                                    remote_full_path,
-                                    temp_path,
-                                    timeout=ftp_timeout,
-                                    socket_timeout=ftp_timeout,
-                                    printer_model=printer.model,
-                                    max_retries=ftp_retry_count,
-                                    retry_delay=ftp_retry_delay,
-                                    operation_name=f"Download 3MF from {remote_full_path}",
-                                    cooloff_ip=printer.ip_address,
-                                )
-                            else:
-                                downloaded = await download_file_async(
-                                    printer.ip_address,
-                                    printer.access_code,
-                                    remote_full_path,
-                                    temp_path,
-                                    timeout=ftp_timeout,
-                                    socket_timeout=ftp_timeout,
-                                    printer_model=printer.model,
-                                )
-                            if downloaded:
-                                downloaded_filename = fname
-                                logger.info("Found and downloaded from %s: %s", search_dir, fname)
-                                cache_3mf_download(printer_id, fname, temp_path)
-                                break
-                            # The listing named the file, so it is on the card;
-                            # only the transfer failed (#3063).
-                            ftp_transfer_failed = True
                 except Exception as e:
                     logger.debug("Failed to list %s: %s", search_dir, e)
+                    continue
+                threemf_files = [f.get("name") for f in dir_files if f.get("name", "").endswith(".3mf")]
+                if threemf_files:
+                    logger.info(
+                        f"Found {len(threemf_files)} 3MF files in {search_dir}: {threemf_files[:5]}{'...' if len(threemf_files) > 5 else ''}"
+                    )
+                listed_paths += [
+                    posixpath.join(search_dir, f.get("name", "")) for f in dir_files if not f.get("is_directory")
+                ]
+            for remote_full_path in _3mf_files_for_print(listed_paths, search_term):
+                fname = posixpath.basename(remote_full_path)
+                logger.info("Found matching file: %s", remote_full_path)
+                temp_path = app_settings.archive_dir / "temp" / fname
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    if ftp_retry_enabled:
+                        downloaded = await with_ftp_retry(
+                            download_file_async,
+                            printer.ip_address,
+                            printer.access_code,
+                            remote_full_path,
+                            temp_path,
+                            timeout=ftp_timeout,
+                            socket_timeout=ftp_timeout,
+                            printer_model=printer.model,
+                            max_retries=ftp_retry_count,
+                            retry_delay=ftp_retry_delay,
+                            operation_name=f"Download 3MF from {remote_full_path}",
+                            cooloff_ip=printer.ip_address,
+                        )
+                    else:
+                        downloaded = await download_file_async(
+                            printer.ip_address,
+                            printer.access_code,
+                            remote_full_path,
+                            temp_path,
+                            timeout=ftp_timeout,
+                            socket_timeout=ftp_timeout,
+                            printer_model=printer.model,
+                        )
+                except Exception as e:
+                    logger.debug("Failed to download %s: %s", remote_full_path, e)
+                    continue
+                if downloaded:
+                    downloaded_filename = fname
+                    logger.info("Found and downloaded: %s", remote_full_path)
+                    cache_3mf_download(printer_id, fname, temp_path)
+                    break
+                # The listing named the file, so it is on the card;
+                # only the transfer failed (#3063).
+                ftp_transfer_failed = True
 
         # Validate the downloaded 3MF actually matches the plate that's running
         # (#1204): subtask_name lags across consecutive plates of the same model,
@@ -7636,6 +7639,28 @@ def _normalise_subtask_name(name: str) -> str:
     return name.strip().replace(" ", "_").strip("_").casefold()
 
 
+def _3mf_files_for_print(paths: list[str], search_term: str) -> list[str]:
+    """The 3MF files of the printer's folder listings that are this print's.
+
+    A file of the print's own name wins, in whichever folder. Only without one
+    is a file that merely contains the name taken, and then only when it is
+    the one such file: "Cube_large.3mf" is not "Cube"'s file, and of several
+    candidates none can be told apart. Paths keep the listings' order.
+    """
+    threemf = [path for path in paths if path.lower().endswith(".3mf")]
+    exact = [path for path in threemf if _subtask_names_match(_subtask_name_from_filename(path), search_term)]
+    if exact:
+        return exact
+    term = _normalise_subtask_name(search_term)
+    partial = [path for path in threemf if term in _normalise_subtask_name(PurePosixPath(path).name)]
+    if len(partial) > 1:
+        logging.getLogger(__name__).info(
+            "Several 3MF files contain %r and none is named for it: %s", search_term, partial
+        )
+        return []
+    return partial
+
+
 def _subtask_names_match(expected: str, observed: str) -> bool:
     """Whether two subtask names describe the same print.
 
@@ -8003,22 +8028,35 @@ async def on_print_complete(printer_id: int, data: dict):
         async with async_session() as db:
             from backend.app.models.archive import PrintArchive
 
-            # Try matching by subtask_name (stored as print_name) first
+            # Try matching by subtask_name (stored as print_name) first. The
+            # same name rule as the queue's completion check: a name inside
+            # another ("Clip" in "Cable Clip") is a different print, and the
+            # printer's underscores for spaces and truncation still match.
             if subtask_name:
-                result = await db.execute(
+                printing = await db.scalars(
                     select(PrintArchive)
                     .where(PrintArchive.printer_id == printer_id)
                     .where(PrintArchive.status == "printing")
-                    .where(
-                        or_(
-                            PrintArchive.print_name.ilike(f"%{subtask_name}%"),
-                            PrintArchive.filename.ilike(f"%{subtask_name}%"),
-                        )
-                    )
                     .order_by(PrintArchive.created_at.desc())
-                    .limit(1)
                 )
-                archive = result.scalar_one_or_none()
+                # A print started from the printer's screen reports its file
+                # name, extensions included, as the subtask (#3009).
+                reported = {subtask_name, _subtask_name_from_filename(subtask_name)}
+                archive = next(
+                    (
+                        candidate
+                        for candidate in printing
+                        if any(
+                            (candidate.print_name and _subtask_names_match(candidate.print_name, name))
+                            or (
+                                candidate.filename
+                                and _subtask_names_match(_subtask_name_from_filename(candidate.filename), name)
+                            )
+                            for name in reported
+                        )
+                    ),
+                    None,
+                )
                 if archive:
                     archive_id = archive.id
                     logger.info("Found archive %s by subtask_name match: %s", archive_id, subtask_name)

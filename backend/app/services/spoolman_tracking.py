@@ -1894,11 +1894,8 @@ async def _apply_spool_cost_to_archive(db, archive_id: int, print_cost: _PrintCo
             )
         return
 
-    from sqlalchemy import func
-
     from backend.app.api.routes.settings import get_setting
     from backend.app.models.archive import PrintArchive
-    from backend.app.models.print_log import PrintLogEntry
 
     archive = (await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))).scalar_one_or_none()
     if archive is None:
@@ -1921,10 +1918,9 @@ async def _apply_spool_cost_to_archive(db, archive_id: int, print_cost: _PrintCo
     if total <= 0:
         return
 
-    existing_runs = (
-        await db.execute(select(func.count(PrintLogEntry.id)).where(PrintLogEntry.archive_id == archive_id))
-    ).scalar()
-    if existing_runs:
+    from backend.app.services.print_log import other_runs_of
+
+    if await other_runs_of(db, archive):
         return
 
     new_cost = round(total, 2)

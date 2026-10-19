@@ -1628,8 +1628,10 @@ class ArchiveService:
         archive.status = status
         if completed_at:
             archive.completed_at = completed_at
-        if failure_reason:
-            archive.failure_reason = failure_reason
+        # This run's reason, or none: a reprint that completes, or a print
+        # that finished after all once it was stopped offline, keeps no reason
+        # of an earlier outcome.
+        archive.failure_reason = failure_reason
 
         await self.db.commit()
         return True
