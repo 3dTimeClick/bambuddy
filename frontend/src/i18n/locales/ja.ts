@@ -5157,6 +5157,7 @@ export default {
     measuredWeight: '計測重量',
     spoolName: 'スプール',
     costPerKg: 'kgあたりのコスト',
+    costFromFilament: '(フィラメント価格)',
     storageLocation: '保管場所',
     temperature: '温度',
     humidity: '湿度',

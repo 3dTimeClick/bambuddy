@@ -5146,6 +5146,7 @@ export default {
     measuredWeight: 'Ölçülen Ağırlık',
     spoolName: 'Makara',
     costPerKg: 'kg başına maliyet',
+    costFromFilament: '(filament fiyatı)',
     storageLocation: 'Depolama Konumu',
     temperature: 'Sıcaklık',
     humidity: 'Nem',

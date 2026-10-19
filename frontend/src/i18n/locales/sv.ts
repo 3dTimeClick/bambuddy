@@ -5192,6 +5192,7 @@ errors: {
     measuredWeight: 'Uppmätt vikt',
     spoolName: 'Rulle',
     costPerKg: 'Kostnad per kg',
+    costFromFilament: '(filamentpris)',
     storageLocation: 'Lagringsplats',
     temperature: 'Temperatur',
     humidity: 'Luftfuktighet',

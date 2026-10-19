@@ -5157,6 +5157,7 @@ export default {
     measuredWeight: 'Gemessenes Gewicht',
     spoolName: 'Spule',
     costPerKg: 'Kosten pro kg',
+    costFromFilament: '(Filamentpreis)',
     storageLocation: 'Lagerstandort',
     temperature: 'Temperatur',
     humidity: 'Luftfeuchtigkeit',

@@ -5189,6 +5189,7 @@ export default {
     measuredWeight: "Виміряна вага",
     spoolName: "Котушка",
     costPerKg: "Вартість за кг",
+    costFromFilament: "(ціна філаменту)",
     storageLocation: "Місце зберігання",
     temperature: "Температура",
     humidity: "Вологість",

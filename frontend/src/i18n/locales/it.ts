@@ -5144,6 +5144,7 @@ export default {
     measuredWeight: 'Peso Misurato',
     spoolName: 'Bobina',
     costPerKg: 'Costo per kg',
+    costFromFilament: '(prezzo del filamento)',
     storageLocation: 'Posizione di archiviazione',
     temperature: 'Temperatura',
     humidity: 'Umidità',

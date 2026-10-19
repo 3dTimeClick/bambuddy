@@ -4935,6 +4935,7 @@ export default {
     measuredWeight: "Измеренная масса",
     spoolName: "Катушка",
     costPerKg: "Стоимость за кг",
+    costFromFilament: "(цена филамента)",
     storageLocation: "Место хранения",
     temperature: "Температура",
     humidity: "Влажность",

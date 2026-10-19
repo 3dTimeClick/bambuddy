@@ -5144,6 +5144,7 @@ export default {
     measuredWeight: '称量重量',
     spoolName: '线轴',
     costPerKg: '每公斤成本',
+    costFromFilament: '(耗材价格)',
     storageLocation: '存放位置',
     temperature: '温度',
     humidity: '湿度',

@@ -3906,6 +3906,9 @@ export interface InventorySpool {
   created_at: string;
   updated_at: string;
   cost_per_kg: number | null;
+  // Spoolman mode: what prints are charged per kg, the spool's own price or
+  // else its filament's. Display only; the form edits cost_per_kg.
+  effective_cost_per_kg?: number | null;
   last_scale_weight: number | null;
   last_weighed_at: string | null;
   // User-defined category + per-spool low-stock threshold override (#729).

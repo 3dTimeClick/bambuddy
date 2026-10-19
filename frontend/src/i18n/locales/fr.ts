@@ -5145,6 +5145,7 @@ export default {
     measuredWeight: 'Poids mesuré',
     spoolName: 'Bobine',
     costPerKg: 'Coût par kg',
+    costFromFilament: '(prix du filament)',
     storageLocation: 'Emplacement de stockage',
     temperature: 'Température',
     humidity: 'Humidité',

@@ -5193,6 +5193,7 @@ export default {
     measuredWeight: 'Gemeten gewicht',
     spoolName: 'Spoel',
     costPerKg: 'Kosten per kg',
+    costFromFilament: '(filamentprijs)',
     storageLocation: 'Opslaglocatie',
     temperature: 'Temperatuur',
     humidity: 'Luchtvochtigheid',

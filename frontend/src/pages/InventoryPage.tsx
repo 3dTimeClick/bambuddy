@@ -29,6 +29,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { colorSortKey, resolveSpoolColorName } from '../utils/colors';
 import { useColorCatalogVersion } from '../hooks/useColorCatalogVersion';
 import { getCurrencySymbol } from '../utils/currency';
+import { shownCostPerKg } from '../utils/spoolCost';
 import { formatDateInput, parseUTCDate, type DateFormat } from '../utils/date';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { filterSpoolsByQuery } from '../utils/inventorySearch';
@@ -487,11 +488,17 @@ const columnCells: Record<string, (ctx: CellCtx) => ReactNode> = {
     const entry = spool.core_weight_catalog_id != null ? catalogMap[spool.core_weight_catalog_id] : undefined;
     return <span className="text-sm text-bambu-gray">{entry?.name || '-'}</span>;
   },
-  cost_per_kg: ({ spool, currencySymbol }) => (
-    <span className="text-sm text-bambu-gray">
-      {spool.cost_per_kg != null ? `${currencySymbol}${spool.cost_per_kg.toFixed(2)}` : '-'}
-    </span>
-  ),
+  cost_per_kg: ({ spool, currencySymbol, t }) => {
+    // A Spoolman spool without a price of its own is charged its filament's,
+    // shown here and marked as such (SM-C8).
+    const { rate, fromFilament } = shownCostPerKg(spool);
+    return (
+      <span className="text-sm text-bambu-gray">
+        {rate != null ? `${currencySymbol}${rate.toFixed(2)}` : '-'}
+        {fromFilament && <span className="ml-1 text-xs opacity-70">{t('inventory.costFromFilament')}</span>}
+      </span>
+    );
+  },
   weight_check: ({ spool, onSyncWeight }) => {
     const scaleWeight = spool.last_scale_weight;
     if (scaleWeight == null) return <span className="text-sm text-bambu-gray/50" title="No scale measurement">-</span>;
@@ -597,7 +604,7 @@ const columnSortValues: Record<
   tag_type: (s) => (s.tag_type || '').toLowerCase(),
   stock: (s) => s.slicer_filament ? 1 : 0,
   spool_name: (s) => s.core_weight_catalog_id ?? 0,
-  cost_per_kg: (s) => s.cost_per_kg ?? 0,
+  cost_per_kg: (s) => shownCostPerKg(s).rate ?? 0,
   weight_check: (s) => {
     if (s.last_scale_weight == null) return -1;
     const expectedGross = Math.max(0, s.label_weight - s.weight_used) + s.core_weight;

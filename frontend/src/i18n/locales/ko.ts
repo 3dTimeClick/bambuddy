@@ -4945,6 +4945,7 @@ export default {
     measuredWeight: '측정된 무게',
     spoolName: '스풀',
     costPerKg: 'kg당 비용',
+    costFromFilament: '(필라멘트 가격)',
     storageLocation: '보관 위치',
     temperature: '온도',
     humidity: '습도',
