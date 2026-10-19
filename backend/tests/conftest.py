@@ -446,49 +446,11 @@ async def test_engine():
     """Create a test database engine."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
-    # Import all models to register them
-    from backend.app.models import (
-        active_print_session,  # noqa: F401
-        ams_history,
-        ams_label,
-        api_key,
-        archive,
-        auth_ephemeral,
-        color_catalog,
-        external_link,
-        filament,
-        group,
-        kprofile_note,
-        maintenance,
-        notification,
-        notification_template,
-        oidc_provider,
-        print_log,
-        print_queue,
-        printer,
-        project,
-        project_bom,
-        scheduled_drying,
-        settings,
-        slot_preset,
-        smart_plug,
-        smart_plug_energy_snapshot,  # noqa: F401
-        sponsor_toast_state,  # noqa: F401
-        spool,
-        spool_assignment,
-        spool_catalog,
-        spool_filament_preset,
-        spool_k_profile,
-        spool_usage_history,
-        spoolbuddy_device,
-        spoolman_k_profile,
-        spoolman_slot_assignment,
-        user,
-        user_email_pref,
-        user_otp_code,
-        user_totp,
-        virtual_printer,
-    )
+    # Every model, as the app's schema has them: a hand-kept list here fell
+    # behind and left four tables out of the SQLite test database.
+    from backend.app.core.database import load_all_models
+
+    load_all_models()
 
     if TEST_PG_URL is not None:
         # The same engine setup as the app's (UTC session, aware datetimes

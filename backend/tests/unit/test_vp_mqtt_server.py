@@ -5,7 +5,7 @@ import asyncio
 import inspect
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -761,3 +761,85 @@ class TestSlicerCommandsTheLogKeepsWhole:
         )
 
         assert '"tray_id": 26' not in text
+
+
+def _client_writer(peer: str = "1.2.3.4") -> MagicMock:
+    writer = MagicMock()
+    writer.write = MagicMock()
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+    writer.get_extra_info = MagicMock(side_effect=lambda name: (peer, 12345) if name == "peername" else None)
+    return writer
+
+
+class TestNothingBeforeConnect:
+    """PUBLISH and SUBSCRIBE before a successful CONNECT reach nothing (V-U4)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("packet", "handler"),
+        [
+            (bytes([0x30, 0x05, 0x00, 0x01, ord("t"), ord("{"), ord("}")]), "_handle_publish"),
+            (bytes([0x82, 0x06, 0x00, 0x01, 0x00, 0x01, ord("t"), 0x00]), "_handle_subscribe"),
+        ],
+    )
+    async def test_a_packet_before_connect_is_dropped(self, packet, handler):
+        server = _make_server()
+        server._running = True
+        reader = asyncio.StreamReader()
+        connect = _build_connect_payload(keep_alive=60)
+        # The packet first, then a valid CONNECT and the same packet again:
+        # only the one after the CONNECT may reach the handler.
+        reader.feed_data(packet + bytes([0x10, len(connect)]) + connect + packet + bytes([0xE0, 0x00]))
+        reader.feed_eof()
+        server._send_status_report = AsyncMock()
+        handled = AsyncMock()
+
+        with patch.object(server, handler, handled):
+            await server._handle_client(reader, _client_writer())
+
+        assert handled.await_count == 1
+
+
+class TestARateLimitedAddress:
+    """The rate limit refuses the right access code too, through the real handler (V-W2)."""
+
+    @pytest.mark.asyncio
+    async def test_a_correct_connect_is_refused(self):
+        from backend.app.services.virtual_printer.mqtt_server import _AUTH_RATE_LIMIT_MAX_ATTEMPTS
+
+        server = _make_server()
+        server._running = True
+        for _ in range(_AUTH_RATE_LIMIT_MAX_ATTEMPTS):
+            server._record_auth_failure("1.2.3.4")
+        reader = asyncio.StreamReader()
+        connect = _build_connect_payload(keep_alive=60)
+        reader.feed_data(bytes([0x10, len(connect)]) + connect)
+        reader.feed_eof()
+        writer = _client_writer()
+        server._handle_connect = AsyncMock(return_value=(True, 60))
+
+        await server._handle_client(reader, writer)
+
+        server._handle_connect.assert_not_awaited()
+        writer.write.assert_called_once_with(bytes([0x20, 0x02, 0x00, 0x05]))
+        assert not server._clients
+
+    @pytest.mark.asyncio
+    async def test_another_address_still_connects(self):
+        from backend.app.services.virtual_printer.mqtt_server import _AUTH_RATE_LIMIT_MAX_ATTEMPTS
+
+        server = _make_server()
+        server._running = True
+        for _ in range(_AUTH_RATE_LIMIT_MAX_ATTEMPTS):
+            server._record_auth_failure("1.2.3.4")
+        reader = asyncio.StreamReader()
+        connect = _build_connect_payload(keep_alive=60)
+        reader.feed_data(bytes([0x10, len(connect)]) + connect)
+        reader.feed_eof()
+        server._handle_connect = AsyncMock(return_value=(True, 60))
+
+        await server._handle_client(reader, _client_writer(peer="5.6.7.8"))
+
+        server._handle_connect.assert_awaited_once()

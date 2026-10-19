@@ -443,6 +443,65 @@ class TestCostCalculation:
         # Cost = 20g / 1000 * 20.0 = 0.40
         assert results[0]["cost"] == 0.40
 
+    async def _failed_after_firmware_reset(self, *, last_progress=0.0, last_layer_num=0, layer_usage=None):
+        """A failed print whose printer already reset progress and layer to 0."""
+        spool = _make_spool(spool_id=1, label_weight=1000, cost_per_kg=20.0)
+        _active_sessions[1] = PrintSession(
+            printer_id=1,
+            print_name="Test",
+            started_at=datetime.now(timezone.utc),
+            tray_remain_start={(0, 0): 80},
+            tray_now_at_start=0,
+        )
+        printer_manager = MagicMock()
+        printer_manager.get_status.return_value = SimpleNamespace(
+            raw_data={"ams": [{"id": 0, "tray": [{"id": 0, "remain": 70}]}]}, progress=0, layer_num=0, tray_now=0
+        )
+        db = _mock_db_sequential([_make_archive(archive_id=10), None, _make_assignment(spool_id=1), spool])
+        cumulative = MagicMock(return_value={0: 1000.0})  # filament 0 = slot 1
+        with (
+            patch("backend.app.core.config.settings") as mock_settings,
+            patch("backend.app.api.routes.settings.get_setting", return_value="15.0"),
+            patch(
+                "backend.app.utils.threemf_tools.extract_filament_usage_from_3mf",
+                return_value=[{"slot_id": 1, "used_g": 40.0, "type": "PLA", "color": "#FF0000"}],
+            ),
+            patch("backend.app.utils.threemf_tools.extract_layer_filament_usage_from_3mf", return_value=layer_usage),
+            patch("backend.app.utils.threemf_tools.get_cumulative_usage_at_layer", cumulative),
+            patch("backend.app.utils.threemf_tools.extract_filament_properties_from_3mf", return_value={}),
+            patch("backend.app.utils.threemf_tools.mm_to_grams", return_value=7.0),
+        ):
+            mock_settings.base_dir = MagicMock()
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_settings.base_dir.__truediv__ = MagicMock(return_value=mock_path)
+            results = await on_print_complete(
+                printer_id=1,
+                data={"status": "failed", "last_progress": last_progress, "last_layer_num": last_layer_num},
+                printer_manager=printer_manager,
+                db=db,
+                archive_id=10,
+            )
+        return results, cumulative
+
+    @pytest.mark.asyncio
+    async def test_a_progress_reset_to_zero_falls_back_to_the_last_progress(self):
+        """Firmware zeroes progress on cancel; 0 % would charge nothing."""
+        results, _ = await self._failed_after_firmware_reset(last_progress=40.0)
+
+        # 40 % of 40 g
+        assert results[0]["weight_used"] == 16.0
+
+    @pytest.mark.asyncio
+    async def test_a_layer_reset_to_zero_falls_back_to_the_last_layer(self):
+        results, cumulative = await self._failed_after_firmware_reset(
+            last_progress=40.0, last_layer_num=12, layer_usage={1: {12: 1000.0}}
+        )
+
+        assert cumulative.call_args.args[1] == 12
+        # The per-layer grams, not the 40 % estimate
+        assert results[0]["weight_used"] == 7.0
+
     @pytest.mark.asyncio
     async def test_cost_with_ams_fallback_tracking(self):
         """AMS fallback tracking also calculates cost correctly."""
