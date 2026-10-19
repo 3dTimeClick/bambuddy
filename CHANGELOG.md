@@ -164,6 +164,9 @@ All notable changes to Bambuddy will be documented in this file.
 - **The frontend build no longer warns about `path` and `crypto` being externalized for the STEP previewer (#2976)** — `occt-import-js`, the Emscripten build behind STEP previews, requires both modules, but only inside its `ENVIRONMENT_IS_NODE` branches; in the browser it loads its `.wasm` from the URL the preview worker passes and draws randomness from `crypto.getRandomValues`. Vite still externalized both and printed two warnings on every build. `vite.config.ts` now drops exactly those two warnings for that one package through `build.rolldownOptions.onLog`, so an externalization anywhere else, or of any other module, still shows.
 
 ### Fixed
+- **A finished print's filament is charged once** — Two cases in the built-in inventory:
+  - **An AMS update right as a print finished** could raise the spool's used weight from the AMS remain% while the print's exact usage was still being worked out, and that usage was then added on top: the print was charged twice. The AMS sync now waits until the print is charged, as it does while the print runs.
+  - **A print the printer reported finished without any file name** (one that failed while preparing, right after Bambuddy started) kept the AMS weight sync off until the next print started. It now turns the sync back on.
 - **Spool weights and slot assignments written at the same moment no longer undo each other** — Three cases:
   - **Assigning or unassigning a spool by hand, or adding a slot's spool to the inventory,** while the printer reported an AMS change for the same slot (or on a double-click) could fail with a server error on PostgreSQL. These now wait for the AMS update, as AMS updates already wait for each other.
   - **A weight set by hand or weighed on the SpoolBuddy scale** just as the AMS remain% sync ran could be overwritten by the AMS figure, with the weight still marked as locked.

@@ -268,6 +268,30 @@ class PrintSession:
 # context — see ``persist_session`` / ``restore_session``.
 _active_sessions: dict[int, PrintSession] = {}
 
+# Printers whose finished print is being closed out. on_print_complete takes the
+# session first and charges the usage several awaits later; the printer already
+# reports FINISH, so without this mark the AMS remain% weight sync would run in
+# between and the print would be charged twice (WU-3).
+_completing: set[int] = set()
+
+
+def mark_completing(printer_id: int) -> None:
+    """The completion path's first step: hold the weight sync off until the
+    usage is booked (discard_session) or the completion ends."""
+    _completing.add(printer_id)
+
+
+def done_completing(printer_id: int) -> None:
+    _completing.discard(printer_id)
+
+
+def printer_is_charging(printer_id: int) -> bool:
+    """A print's usage is still to be charged: it runs, or it ended and its
+    completion has not booked it yet. The AMS remain% sync leaves the
+    printer's spools alone meanwhile (#880)."""
+    return printer_id in _active_sessions or printer_id in _completing
+
+
 # Serialises the read-modify-write on the persisted tray-change log, per printer.
 _tray_change_locks: dict[int, asyncio.Lock] = {}
 
@@ -450,6 +474,7 @@ async def clear_persisted_session(db: AsyncSession, printer_id: int) -> None:
 def forget_printer(printer_id: int) -> None:
     """A deleted printer's print-start context in memory (the row goes with the printer)."""
     _active_sessions.pop(printer_id, None)
+    _completing.discard(printer_id)
     _tray_change_locks.pop(printer_id, None)
 
 
@@ -461,6 +486,7 @@ async def discard_session(db: AsyncSession, printer_id: int) -> None:
     the internal tracker's ``on_print_complete`` consumes (and pops) it.
     """
     _active_sessions.pop(printer_id, None)
+    _completing.discard(printer_id)
     _tray_change_locks.pop(printer_id, None)
     await clear_persisted_session(db, printer_id)
 
@@ -550,6 +576,8 @@ async def on_print_start(
     (#880); registering a session the internal tracker will never complete
     would suppress a sync those users still need.
     """
+    # A new print: whatever the last completion left marked is over.
+    _completing.discard(printer_id)
     state = printer_manager.get_status(printer_id)
     if not state or not state.raw_data:
         logger.debug("[UsageTracker] No state for printer %d, skipping", printer_id)

@@ -2828,7 +2828,7 @@ async def sync_weights_from_ams(
     when it completes, on top of whatever weight the spool has by then.
     """
     from backend.app.services.printer_manager import PrinterManager, printer_manager
-    from backend.app.services.usage_tracker import _active_sessions
+    from backend.app.services.usage_tracker import printer_is_charging
 
     result = await db.execute(select(SpoolAssignment).options(selectinload(SpoolAssignment.spool)))
     # Only slots on printers the caller may see (#1727)
@@ -2857,12 +2857,10 @@ async def sync_weights_from_ams(
             skipped += 1
             continue
 
-        # Until completion has charged the print its session stays open, also
-        # after the printer has reported the print finished.
-        if (
-            str(getattr(state, "state", "") or "").upper() in PrinterManager.ACTIVE_PRINT_STATES
-            or assignment.printer_id in _active_sessions
-        ):
+        # Until completion has charged the print the printer counts as printing,
+        # also after it has reported the print finished.
+        printer_state = str(getattr(state, "state", "") or "").upper()
+        if printer_state in PrinterManager.ACTIVE_PRINT_STATES or printer_is_charging(assignment.printer_id):
             logger.info("AMS weight sync: printer %d is printing, skipping spool %d", assignment.printer_id, spool.id)
             skipped += 1
             printing += 1

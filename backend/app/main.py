@@ -2906,11 +2906,12 @@ async def on_ams_change(printer_id: int, ams_data: list):
     """Handle AMS data changes - sync to Spoolman if enabled and auto mode."""
     logger = logging.getLogger(__name__)
 
-    # Snapshot BEFORE any await: if a print is active, skip weight sync later.
-    # on_print_complete may pop _active_sessions during our awaits (#880).
-    from backend.app.services.usage_tracker import _active_sessions
+    # Snapshot BEFORE any await: if a print is active, or a finished one is
+    # still being charged, skip weight sync later. on_print_complete may pop
+    # _active_sessions during our awaits (#880).
+    from backend.app.services.usage_tracker import printer_is_charging
 
-    _print_active = printer_id in _active_sessions
+    _print_active = printer_is_charging(printer_id)
 
     # A slot that reports empty while a print is running is a filament runout,
     # not a spool swap: the spool is still physically in the AMS, just
@@ -8012,7 +8013,22 @@ async def _cleanup_sd_card_after_print(
 
 
 async def on_print_complete(printer_id: int, data: dict):
-    """Handle print completion - update the archive status."""
+    """Handle print completion - update the archive status.
+
+    The printer counts as printing until the print's usage is booked (or this
+    ends), so the AMS remain% weight sync can't charge it a second time while
+    the usage tracker works (WU-3). Marked before the first await.
+    """
+    from backend.app.services.usage_tracker import done_completing, mark_completing
+
+    mark_completing(printer_id)
+    try:
+        await _close_out_print(printer_id, data)
+    finally:
+        done_completing(printer_id)
+
+
+async def _close_out_print(printer_id: int, data: dict):
     import time
 
     logger = logging.getLogger(__name__)
@@ -8121,7 +8137,19 @@ async def on_print_complete(printer_id: int, data: dict):
     subtask_name = data.get("subtask_name", "")
 
     if not filename and not subtask_name:
+        # Which print ended can't be told: the printer reported no name since
+        # Bambuddy started (a print that failed while preparing, a calibration).
+        # Charge nothing, but close the print session, which otherwise kept the
+        # AMS weight sync off until the next print (AS-5). A print archived as
+        # running is closed and charged by the reconnect reconcile.
         logger.warning("Print complete without filename or subtask_name")
+        try:
+            from backend.app.services.usage_tracker import discard_session
+
+            async with async_session() as db:
+                await discard_session(db, printer_id)
+        except Exception as e:
+            logger.warning("Failed to clear print session for printer %s: %s", printer_id, e)
         return
 
     logger.info("Print complete - filename: %s, subtask: %s, status: %s", filename, subtask_name, data.get("status"))

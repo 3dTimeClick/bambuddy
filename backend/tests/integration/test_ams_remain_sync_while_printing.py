@@ -141,3 +141,14 @@ async def test_a_weight_set_by_hand_meanwhile_is_kept(test_engine, db_session, p
 
     assert weight == 300
     assert "inventory_changed" not in sent, "nothing changed, so nothing to announce"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_no_sync_while_a_finished_print_is_being_charged(test_engine, db_session, printer_factory):
+    """WU-3: the printer reports FINISH and the tracker has taken the session,
+    but the usage is not booked yet."""
+    with patch("backend.app.services.usage_tracker.printer_is_charging", lambda printer_id: True):
+        weight = await _weight_after_ams_push(test_engine, db_session, printer_factory, "FINISH")
+
+    assert weight == 100

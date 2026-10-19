@@ -175,3 +175,22 @@ async def test_a_weighed_spool_is_announced(async_client: AsyncClient, db_sessio
         )
 
     assert "inventory_changed" in _broadcast_types(ws)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_a_print_whose_usage_is_being_booked_counts_as_printing(
+    async_client: AsyncClient, db_session, printer_factory
+):
+    """WU-3: the tracker has taken the session but not charged the print yet."""
+    from backend.app.services import usage_tracker
+
+    spool_id = await _assigned_spool(db_session, printer_factory, locked=False)
+    printer_id = await db_session.scalar(select(SpoolAssignment.printer_id).where(SpoolAssignment.spool_id == spool_id))
+    usage_tracker._completing.add(printer_id)
+    try:
+        response = await _sync(async_client, _printer("FINISH"))
+    finally:
+        usage_tracker._completing.discard(printer_id)
+
+    assert (response.json()["synced"], response.json()["printing"]) == (0, 1)
