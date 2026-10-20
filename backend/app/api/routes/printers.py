@@ -3405,6 +3405,9 @@ async def reset_ams_slot(
     client = printer_manager.get_client(printer_id)
     if not client:
         raise HTTPException(status_code=400, detail="Printer not connected")
+    # A running print may be feeding from this tray.
+    if client.state and client.state.state in printer_manager.ACTIVE_PRINT_STATES:
+        raise HTTPException(status_code=409, detail="The printer is printing; reset the slot once it is idle")
 
     # Reset the slot
     success = client.reset_ams_slot(ams_id=ams_id, tray_id=tray_id)

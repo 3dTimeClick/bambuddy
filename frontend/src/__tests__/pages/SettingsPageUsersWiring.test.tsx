@@ -162,6 +162,20 @@ describe('SettingsPage users & groups wiring', () => {
     expect(writes()[0].body).not.toHaveProperty('password');
   });
 
+  it('edit user with the email field emptied sends an empty email, which removes it', async () => {
+    const user = userEvent.setup();
+    await openUsersTab();
+
+    const [editBtn] = within(userRow('alice')).getAllByRole('button');
+    await user.click(editBtn);
+    await user.clear(await screen.findByDisplayValue('alice@example.com'));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toMatchObject({ method: 'PATCH', path: '/api/v1/users/2' });
+    expect(writes()[0].body).toMatchObject({ email: '' });
+  });
+
   it('delete user with items: "delete items" choice sends delete_items=true for that user', async () => {
     const user = userEvent.setup();
     await openUsersTab();

@@ -893,6 +893,7 @@ export default {
       done: '완료',
       starting: '시작 중...',
       uploadFirmware: '펌웨어 업로드',
+      printerBusy: '프린터가 사용 중입니다. 펌웨어는 유휴 상태일 때만 업로드할 수 있습니다.',
       uploadFailed: '업로드 시작 실패: {{error}}',
       uploadedToast: '펌웨어 업로드됨! 프린터 화면에서 업데이트를 시작하세요.',
       availableVersions: '사용 가능한 버전',
@@ -2894,7 +2895,10 @@ export default {
       newBackupCodes: '새 백업 코드',
       linkedAccounts: '연결된 SSO 계정',
       linkedAccountsDesc: '이 외부 ID 제공자가 계정에 연결되어 있습니다.',
-      oidcUnlinked: '계정 연결이 해제되었습니다.'
+      oidcUnlinked: '계정 연결이 해제되었습니다.',
+      oidcUnlinkConfirmTitle: '계정 연결을 해제할까요?',
+      oidcUnlinkConfirmMessage: '더 이상 {{provider}}(으)로 로그인할 수 없습니다.',
+      oidcUnlinkConfirmAction: '연결 해제',
     },
     // 세션 정책 (#1706)
     sessionPolicy: {
@@ -4703,8 +4707,6 @@ export default {
     linkToSpoolman: 'Spoolman에 연결',
     openInSpoolman: 'Spoolman에서 열기',
     unlinkSpool: '스풀 연결 해제',
-    unlinkConfirmTitle: '스풀 할당 해제?',
-    unlinkConfirmMessage: '이 슬롯에서 스풀을 제거합니다. 스풀 데이터 자체는 변경되지 않습니다.',
     selectSpool: '스풀 선택',
     noUnlinkedSpools: '할당되지 않은 스풀 없음',
     linkSuccess: '스풀이 성공적으로 할당되었습니다',
@@ -5433,6 +5435,8 @@ export default {
     backupSkippedNoChanges: '변경 사항 없어 백업 건너뜀',
     backupFailed2: '백업 실패: {{message}}',
     clearedLogs: '{{count}}개 로그 초기화됨',
+    clearHistoryConfirmTitle: '백업 기록을 지울까요?',
+    clearHistoryConfirmMessage: '백업 기록의 모든 항목을 삭제합니다. 백업 자체는 유지됩니다.',
     failedToClearLogs: '로그 초기화 실패: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -6857,6 +6861,9 @@ export default {
     hexLabel: '16진수: #{{hex}}',
     resetting: '초기화 중...',
     resetSlot: '슬롯 초기화',
+    resetConfirmTitle: '슬롯을 초기화할까요?',
+    resetConfirmMessage: '프린터에서 이 슬롯의 필라멘트 설정을 지웁니다.',
+    resetBlockedPrinting: '프린터가 출력 중일 때는 사용할 수 없습니다',
     cancel: '취소',
     configuring: '구성 중...',
     configureSlot: '슬롯 구성',
@@ -7694,6 +7701,8 @@ export default {
     }
   },
   forecast: {
+    clearAllConfirmTitle: '쇼핑 목록을 비울까요?',
+    clearAllConfirmMessage: '쇼핑 목록에서 {{count}}개 항목을 모두 삭제합니다.',
     title: '예측',
     noSpools: '활성 스풀을 찾을 수 없습니다. 예측 데이터를 보려면 재고에 스풀을 추가하세요.',
     noUsageData: '사용 데이터를 사용할 수 없습니다 — 재고 타임라인을 예측할 수 없습니다.',

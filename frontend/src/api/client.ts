@@ -4770,6 +4770,9 @@ export interface OIDCLink {
 
 export interface TestSMTPRequest {
   test_recipient: string;
+  // The form's settings, tested before they are saved. An empty password
+  // keeps the saved one.
+  smtp?: SMTPSettings;
 }
 
 export interface TestSMTPResponse {
@@ -4808,6 +4811,15 @@ export interface EncryptionStatus {
   // B2: count of rows skipped during the last legacy re-encryption migration.
   // Surfaced via a yellow secondary banner in SecurityStatusCard.
   migration_error_count: number;
+}
+
+export interface LDAPTestRequest {
+  ldap_server_url?: string;
+  ldap_bind_dn?: string;
+  ldap_bind_password?: string;
+  ldap_search_base?: string;
+  ldap_user_filter?: string;
+  ldap_security?: string;
 }
 
 export interface LDAPTestResponse {
@@ -4908,9 +4920,12 @@ export const api = {
   // LDAP Authentication
   getLDAPStatus: () => request<LDAPStatus>('/auth/ldap/status'),
   getEncryptionStatus: () => request<EncryptionStatus>('/auth/encryption-status'),
-  testLDAP: () =>
+  // form: the settings being edited, tested before they are saved. An empty
+  // bind password keeps the saved one.
+  testLDAP: (form?: LDAPTestRequest) =>
     request<LDAPTestResponse>('/auth/ldap/test', {
       method: 'POST',
+      ...(form ? { body: JSON.stringify(form) } : {}),
     }),
   searchLDAPDirectory: (q: string) =>
     request<LDAPSearchResult[]>(`/auth/ldap/search?q=${encodeURIComponent(q)}`),

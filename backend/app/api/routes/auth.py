@@ -57,6 +57,7 @@ from backend.app.schemas.auth import (
     GroupBrief,
     LDAPProvisionRequest,
     LDAPSearchResultResponse,
+    LDAPTestRequest,
     LoginRequest,
     LoginResponse,
     ResetPasswordRequest,
@@ -853,15 +854,30 @@ async def test_smtp_connection(
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test SMTP connection using saved settings (admin only when auth enabled)."""
+    """Test SMTP connection using the form's settings, else the saved ones (admin only when auth enabled).
+
+    An empty password keeps the saved one, which only goes to the server it
+    was entered for.
+    """
     import logging
+
+    from backend.app.services.secret_fields import SMTP_DESTINATIONS, same_value
 
     logger = logging.getLogger(__name__)
 
     try:
-        smtp_settings = await get_smtp_settings(db)
+        stored = await get_smtp_settings(db)
+        smtp_settings = test_request.smtp or stored
         if not smtp_settings:
             return TestSMTPResponse(success=False, message="SMTP settings not configured. Save SMTP settings first.")
+        if test_request.smtp and smtp_settings.smtp_auth_enabled and not smtp_settings.smtp_password:
+            if stored and stored.smtp_password:
+                moved = [f for f in SMTP_DESTINATIONS if not same_value(getattr(smtp_settings, f), getattr(stored, f))]
+                if moved:
+                    return TestSMTPResponse(
+                        success=False, message=f"Enter the SMTP password again: {', '.join(moved)} changed"
+                    )
+                smtp_settings = smtp_settings.model_copy(update={"smtp_password": stored.smtp_password})
 
         # Send test email
         send_email(
@@ -1414,22 +1430,24 @@ async def reset_user_password(
 # LDAP Authentication Helpers
 
 
+LDAP_SETTING_KEYS = (
+    "ldap_enabled",
+    "ldap_server_url",
+    "ldap_bind_dn",
+    "ldap_bind_password",
+    "ldap_search_base",
+    "ldap_user_filter",
+    "ldap_security",
+    "ldap_group_mapping",
+    "ldap_auto_provision",
+    "ldap_ca_cert_path",
+    "ldap_default_group",
+)
+
+
 async def _get_ldap_settings(db: AsyncSession) -> dict[str, str] | None:
     """Get LDAP settings from the database. Returns None if LDAP is not enabled."""
-    ldap_keys = [
-        "ldap_enabled",
-        "ldap_server_url",
-        "ldap_bind_dn",
-        "ldap_bind_password",
-        "ldap_search_base",
-        "ldap_user_filter",
-        "ldap_security",
-        "ldap_group_mapping",
-        "ldap_auto_provision",
-        "ldap_ca_cert_path",
-        "ldap_default_group",
-    ]
-    result = await db.execute(select(Settings).where(Settings.key.in_(ldap_keys)))
+    result = await db.execute(select(Settings).where(Settings.key.in_(LDAP_SETTING_KEYS)))
     settings = {s.key: s.value for s in result.scalars().all()}
     if settings.get("ldap_enabled", "false").lower() != "true":
         return None
@@ -1545,37 +1563,35 @@ async def _sync_ldap_user(db: AsyncSession, user: User, ldap_user, ldap_config) 
 
 @router.post("/ldap/test")
 async def test_ldap(
+    body: LDAPTestRequest | None = None,
     _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Test LDAP connection using saved settings (admin only when auth enabled)."""
+    """Test the LDAP connection with the form's settings over the saved ones (admin only when auth enabled).
+
+    Works while LDAP is still off. An empty bind password keeps the saved one,
+    which only goes to the server it was entered for.
+    """
     import logging
 
     from backend.app.services.ldap_service import parse_ldap_config, test_ldap_connection
+    from backend.app.services.secret_fields import SETTINGS_SECRETS, SecretConfigError, merge_partial
 
     logger = logging.getLogger(__name__)
 
-    ldap_settings = await _get_ldap_settings(db)
-    if not ldap_settings:
-        # LDAP might not be enabled yet but settings might still exist — read all keys
-        ldap_keys = [
-            "ldap_enabled",
-            "ldap_server_url",
-            "ldap_bind_dn",
-            "ldap_bind_password",
-            "ldap_search_base",
-            "ldap_user_filter",
-            "ldap_security",
-            "ldap_group_mapping",
-            "ldap_auto_provision",
-        ]
-        result = await db.execute(select(Settings).where(Settings.key.in_(ldap_keys)))
-        ldap_settings = {s.key: s.value for s in result.scalars().all()}
-        # Force enabled for test
-        ldap_settings["ldap_enabled"] = "true"
+    result = await db.execute(select(Settings).where(Settings.key.in_(LDAP_SETTING_KEYS)))
+    # Unset security is StartTLS, as when saving.
+    stored = {"ldap_security": "starttls", **{s.key: s.value for s in result.scalars().all()}}
+    form = body.model_dump(exclude_none=True) if body else {}
+    if not form.get("ldap_bind_password"):
+        form.pop("ldap_bind_password", None)
+    try:
+        form = merge_partial(stored, form, {"ldap_bind_password": SETTINGS_SECRETS["ldap_bind_password"]})
+    except SecretConfigError as e:
+        return {"success": False, "message": str(e)}
 
-    config = parse_ldap_config(ldap_settings)
+    config = parse_ldap_config({**stored, **form, "ldap_enabled": "true"})
     if not config:
         return {"success": False, "message": "LDAP server URL is not configured"}
 

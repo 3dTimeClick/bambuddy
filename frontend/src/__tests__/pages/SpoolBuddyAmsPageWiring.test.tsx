@@ -17,7 +17,13 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
 });
 vi.mock('../../components/AssignSpoolModal', () => ({ AssignSpoolModal: () => null }));
 vi.mock('../../components/LinkSpoolModal', () => ({ LinkSpoolModal: () => null }));
-vi.mock('../../components/ConfigureAmsSlotModal', () => ({ ConfigureAmsSlotModal: () => null }));
+const configureProps = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock('../../components/ConfigureAmsSlotModal', () => ({
+  ConfigureAmsSlotModal: (props: Record<string, unknown>) => {
+    configureProps.push(props);
+    return null;
+  },
+}));
 
 const mutations = {
   unassignSpool: vi.fn(),
@@ -118,6 +124,7 @@ describe('SpoolBuddyAmsPage slot-action wiring', () => {
     mutations.unassignSpoolmanSlot.mockResolvedValue({ success: true });
     mutations.unlinkSpool.mockResolvedValue({ success: true, message: 'ok' });
     spoolmanStatusValue = { enabled: false, connected: false };
+    configureProps.length = 0;
     apiResponses = {
       getPrinterStatus: printerStatus(),
       getPrinter: { id: 3, name: 'P', serial_number: 'SN3', nozzle_count: 1 },
@@ -207,5 +214,17 @@ describe('SpoolBuddyAmsPage slot-action wiring', () => {
       expect(screen.queryByText('Remove inventory spool from this slot')).not.toBeInTheDocument(),
     );
     expect(mutations.unassignSpool).not.toHaveBeenCalled();
+  });
+
+  // The slot dialog refuses a reset while a print is loaded; it needs the state.
+  it("Configure hands the slot dialog the printer's state", async () => {
+    apiResponses.getPrinterStatus = { ...printerStatus(), state: 'RUNNING' };
+    renderPage();
+    await openSlot(3);
+
+    fireEvent.click(await screen.findByText('Set filament preset, K-profile, and color'));
+
+    await waitFor(() => expect(configureProps.length).toBeGreaterThan(0));
+    expect(configureProps[configureProps.length - 1]).toMatchObject({ printerId: 3, printerState: 'RUNNING' });
   });
 });

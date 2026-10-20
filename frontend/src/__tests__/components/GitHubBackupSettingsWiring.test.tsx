@@ -2,7 +2,8 @@
  * Backup settings wiring: local backup restore/delete target the clicked
  * file and only after the confirm, "Backup Now"/"Run Now" hit their run
  * endpoints, the connection test uses the stored token unless a new one is
- * typed, and Clear empties the backup history.
+ * typed, Clear empties the backup history after a confirm, and a refused
+ * delete says so.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -206,15 +207,37 @@ describe('GitHubBackupSettings wiring', () => {
     expect(stored).not.toHaveBeenCalled();
   });
 
-  it('Clear in the backup history deletes all logs (keep_last=0)', async () => {
+  it('Clear in the backup history asks first, then deletes all logs (keep_last=0); cancel sends nothing', async () => {
     const user = userEvent.setup();
     render(<GitHubBackupSettings />);
 
     const history = (await screen.findByText('History')).closest('div[id="card-backup-history"]') as HTMLElement;
     await user.click(within(history).getByRole('button', { name: /^clear$/i }));
+    const dialog = () => screen.getByText('Clear backup history?').closest('div.fixed') as HTMLElement;
+    await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Clear backup history?')).toBeNull();
+    expect(writes()).toEqual([]);
+
+    await user.click(within(history).getByRole('button', { name: /^clear$/i }));
+    await user.click(within(dialog()).getByRole('button', { name: /^clear$/i }));
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0]).toMatchObject({ method: 'DELETE', path: '/api/v1/github-backup/logs', search: '?keep_last=0' });
+  });
+
+  it.each([
+    ['refused (200, success false)', () => HttpResponse.json({ success: false, message: 'Invalid backup file' }), 'Invalid backup file'],
+    ['failed (500)', () => HttpResponse.json({ detail: 'Disk is read-only' }, { status: 500 }), 'Disk is read-only'],
+  ])('a %s local backup delete is reported', async (_label, reply, text) => {
+    server.use(http.delete('*/api/v1/local-backup/backups/:name', reply));
+    const user = userEvent.setup();
+    render(<GitHubBackupSettings />);
+
+    await user.click(within(await waitFor(() => fileRow('bambuddy-backup-2026-10-01.zip'))).getByTitle('Delete'));
+    const confirm = screen.getAllByRole('button', { name: /^delete$/i }).find((b) => !b.hasAttribute('title'));
+    await user.click(confirm!);
+
+    expect(await screen.findByText(text)).toBeInTheDocument();
   });
 
   it('a non-admin gets no Restore (or Download) button on local backups', async () => {
@@ -234,4 +257,5 @@ describe('GitHubBackupSettings wiring', () => {
     );
     expect(within(fileRow('bambuddy-backup-2026-10-01.zip')).queryByTitle('Download')).not.toBeInTheDocument();
   });
+
 });

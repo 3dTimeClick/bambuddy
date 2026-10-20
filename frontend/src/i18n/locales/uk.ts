@@ -944,6 +944,7 @@ export default {
       done: "Готово",
       starting: "Запуск…",
       uploadFirmware: "Вивантажити прошивку",
+      printerBusy: "Принтер зайнятий. Прошивку можна завантажити лише в режимі простою.",
       uploadFailed: "Не вдалося почати вивантаження: {{error}}",
       uploadedToast: "Прошивку вивантажено! Запустіть оновлення з екрана принтера.",
       availableVersions: "Доступні версії",
@@ -3061,6 +3062,9 @@ export default {
       linkedAccounts: "Пов’язані облікові записи SSO.",
       linkedAccountsDesc: "Ці зовнішні постачальники ідентифікаційної інформації пов’язані з вашим обліковим записом.",
       oidcUnlinked: "Обліковий запис від’єднано.",
+      oidcUnlinkConfirmTitle: "Від'єднати обліковий запис?",
+      oidcUnlinkConfirmMessage: "Ви більше не зможете входити через {{provider}}.",
+      oidcUnlinkConfirmAction: "Від'єднати",
     },
 
     // Session Policy (#1706) — admin-configurable session lifetime ceiling.
@@ -4945,8 +4949,6 @@ export default {
     linkToSpoolman: "Посилання на Spoolman",
     openInSpoolman: "Відкрити в Spoolman",
     unlinkSpool: "Від’єднати котушка",
-    unlinkConfirmTitle: "Скасувати призначення котушки?",
-    unlinkConfirmMessage: "Це призведе до видалення котушки з цього слота. Самі дані котушки залишаться незмінними.",
     selectSpool: "Вибрати Spool",
     noUnlinkedSpools: "Немає непризначених котушок",
     linkSuccess: "Котушку успішно призначено",
@@ -5710,6 +5712,8 @@ export default {
     backupSkippedNoChanges: "Резервне копіювання пропущено – без змін",
     backupFailed2: "Помилка резервного копіювання: {{message}}",
     clearedLogs: "Очищено журнали {{count}}.",
+    clearHistoryConfirmTitle: "Очистити історію резервних копій?",
+    clearHistoryConfirmMessage: "Усі записи історії резервного копіювання буде видалено. Самі резервні копії збережуться.",
     failedToClearLogs: "Не вдалося очистити журнали: {{message}}",
 
     // Restore from Git backup (#2656)
@@ -7210,6 +7214,9 @@ export default {
     hexLabel: "Шістнадцятковий: #{{hex}}",
     resetting: "Скидання...",
     resetSlot: "Скинути слот",
+    resetConfirmTitle: "Скинути слот?",
+    resetConfirmMessage: "Налаштування філаменту цього слота на принтері буде видалено.",
+    resetBlockedPrinting: "Недоступно під час друку",
     cancel: "Скасувати",
     configuring: "Налаштування...",
     configureSlot: "Налаштувати слот",
@@ -8295,6 +8302,8 @@ export default {
   },
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: "Очистити список покупок?",
+    clearAllConfirmMessage: "Усі позиції ({{count}}) буде видалено зі списку покупок.",
     title: "Прогноз",
     noSpools: "Не знайдено активних котушок. Додайте котушки до свого інвентарю, щоб переглянути прогнозні дані.",
     noUsageData: "Немає даних про використання — неможливо спроєктувати хронологію запасів.",

@@ -939,6 +939,7 @@ export default {
       done: '完了',
       starting: '開始中...',
       uploadFirmware: 'ファームウェアをアップロード',
+      printerBusy: 'プリンターは使用中です。ファームウェアはアイドル状態のときのみアップロードできます。',
       uploadFailed: 'アップロード開始に失敗しました: {{error}}',
       uploadedToast: 'ファームウェアをアップロードしました！プリンター画面からアップデートを実行してください。',
       availableVersions: '利用可能なバージョン',
@@ -3043,6 +3044,9 @@ export default {
       linkedAccounts: 'リンクされたSSOアカウント',
       linkedAccountsDesc: 'これらの外部IDプロバイダーがあなたのアカウントにリンクされています。',
       oidcUnlinked: 'アカウントのリンクを解除しました。',
+      oidcUnlinkConfirmTitle: 'アカウントのリンクを解除しますか？',
+      oidcUnlinkConfirmMessage: '{{provider}} でサインインできなくなります。',
+      oidcUnlinkConfirmAction: 'リンク解除',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4913,8 +4917,6 @@ export default {
     linkToSpoolman: 'Spoolmanに連携',
     openInSpoolman: 'Spoolmanで開く',
     unlinkSpool: 'スプールのリンクを解除',
-    unlinkConfirmTitle: 'スプールの割り当てを解除しますか？',
-    unlinkConfirmMessage: 'このスロットからスプールが削除されます。スプール自体のデータは変更されません。',
     selectSpool: 'スプールを選択',
     noUnlinkedSpools: '割り当てられていないスプールがありません',
     linkSuccess: 'スプールが正常に割り当てられました',
@@ -5670,6 +5672,8 @@ export default {
     backupSkippedNoChanges: 'バックアップをスキップ - 変更なし',
     backupFailed2: 'バックアップに失敗しました: {{message}}',
     clearedLogs: '{{count}}件のログを削除しました',
+    clearHistoryConfirmTitle: 'バックアップ履歴を消去しますか？',
+    clearHistoryConfirmMessage: 'バックアップ履歴のすべての項目を削除します。バックアップ自体は保持されます。',
     failedToClearLogs: 'ログの削除に失敗しました: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7170,6 +7174,9 @@ export default {
     hexLabel: '16進: #{{hex}}',
     resetting: 'リセット中...',
     resetSlot: 'スロットをリセット',
+    resetConfirmTitle: 'スロットをリセットしますか？',
+    resetConfirmMessage: 'プリンター上のこのスロットのフィラメント設定を消去します。',
+    resetBlockedPrinting: 'プリンターの印刷中は使用できません',
     cancel: 'キャンセル',
     configuring: '設定中...',
     configureSlot: 'スロットを設定',
@@ -8254,6 +8261,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: '買い物リストを空にしますか？',
+    clearAllConfirmMessage: '買い物リストから {{count}} 件すべてを削除します。',
     title: '在庫予測',
     noSpools: 'アクティブなスプールが見つかりません。予測データを表示するには、在庫にスプールを追加してください。',
     noUsageData: '使用データがありません — 在庫のタイムラインを予測できません。',

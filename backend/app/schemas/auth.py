@@ -122,6 +122,21 @@ class LDAPSearchResultResponse(BaseModel):
     already_provisioned: bool = False  # True if this username already exists as a BamBuddy user
 
 
+class LDAPTestRequest(BaseModel):
+    """The LDAP settings in the form, tested before they are saved.
+
+    A field left out uses the saved value; an empty bind password keeps the
+    saved one.
+    """
+
+    ldap_server_url: str | None = None
+    ldap_bind_dn: str | None = None
+    ldap_bind_password: str | None = None
+    ldap_search_base: str | None = None
+    ldap_user_filter: str | None = None
+    ldap_security: str | None = None
+
+
 class LDAPProvisionRequest(BaseModel):
     """Body for POST /auth/ldap/provision. Username is re-resolved via the
     service-account bind, so the request only carries the directory username
@@ -198,6 +213,9 @@ class SMTPSettings(BaseModel):
 
 class TestSMTPRequest(BaseModel):
     test_recipient: str
+    # The settings in the form, tested before they are saved; left out, the
+    # saved ones. An empty password keeps the saved one.
+    smtp: SMTPSettings | None = None
 
 
 class TestSMTPResponse(BaseModel):

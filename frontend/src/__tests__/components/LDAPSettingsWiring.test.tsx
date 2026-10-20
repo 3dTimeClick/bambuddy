@@ -118,15 +118,28 @@ describe('LDAPSettings wiring', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('test connection posts to /auth/ldap/test (tests the saved config, no body)', async () => {
+  it('test connection posts the form as it is, unsaved edits included', async () => {
     const user = userEvent.setup();
     render(<LDAPSettings />);
 
-    await screen.findByDisplayValue('dc=example');
+    const base = await screen.findByDisplayValue('dc=example');
+    await user.clear(base);
+    await user.type(base, 'ou=people,dc=example');
     await user.click(screen.getByRole('button', { name: /test connection/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));
-    expect(captured[0]).toEqual({ method: 'POST', path: '/api/v1/auth/ldap/test', body: null });
+    expect(captured[0]).toEqual({
+      method: 'POST',
+      path: '/api/v1/auth/ldap/test',
+      body: {
+        ldap_server_url: 'ldaps://ldap.example:636',
+        ldap_bind_dn: 'cn=svc,dc=example',
+        ldap_bind_password: '',
+        ldap_search_base: 'ou=people,dc=example',
+        ldap_user_filter: '(uid={username})',
+        ldap_security: 'ldaps',
+      },
+    });
   });
 
   it('enable sends only {ldap_enabled:true}', async () => {

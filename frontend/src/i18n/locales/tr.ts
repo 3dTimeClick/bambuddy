@@ -940,6 +940,7 @@ export default {
       done: 'Tamam',
       starting: 'Başlatılıyor...',
       uploadFirmware: 'Firmware Yükle',
+      printerBusy: 'Yazıcı meşgul. Ürün yazılımı yalnızca boştayken yüklenebilir.',
       uploadFailed: 'Yükleme başlatılamadı: {{error}}',
       uploadedToast: 'Firmware yüklendi! Güncellemeyi yazıcı ekranından tetikleyin.',
       availableVersions: 'Kullanılabilir sürümler',
@@ -3047,6 +3048,9 @@ export default {
       linkedAccounts: 'Bağlı SSO Hesapları',
       linkedAccountsDesc: 'Bu harici kimlik sağlayıcıları hesabınıza bağlıdır.',
       oidcUnlinked: 'Hesap bağlantısı kaldırıldı.',
+      oidcUnlinkConfirmTitle: 'Hesap bağlantısı kaldırılsın mı?',
+      oidcUnlinkConfirmMessage: 'Artık {{provider}} ile oturum açamayacaksınız.',
+      oidcUnlinkConfirmAction: 'Bağlantıyı kaldır',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4902,8 +4906,6 @@ export default {
     linkToSpoolman: "Spoolman'a Bağla",
     openInSpoolman: "Spoolman'da Aç",
     unlinkSpool: 'Makara Bağlantısını Kaldır',
-    unlinkConfirmTitle: 'Makara Atamasını Kaldır?',
-    unlinkConfirmMessage: 'Bu, makarayı bu yuvadan kaldıracak. Makara verisinin kendisi değişmeyecek.',
     selectSpool: 'Makara Seç',
     noUnlinkedSpools: 'Atanmamış makara yok',
     linkSuccess: 'Makara başarıyla atandı',
@@ -5646,6 +5648,8 @@ export default {
     backupSkippedNoChanges: 'Yedekleme atlandı - değişiklik yok',
     backupFailed2: 'Yedekleme başarısız: {{message}}',
     clearedLogs: '{{count}} günlük temizlendi',
+    clearHistoryConfirmTitle: 'Yedekleme geçmişi temizlensin mi?',
+    clearHistoryConfirmMessage: 'Bu, yedekleme geçmişindeki tüm kayıtları siler. Yedeklerin kendisi korunur.',
     failedToClearLogs: 'Günlükler temizlenemedi: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7112,6 +7116,9 @@ export default {
     hexLabel: 'Hex: #{{hex}}',
     resetting: 'Sıfırlanıyor...',
     resetSlot: 'Yuvayı Sıfırla',
+    resetConfirmTitle: 'Yuva sıfırlansın mı?',
+    resetConfirmMessage: 'Bu, yazıcıdaki bu yuvanın filament ayarını siler.',
+    resetBlockedPrinting: 'Yazıcı baskı yaparken kullanılamaz',
     cancel: 'İptal',
     configuring: 'Yapılandırılıyor...',
     configureSlot: 'Yuvayı Yapılandır',
@@ -8192,6 +8199,8 @@ export default {
   },
   // Tahmin ve Envanter Zekası
   forecast: {
+    clearAllConfirmTitle: 'Alışveriş listesi temizlensin mi?',
+    clearAllConfirmMessage: 'Bu, alışveriş listesindeki {{count}} öğenin tümünü kaldırır.',
     title: 'Tahmin',
     noSpools: 'Aktif makara bulunamadı. Tahmin verisini görmek için envanterinize makara ekleyin.',
     noUsageData: 'Kullanım verisi mevcut değil — stok zaman çizelgesi öngörülemiyor.',

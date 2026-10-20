@@ -5025,7 +5025,15 @@ class PrintScheduler:
         idle = state.state in ("IDLE", "FINISH", "FAILED")
         if not idle:
             logger.debug("Printer %d: not idle — state=%s", printer_id, state.state)
-        return idle
+            return False
+
+        # A print would run from the SD card the firmware is being written to.
+        from backend.app.services.firmware_update import upload_in_progress
+
+        if upload_in_progress(printer_id):
+            logger.debug("Printer %d: not idle — firmware upload in progress", printer_id)
+            return False
+        return True
 
     @staticmethod
     def _pinned_hold_reason(printer_id: int, printer_name: str, require_plate_clear: bool) -> str:

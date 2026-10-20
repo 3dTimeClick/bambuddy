@@ -184,26 +184,28 @@ describe('ForecastPanel wiring', () => {
     expect(mocked.clearShoppingList).not.toHaveBeenCalled();
   });
 
-  // BUG: "Clear all" wipes the whole shopping list on a single click
-  // (ForecastPanel.tsx ShoppingListPanel onClear -> api.clearShoppingList with
-  // no ConfirmModal). Every other bulk-destructive inventory action confirms.
-  it.skip('clear all asks for confirmation before deleting the shopping list', async () => {
+  it('clear all asks first; cancel sends nothing', async () => {
     const user = userEvent.setup();
     render(<ForecastPanel spools={spools} />);
     await openShoppingList(user);
     await user.click(screen.getByText('Clear all'));
-    // Nothing may be sent before the user confirms.
-    expect(mocked.clearShoppingList).not.toHaveBeenCalled();
-    const cancels = screen.getAllByRole('button', { name: 'Cancel' });
-    await user.click(cancels[cancels.length - 1]);
+
+    const dialog = screen.getByText('Clear shopping list?').closest('div.fixed') as HTMLElement;
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByText('Clear shopping list?')).toBeNull();
     expect(mocked.clearShoppingList).not.toHaveBeenCalled();
   });
 
-  it('clear all sends clearShoppingList (current behaviour, no confirm)', async () => {
+  it('clear all sends clearShoppingList once confirmed', async () => {
     const user = userEvent.setup();
     render(<ForecastPanel spools={spools} />);
     await openShoppingList(user);
     await user.click(screen.getByText('Clear all'));
+
+    const dialog = screen.getByText('Clear shopping list?').closest('div.fixed') as HTMLElement;
+    await user.click(within(dialog).getByRole('button', { name: 'Clear all' }));
+
     await waitFor(() => expect(mocked.clearShoppingList).toHaveBeenCalledTimes(1));
     expect(mocked.removeFromShoppingList).not.toHaveBeenCalled();
   });

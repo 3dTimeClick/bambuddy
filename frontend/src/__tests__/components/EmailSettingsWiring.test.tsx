@@ -1,8 +1,8 @@
 /**
  * Email settings: the SMTP save request carries the form values (and an
  * empty password when it was not retyped, so the server keeps the stored
- * one), and the advanced-auth toggle only calls enable/disable when its
- * preconditions hold.
+ * one), the test email goes out with the form's settings, and the
+ * advanced-auth toggle only calls enable/disable when its preconditions hold.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -120,11 +120,14 @@ describe('EmailSettings wiring', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('send test email posts the recipient to /auth/smtp/test', async () => {
+  it('send test email posts the recipient and the form as it is, unsaved edits included', async () => {
     const user = userEvent.setup();
     render(<EmailSettings />);
 
     await screen.findByDisplayValue('smtp.example');
+    const from = screen.getByDisplayValue('from@example.com');
+    await user.clear(from);
+    await user.type(from, 'typed@example.com');
     await user.type(screen.getByPlaceholderText('test@example.com'), 'probe@example.com');
     await user.click(screen.getByRole('button', { name: /send test email/i }));
 
@@ -132,7 +135,10 @@ describe('EmailSettings wiring', () => {
     expect(captured[0]).toEqual({
       method: 'POST',
       path: '/api/v1/auth/smtp/test',
-      body: { test_recipient: 'probe@example.com' },
+      body: {
+        test_recipient: 'probe@example.com',
+        smtp: { ...STORED_SMTP, smtp_password: '', smtp_from_email: 'typed@example.com' },
+      },
     });
   });
 

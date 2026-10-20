@@ -17,6 +17,7 @@ import { getSwatchStyle } from '../utils/colors';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useUiSettings } from '../hooks/useUiSettings';
+import { ConfirmModal } from './ConfirmModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,7 @@ export function ForecastPanel({ spools }: { spools: InventorySpool[] }) {
   const [brandFilter, setBrandFilter] = useState('');
   const [cartModal, setCartModal] = useState<SkuForecast | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  const [confirmClearList, setConfirmClearList] = useState(false);
   const [chartDays, setChartDays] = useState<ChartDays>(30);
 
   const { data: settings } = useUiSettings({ enabled: canRead });
@@ -478,11 +480,22 @@ export function ForecastPanel({ spools }: { spools: InventorySpool[] }) {
               .then(() => queryClient.invalidateQueries({ queryKey: ['shopping-list'] }))
               .catch(() => showToast(t('forecast.failedSaveSettings'), 'error'));
           }}
-          onClear={() => {
+          onClear={() => setConfirmClearList(true)}
+        />
+      )}
+      {confirmClearList && (
+        <ConfirmModal
+          title={t('forecast.clearAllConfirmTitle')}
+          message={t('forecast.clearAllConfirmMessage', { count: shoppingList.length })}
+          confirmText={t('forecast.clearAll')}
+          variant="danger"
+          onConfirm={() => {
+            setConfirmClearList(false);
             api.clearShoppingList()
               .then(() => queryClient.invalidateQueries({ queryKey: ['shopping-list'] }))
               .catch(() => showToast(t('forecast.failedSaveSettings'), 'error'));
           }}
+          onCancel={() => setConfirmClearList(false)}
         />
       )}
 

@@ -945,6 +945,7 @@ export default {
       done: 'Klaar',
       starting: 'Starten...',
       uploadFirmware: 'Firmware uploaden',
+      printerBusy: 'De printer is bezig. Firmware kan alleen worden geüpload als hij inactief is.',
       uploadFailed: 'Upload starten mislukt: {{error}}',
       uploadedToast: 'Firmware geüpload! Start de update vanaf het printerscherm.',
       availableVersions: 'Beschikbare versies',
@@ -3064,6 +3065,9 @@ export default {
       linkedAccounts: 'Gekoppelde SSO-accounts',
       linkedAccountsDesc: 'Deze externe identiteitsproviders zijn gekoppeld aan je account.',
       oidcUnlinked: 'Account ontkoppeld.',
+      oidcUnlinkConfirmTitle: 'Account ontkoppelen?',
+      oidcUnlinkConfirmMessage: 'Je kunt dan niet meer inloggen met {{provider}}.',
+      oidcUnlinkConfirmAction: 'Ontkoppelen',
     },
 
     // Session Policy (#1706) — admin-configurable session lifetime ceiling.
@@ -4948,8 +4952,6 @@ export default {
     linkToSpoolman: 'Koppelen aan Spoolman',
     openInSpoolman: 'Openen in Spoolman',
     unlinkSpool: 'Spoel ontkoppelen',
-    unlinkConfirmTitle: 'Spoeltoewijzing verwijderen?',
-    unlinkConfirmMessage: 'Hiermee wordt de spoel uit deze sleuf verwijderd. De spoelgegevens zelf blijven ongewijzigd.',
     selectSpool: 'Spoel selecteren',
     noUnlinkedSpools: 'Geen niet-toegewezen spoelen beschikbaar',
     linkSuccess: 'Spoel succesvol toegewezen',
@@ -5715,6 +5717,8 @@ export default {
     backupSkippedNoChanges: 'Back-up overgeslagen - geen wijzigingen',
     backupFailed2: 'Back-up mislukt: {{message}}',
     clearedLogs: '{{count}} logboeken gewist',
+    clearHistoryConfirmTitle: 'Back-upgeschiedenis wissen?',
+    clearHistoryConfirmMessage: 'Dit verwijdert alle items uit de back-upgeschiedenis. De back-ups zelf blijven bewaard.',
     failedToClearLogs: 'Logboeken wissen mislukt: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7220,6 +7224,9 @@ export default {
     hexLabel: 'Hex: #{{hex}}',
     resetting: 'Resetten...',
     resetSlot: 'Slot resetten',
+    resetConfirmTitle: 'Slot resetten?',
+    resetConfirmMessage: 'Dit wist de filamentinstelling van dit slot op de printer.',
+    resetBlockedPrinting: 'Niet beschikbaar terwijl de printer print',
     cancel: 'Annuleren',
     configuring: 'Configureren...',
     configureSlot: 'Sleuf configureren',
@@ -8305,6 +8312,8 @@ export default {
   },
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Boodschappenlijst leegmaken?',
+    clearAllConfirmMessage: 'Dit verwijdert alle {{count}} item(s) van de boodschappenlijst.',
     title: 'Prognose',
     noSpools: 'Geen actieve spoelen gevonden. Voeg spoelen toe aan je voorraad om prognosegegevens te zien.',
     noUsageData: 'Geen verbruiksgegevens beschikbaar — voorraadverloop kan niet worden voorspeld.',

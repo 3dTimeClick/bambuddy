@@ -947,6 +947,7 @@ export default {
       done: 'Done',
       starting: 'Starting...',
       uploadFirmware: 'Upload Firmware',
+      printerBusy: 'The printer is busy. Firmware can only be uploaded while it is idle.',
       uploadFailed: 'Failed to start upload: {{error}}',
       uploadedToast: 'Firmware uploaded! Trigger update from printer screen.',
       availableVersions: 'Available versions',
@@ -3066,6 +3067,9 @@ export default {
       linkedAccounts: 'Linked SSO Accounts',
       linkedAccountsDesc: 'These external identity providers are linked to your account.',
       oidcUnlinked: 'Account unlinked.',
+      oidcUnlinkConfirmTitle: 'Unlink account?',
+      oidcUnlinkConfirmMessage: 'You will no longer be able to sign in with {{provider}}.',
+      oidcUnlinkConfirmAction: 'Unlink',
     },
 
     // Session Policy (#1706) — admin-configurable session lifetime ceiling.
@@ -4950,8 +4954,6 @@ export default {
     linkToSpoolman: 'Link to Spoolman',
     openInSpoolman: 'Open in Spoolman',
     unlinkSpool: 'Unlink Spool',
-    unlinkConfirmTitle: 'Unassign Spool?',
-    unlinkConfirmMessage: 'This will remove the spool from this slot. The spool data itself will remain unchanged.',
     selectSpool: 'Select Spool',
     noUnlinkedSpools: 'No unassigned spools available',
     linkSuccess: 'Spool assigned successfully',
@@ -5717,6 +5719,8 @@ export default {
     backupSkippedNoChanges: 'Backup skipped - no changes',
     backupFailed2: 'Backup failed: {{message}}',
     clearedLogs: 'Cleared {{count}} logs',
+    clearHistoryConfirmTitle: 'Clear backup history?',
+    clearHistoryConfirmMessage: 'This removes every entry from the backup history. The backups themselves are kept.',
     failedToClearLogs: 'Failed to clear logs: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7222,6 +7226,9 @@ export default {
     hexLabel: 'Hex: #{{hex}}',
     resetting: 'Resetting...',
     resetSlot: 'Reset Slot',
+    resetConfirmTitle: 'Reset slot?',
+    resetConfirmMessage: 'This clears the filament setting of this slot on the printer.',
+    resetBlockedPrinting: 'Not available while the printer is printing',
     cancel: 'Cancel',
     configuring: 'Configuring...',
     configureSlot: 'Configure Slot',
@@ -8307,6 +8314,8 @@ export default {
   },
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Clear shopping list?',
+    clearAllConfirmMessage: 'This removes all {{count}} item(s) from the shopping list.',
     title: 'Forecast',
     noSpools: 'No active spools found. Add spools to your inventory to see forecast data.',
     noUsageData: 'No usage data available — cannot project stock timeline.',

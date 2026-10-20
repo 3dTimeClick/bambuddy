@@ -8,10 +8,11 @@
  * the upload.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
+import { QueryClient } from '@tanstack/react-query';
 
 const permissions = { granted: [] as string[] };
 
@@ -228,15 +229,43 @@ describe('PrintersPage firmware modal wiring', () => {
     expect(versionRow('01.06.00.00')).toBeEnabled();
   });
 
-  // BUG (suspected, needs a product decision): neither the modal nor the
-  // backend prepare/upload routes look at the print state, so firmware can be
-  // pushed over FTP to the SD card of a printer that is mid-print. The audit
-  // item expects the Upload button to be unavailable while printing.
-  it.skip('offers no upload while the printer is printing', async () => {
-    renderPage({ state: 'RUNNING' });
+  // Firmware goes onto the SD card the printer prints from: only while idle,
+  // even when the prepare check (made earlier) still says it can proceed.
+  it.each(['RUNNING', 'PAUSE', 'PREPARE', 'SLICING'])('offers no upload while the printer is %s', async (state) => {
+    renderPage({ state });
     await openModal();
     await waitFor(() => expect(prepareVersions.length).toBeGreaterThan(0));
-    await new Promise((r) => setTimeout(r, 50));
+    expect(await screen.findByText(/can only be uploaded while it is idle/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Upload Firmware/ })).toBeNull();
+    expect(uploadVersions).toEqual([]);
+  });
+
+  it('asks the prepare check again once a busy printer turns idle, and then offers the upload', async () => {
+    // The page's client: the status reaches the card through its cache, as from the WebSocket.
+    const spy = vi.spyOn(QueryClient.prototype, 'mount');
+    const busy = { ...prepareOk, can_proceed: false, errors: ['The printer is busy; firmware can only be uploaded while it is idle'] };
+    renderPage({ state: 'RUNNING', prepare: busy });
+    await openModal();
+    expect(await screen.findByText(/firmware can only be uploaded while it is idle/)).toBeInTheDocument();
+    const asked = prepareVersions.length;
+
+    server.use(http.get(`/api/v1/firmware/updates/${PRINTER_ID}/prepare`, ({ request }) => {
+      prepareVersions.push(new URL(request.url).searchParams.get('version'));
+      return HttpResponse.json(prepareOk);
+    }));
+    const client = spy.mock.contexts[spy.mock.contexts.length - 1] as QueryClient;
+    act(() => {
+      client.setQueryData(['printerStatus', PRINTER_ID], (old: object | undefined) => ({ ...old, state: 'FINISH' }));
+    });
+
+    expect(await screen.findByRole('button', { name: /Upload Firmware/ })).toBeInTheDocument();
+    expect(prepareVersions.length).toBeGreaterThan(asked);
+    spy.mockRestore();
+  });
+
+  it.each(['FINISH', 'FAILED'])('offers the upload once the printer is %s', async (state) => {
+    renderPage({ state });
+    await openModal();
+    expect(await screen.findByRole('button', { name: /Upload Firmware/ })).toBeInTheDocument();
   });
 });

@@ -940,6 +940,7 @@ export default {
       done: 'Fertig',
       starting: 'Starte...',
       uploadFirmware: 'Firmware hochladen',
+      printerBusy: 'Der Drucker ist beschäftigt. Firmware kann nur hochgeladen werden, wenn er im Leerlauf ist.',
       uploadFailed: 'Upload fehlgeschlagen: {{error}}',
       uploadedToast: 'Firmware hochgeladen! Starten Sie das Update vom Druckerbildschirm.',
       availableVersions: 'Verfügbare Versionen',
@@ -3044,6 +3045,9 @@ export default {
       linkedAccounts: 'Verknüpfte SSO-Konten',
       linkedAccountsDesc: 'Diese externen Identitätsanbieter sind mit deinem Konto verknüpft.',
       oidcUnlinked: 'Konto getrennt.',
+      oidcUnlinkConfirmTitle: 'Konto trennen?',
+      oidcUnlinkConfirmMessage: 'Du kannst dich danach nicht mehr mit {{provider}} anmelden.',
+      oidcUnlinkConfirmAction: 'Trennen',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4913,8 +4917,6 @@ export default {
     linkToSpoolman: 'Mit Spoolman verknüpfen',
     openInSpoolman: 'In Spoolman öffnen',
     unlinkSpool: 'Spule trennen',
-    unlinkConfirmTitle: 'Spule entfernen?',
-    unlinkConfirmMessage: 'Die Spule wird vom Slot entfernt. Die Spulendaten selbst bleiben unverändert.',
     selectSpool: 'Spule auswählen',
     noUnlinkedSpools: 'Keine nicht zugewiesenen Spulen verfügbar',
     linkSuccess: 'Spule erfolgreich zugewiesen',
@@ -5670,6 +5672,8 @@ export default {
     backupSkippedNoChanges: 'Sicherung übersprungen - keine Änderungen',
     backupFailed2: 'Sicherung fehlgeschlagen: {{message}}',
     clearedLogs: '{{count}} Protokolle gelöscht',
+    clearHistoryConfirmTitle: 'Backup-Verlauf leeren?',
+    clearHistoryConfirmMessage: 'Dadurch werden alle Einträge aus dem Backup-Verlauf entfernt. Die Backups selbst bleiben erhalten.',
     failedToClearLogs: 'Protokolle löschen fehlgeschlagen: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7169,6 +7173,9 @@ export default {
     hexLabel: 'Hex – #{{hex}}',
     resetting: 'Wird zurückgesetzt...',
     resetSlot: 'Slot zurücksetzen',
+    resetConfirmTitle: 'Slot zurücksetzen?',
+    resetConfirmMessage: 'Dadurch wird die Filament-Einstellung dieses Slots am Drucker gelöscht.',
+    resetBlockedPrinting: 'Nicht verfügbar, während der Drucker druckt',
     cancel: 'Abbrechen',
     configuring: 'Wird konfiguriert...',
     configureSlot: 'Slot konfigurieren',
@@ -8255,6 +8262,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Einkaufsliste leeren?',
+    clearAllConfirmMessage: 'Dadurch werden alle {{count}} Einträge von der Einkaufsliste entfernt.',
     title: 'Bestandsprognose',
     noSpools: 'Keine aktiven Spulen gefunden. Fügen Sie Spulen zu Ihrem Inventar hinzu, um Prognosedaten zu sehen.',
     noUsageData: 'Keine Verbrauchsdaten verfügbar — die Bestandszeitlinie kann nicht projiziert werden.',

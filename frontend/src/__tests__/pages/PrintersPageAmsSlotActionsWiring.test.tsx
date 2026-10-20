@@ -446,3 +446,24 @@ describe('AMS unit: backup, drying, friendly name', () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe('AMS slot: Configure dialog', () => {
+  beforeEach(() => {
+    permissions.denied = new Set();
+  });
+
+  // The dialog refuses a slot reset while a print is loaded; it gets the card's state.
+  it.each([
+    ['RUNNING', true],
+    ['IDLE', false],
+  ])('while the printer is %s, Reset Slot disabled: %s', async (state, disabled) => {
+    const user = userEvent.setup();
+    setup({ status: statusWith([amsUnit()], { state }) });
+
+    await user.click(await hover((await slots())[2], 'Configure'));
+
+    const reset = await screen.findByRole('button', { name: /Reset Slot/ });
+    if (disabled) expect(reset).toBeDisabled();
+    else expect(reset).toBeEnabled();
+  });
+});

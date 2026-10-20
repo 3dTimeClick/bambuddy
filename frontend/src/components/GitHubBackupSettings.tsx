@@ -184,6 +184,7 @@ export function GitHubBackupSettings() {
 
   // Scheduled local backup state
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<string | null>(null);
+  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
   const [restoreConfirmFile, setRestoreConfirmFile] = useState<string | null>(null);
   const [localBackupPath, setLocalBackupPath] = useState('');
 
@@ -235,9 +236,15 @@ export function GitHubBackupSettings() {
 
   const deleteLocalBackupMutation = useMutation({
     mutationFn: (filename: string) => api.deleteLocalBackup(filename),
-    onSuccess: () => {
+    onSuccess: (data) => {
       refetchLocalBackups();
       setDeleteConfirmFile(null);
+      // A refused delete answers 200 with success false.
+      if (!data.success) showToast(data.message, 'error');
+    },
+    onError: (error: Error) => {
+      setDeleteConfirmFile(null);
+      showToast(error.message, 'error');
     },
   });
 
@@ -1029,7 +1036,7 @@ export function GitHubBackupSettings() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => clearLogsMutation.mutate()}
+                  onClick={() => setShowClearLogsConfirm(true)}
                   disabled={clearLogsMutation.isPending}
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1499,6 +1506,20 @@ export function GitHubBackupSettings() {
 
       {/* Restore from the Git backup repository (#2656) */}
       {showGitRestore && <GitHubRestoreModal onClose={() => setShowGitRestore(false)} />}
+
+      {showClearLogsConfirm && (
+        <ConfirmModal
+          title={t('backup.clearHistoryConfirmTitle')}
+          message={t('backup.clearHistoryConfirmMessage')}
+          confirmText={t('backup.clear')}
+          variant="danger"
+          onConfirm={() => {
+            setShowClearLogsConfirm(false);
+            clearLogsMutation.mutate();
+          }}
+          onCancel={() => setShowClearLogsConfirm(false)}
+        />
+      )}
 
       {/* Delete Backup Confirmation Modal */}
       {deleteConfirmFile && (

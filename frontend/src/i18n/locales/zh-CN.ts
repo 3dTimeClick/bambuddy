@@ -940,6 +940,7 @@ export default {
       done: '完成',
       starting: '启动中...',
       uploadFirmware: '上传固件',
+      printerBusy: '打印机正忙。只有在空闲时才能上传固件。',
       uploadFailed: '上传启动失败：{{error}}',
       uploadedToast: '固件已上传！请在打印机屏幕上触发更新。',
       availableVersions: '可用版本',
@@ -3030,6 +3031,9 @@ export default {
       linkedAccounts: '已关联的 SSO 账户',
       linkedAccountsDesc: '以下外部身份提供商已与您的账户关联。',
       oidcUnlinked: '账户已解除关联。',
+      oidcUnlinkConfirmTitle: '解除账户关联？',
+      oidcUnlinkConfirmMessage: '你将无法再使用 {{provider}} 登录。',
+      oidcUnlinkConfirmAction: '解除关联',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4900,8 +4904,6 @@ export default {
     linkToSpoolman: '链接到 Spoolman',
     openInSpoolman: '在 Spoolman 中打开',
     unlinkSpool: '取消链接耗材',
-    unlinkConfirmTitle: '取消分配料盘？',
-    unlinkConfirmMessage: '这将从此插槽中移除料盘。料盘本身的数据将保持不变。',
     selectSpool: '选择耗材',
     noUnlinkedSpools: '无未分配的料盘',
     linkSuccess: '料盘分配成功',
@@ -5656,6 +5658,8 @@ export default {
     backupSkippedNoChanges: '备份已跳过 - 无更改',
     backupFailed2: '备份失败：{{message}}',
     clearedLogs: '已清除 {{count}} 条日志',
+    clearHistoryConfirmTitle: '清除备份历史？',
+    clearHistoryConfirmMessage: '这会删除备份历史中的所有条目。备份本身会保留。',
     failedToClearLogs: '清除日志失败：{{message}}',
 
     // Restore from Git backup (#2656)
@@ -7154,6 +7158,9 @@ export default {
     hexLabel: '十六进制：#{{hex}}',
     resetting: '重置中...',
     resetSlot: '重置槽位',
+    resetConfirmTitle: '重置槽位？',
+    resetConfirmMessage: '这会清除打印机上此槽位的耗材设置。',
+    resetBlockedPrinting: '打印机打印时不可用',
     cancel: '取消',
     configuring: '配置中...',
     configureSlot: '配置槽位',
@@ -8238,6 +8245,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: '清空购物清单？',
+    clearAllConfirmMessage: '这会从购物清单中移除全部 {{count}} 项。',
     title: '库存预测',
     noSpools: '未找到活跃的料卷。请将料卷添加到库存中以查看预测数据。',
     noUsageData: '无可用使用数据 — 无法预测库存时间线。',

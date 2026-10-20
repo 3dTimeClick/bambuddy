@@ -28,6 +28,17 @@ from backend.app.services.printer_manager import printer_manager
 
 logger = logging.getLogger(__name__)
 
+# States with no print loaded. Firmware goes onto the SD card the printer
+# prints from, so only then.
+IDLE_STATES = frozenset({"IDLE", "FINISH", "FAILED"})
+PRINTER_BUSY_ERROR = "The printer is busy; firmware can only be uploaded while it is idle"
+
+
+def _printer_idle(printer_id: int) -> bool:
+    client = printer_manager.get_client(printer_id)
+    state = client.state if client else None
+    return bool(state) and state.state in IDLE_STATES
+
 
 class FirmwareUploadStatus(StrEnum):
     """Status of a firmware upload operation."""
@@ -54,6 +65,16 @@ class FirmwareUploadState:
 
 # Track upload state per printer
 _upload_states: dict[int, FirmwareUploadState] = {}
+
+
+def upload_in_progress(printer_id: int) -> bool:
+    """Firmware is being fetched for, or written to, this printer's SD card."""
+    state = _upload_states.get(printer_id)
+    return state is not None and state.status in (
+        FirmwareUploadStatus.PREPARING,
+        FirmwareUploadStatus.DOWNLOADING,
+        FirmwareUploadStatus.UPLOADING,
+    )
 
 
 def get_upload_state(printer_id: int) -> FirmwareUploadState:
@@ -126,6 +147,8 @@ class FirmwareUpdateService:
             return result
 
         state = mqtt_client.state
+        if state.state not in IDLE_STATES:
+            result["errors"].append(PRINTER_BUSY_ERROR)
 
         # Get current firmware version
         result["current_version"] = state.firmware_version
@@ -301,6 +324,10 @@ class FirmwareUpdateService:
                 latest = await firmware_service.get_latest_version(model)
                 if latest:
                     state.firmware_version = latest.version
+
+            # The download can take minutes; a print may have started since.
+            if not _printer_idle(printer_id):
+                raise Exception(PRINTER_BUSY_ERROR)
 
             # Upload to printer (0-100% progress shown here)
             state.status = FirmwareUploadStatus.UPLOADING

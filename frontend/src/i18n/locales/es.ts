@@ -940,6 +940,7 @@ export default {
       done: 'Hecho',
       starting: 'Iniciando...',
       uploadFirmware: 'Subir firmware',
+      printerBusy: 'La impresora está ocupada. El firmware solo se puede subir cuando está inactiva.',
       uploadFailed: 'Error al iniciar la subida: {{error}}',
       uploadedToast: '¡Firmware subido! Inicie la actualización desde la pantalla de la impresora.',
       availableVersions: 'Versiones disponibles',
@@ -3046,6 +3047,9 @@ export default {
       linkedAccounts: 'Cuentas de SSO vinculadas',
       linkedAccountsDesc: 'Estos proveedores de identidad externos están vinculados a su cuenta.',
       oidcUnlinked: 'Cuenta desvinculada.',
+      oidcUnlinkConfirmTitle: '¿Desvincular cuenta?',
+      oidcUnlinkConfirmMessage: 'Ya no podrás iniciar sesión con {{provider}}.',
+      oidcUnlinkConfirmAction: 'Desvincular',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4915,8 +4919,6 @@ export default {
     linkToSpoolman: 'Vincular a Spoolman',
     openInSpoolman: 'Abrir en Spoolman',
     unlinkSpool: 'Desvincular bobina',
-    unlinkConfirmTitle: '¿Desasignar la bobina?',
-    unlinkConfirmMessage: 'Esto quitará la bobina de esta ranura. Los datos de la bobina en sí permanecerán sin cambios.',
     selectSpool: 'Seleccionar bobina',
     noUnlinkedSpools: 'No hay bobinas sin asignar disponibles',
     linkSuccess: 'Bobina asignada correctamente',
@@ -5677,6 +5679,8 @@ export default {
     backupSkippedNoChanges: 'Copia de seguridad omitida - sin cambios',
     backupFailed2: 'Error en la copia de seguridad: {{message}}',
     clearedLogs: 'Se borraron {{count}} registros',
+    clearHistoryConfirmTitle: '¿Borrar historial de copias?',
+    clearHistoryConfirmMessage: 'Esto elimina todas las entradas del historial de copias de seguridad. Las copias se conservan.',
     failedToClearLogs: 'Error al borrar los registros: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7177,6 +7181,9 @@ export default {
     hexLabel: 'Hex: #{{hex}}',
     resetting: 'Restableciendo...',
     resetSlot: 'Restablecer ranura',
+    resetConfirmTitle: '¿Restablecer ranura?',
+    resetConfirmMessage: 'Esto borra la configuración de filamento de esta ranura en la impresora.',
+    resetBlockedPrinting: 'No disponible mientras la impresora está imprimiendo',
     cancel: 'Cancelar',
     configuring: 'Configurando...',
     configureSlot: 'Configurar ranura',
@@ -8262,6 +8269,8 @@ export default {
   },
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: '¿Vaciar lista de compras?',
+    clearAllConfirmMessage: 'Esto elimina los {{count}} elementos de la lista de compras.',
     title: 'Previsión',
     noSpools: 'No se encontraron bobinas activas. Añada bobinas a su inventario para ver los datos de previsión.',
     noUsageData: 'No hay datos de uso disponibles — no se puede proyectar la cronología de existencias.',

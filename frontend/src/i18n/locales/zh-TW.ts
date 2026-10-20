@@ -940,6 +940,7 @@ export default {
       done: '完成',
       starting: '啟動中...',
       uploadFirmware: '上傳韌體',
+      printerBusy: '印表機忙碌中。只有在閒置時才能上傳韌體。',
       uploadFailed: '上傳啟動失敗：{{error}}',
       uploadedToast: '韌體已上傳！請在印表機螢幕上觸發更新。',
       availableVersions: '可用版本',
@@ -3030,6 +3031,9 @@ export default {
       linkedAccounts: '已連結的 SSO 帳戶',
       linkedAccountsDesc: '以下外部身份提供者已與您的帳戶連結。',
       oidcUnlinked: '帳戶已解除連結。',
+      oidcUnlinkConfirmTitle: '解除帳號連結？',
+      oidcUnlinkConfirmMessage: '你將無法再使用 {{provider}} 登入。',
+      oidcUnlinkConfirmAction: '解除連結',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4900,8 +4904,6 @@ export default {
     linkToSpoolman: '連結到 Spoolman',
     openInSpoolman: '在 Spoolman 中開啟',
     unlinkSpool: '取消連結耗材',
-    unlinkConfirmTitle: '取消指派料盤？',
-    unlinkConfirmMessage: '這將從此插槽中移除料盤。料盤本身的資料將保持不變。',
     selectSpool: '選擇耗材',
     noUnlinkedSpools: '無未指派的料盤',
     linkSuccess: '料盤指派成功',
@@ -5656,6 +5658,8 @@ export default {
     backupSkippedNoChanges: '備份已跳過 - 無更改',
     backupFailed2: '備份失敗：{{message}}',
     clearedLogs: '已清除 {{count}} 條日誌',
+    clearHistoryConfirmTitle: '清除備份紀錄？',
+    clearHistoryConfirmMessage: '這會刪除備份紀錄中的所有項目。備份本身會保留。',
     failedToClearLogs: '清除日誌失敗：{{message}}',
 
     // Restore from Git backup (#2656)
@@ -7154,6 +7158,9 @@ export default {
     hexLabel: '十六進位：#{{hex}}',
     resetting: '重設中...',
     resetSlot: '重設槽位',
+    resetConfirmTitle: '重設槽位？',
+    resetConfirmMessage: '這會清除印表機上此槽位的耗材設定。',
+    resetBlockedPrinting: '印表機列印時無法使用',
     cancel: '取消',
     configuring: '設定中...',
     configureSlot: '設定槽位',
@@ -8238,6 +8245,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: '清空購物清單？',
+    clearAllConfirmMessage: '這會從購物清單中移除全部 {{count}} 項。',
     title: '庫存預測',
     noSpools: '未找到活躍的料卷。請將料卷新增至庫存以查看預測資料。',
     noUsageData: '無可用使用資料 — 無法預測庫存時間線。',

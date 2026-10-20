@@ -940,6 +940,7 @@ export default {
       done: 'Concluído',
       starting: 'Iniciando...',
       uploadFirmware: 'Enviar Firmware',
+      printerBusy: 'A impressora está ocupada. O firmware só pode ser enviado quando ela estiver ociosa.',
       uploadFailed: 'Falha ao iniciar o envio: {{error}}',
       uploadedToast: 'Firmware enviado! Inicie a atualização na tela da impressora.',
       availableVersions: 'Versões disponíveis',
@@ -2985,6 +2986,9 @@ export default {
       linkedAccounts: 'Contas SSO vinculadas',
       linkedAccountsDesc: 'Estes provedores de identidade externos estão vinculados à sua conta.',
       oidcUnlinked: 'Conta desvinculada.',
+      oidcUnlinkConfirmTitle: 'Desvincular conta?',
+      oidcUnlinkConfirmMessage: 'Você não poderá mais entrar com {{provider}}.',
+      oidcUnlinkConfirmAction: 'Desvincular',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4900,8 +4904,6 @@ export default {
     linkToSpoolman: 'Vincular ao Spoolman',
     openInSpoolman: 'Abrir no Spoolman',
     unlinkSpool: 'Desvincular Carretel',
-    unlinkConfirmTitle: 'Remover atribuição do carretel?',
-    unlinkConfirmMessage: 'Isso removerá o carretel deste slot. Os dados do próprio carretel permanecerão inalterados.',
     selectSpool: 'Selecionar Carretel',
     noUnlinkedSpools: 'Nenhum carretel não atribuído disponível',
     linkSuccess: 'Carretel atribuído com sucesso',
@@ -5656,6 +5658,8 @@ export default {
     backupSkippedNoChanges: 'Backup ignorado - sem alterações',
     backupFailed2: 'Falha no backup: {{message}}',
     clearedLogs: '{{count}} logs removidos',
+    clearHistoryConfirmTitle: 'Limpar histórico de backups?',
+    clearHistoryConfirmMessage: 'Isso remove todas as entradas do histórico de backups. Os backups em si são mantidos.',
     failedToClearLogs: 'Falha ao limpar logs: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7156,6 +7160,9 @@ export default {
     hexLabel: 'Hex – #{{hex}}',
     resetting: 'Redefinindo...',
     resetSlot: 'Redefinir Slot',
+    resetConfirmTitle: 'Redefinir slot?',
+    resetConfirmMessage: 'Isso apaga a configuração de filamento deste slot na impressora.',
+    resetBlockedPrinting: 'Indisponível enquanto a impressora está imprimindo',
     cancel: 'Cancelar',
     configuring: 'Configurando...',
     configureSlot: 'Configurar Slot',
@@ -8240,6 +8247,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Limpar lista de compras?',
+    clearAllConfirmMessage: 'Isso remove todos os {{count}} itens da lista de compras.',
     title: 'Previsão de Estoque',
     noSpools: 'Nenhum carretel ativo encontrado. Adicione carretéis ao seu inventário para ver os dados de previsão.',
     noUsageData: 'Nenhum dado de uso disponível — não é possível projetar a linha do tempo do estoque.',

@@ -945,6 +945,7 @@ export default {
       done: 'Klar',
       starting: 'Startar...',
       uploadFirmware: 'Ladda upp firmware',
+      printerBusy: 'Skrivaren är upptagen. Firmware kan bara laddas upp när den är inaktiv.',
       uploadFailed: 'Kunde inte starta uppladdning: {{error}}',
       uploadedToast: 'Firmware uppladdat! Trigga uppdatering från skrivarens skärm.',
       availableVersions: 'Tillgängliga versioner',
@@ -3063,6 +3064,9 @@ export default {
       linkedAccounts: 'Länkade SSO-konton',
       linkedAccountsDesc: 'Dessa externa identitetsleverantörer är länkade till ditt konto.',
       oidcUnlinked: 'Konto bortkopplat.',
+      oidcUnlinkConfirmTitle: 'Koppla bort kontot?',
+      oidcUnlinkConfirmMessage: 'Du kan inte längre logga in med {{provider}}.',
+      oidcUnlinkConfirmAction: 'Koppla bort',
     },
 
     // Session Policy (#1706) — admin-configurable session lifetime ceiling.
@@ -4947,8 +4951,6 @@ errors: {
     linkToSpoolman: 'Länka till Spoolman',
     openInSpoolman: 'Öppna i Spoolman',
     unlinkSpool: 'Avlänka rulle',
-    unlinkConfirmTitle: 'Avlänka rulle?',
-    unlinkConfirmMessage: 'Detta kommer att ta bort rullen från detta fack. Rulldatan i sig kommer att förbli oförändrad.',
     selectSpool: 'Välj rulle',
     noUnlinkedSpools: 'Inga olänkade rullar tillgängliga',
     linkSuccess: 'Rulle tilldelad',
@@ -5713,6 +5715,8 @@ errors: {
     backupSkippedNoChanges: 'Säkerhetskopia hoppade över - inga ändringar',
     backupFailed2: 'Kunde inte skapa säkerhetskopia: {{message}}',
     clearedLogs: 'Rensade {{count}} loggar',
+    clearHistoryConfirmTitle: 'Rensa säkerhetskopieringshistorik?',
+    clearHistoryConfirmMessage: 'Detta tar bort alla poster i säkerhetskopieringshistoriken. Själva säkerhetskopiorna behålls.',
     failedToClearLogs: 'Kunde inte rensa loggar: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7218,6 +7222,9 @@ errors: {
     hexLabel: 'Hex: #{{hex}}',
     resetting: 'Återställer...',
     resetSlot: 'Återställ fack',
+    resetConfirmTitle: 'Återställa fack?',
+    resetConfirmMessage: 'Detta rensar filamentinställningen för det här facket på skrivaren.',
+    resetBlockedPrinting: 'Inte tillgängligt medan skrivaren skriver ut',
     cancel: 'Avbryt',
     configuring: 'Konfigurerar...',
     configureSlot: 'Konfigurera fack',
@@ -8303,6 +8310,8 @@ errors: {
   },
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Tömma inköpslistan?',
+    clearAllConfirmMessage: 'Detta tar bort alla {{count}} objekt från inköpslistan.',
     title: 'Prognos',
     noSpools: 'Inga aktiva rullar hittade. Lägg till rullar till din inventering för att se prognosdata.',
     noUsageData: 'Inga användningsdata tillgängliga — kan inte projicera lagertidslinje.',

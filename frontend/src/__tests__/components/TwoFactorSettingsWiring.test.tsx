@@ -204,12 +204,20 @@ describe('TwoFactorSettings wiring', () => {
     expect(sent('/email/disable')[0].body).toEqual({ password: 'test-password-1' });
   });
 
-  it('unlinking an SSO account deletes the clicked provider link', async () => {
+  it('unlinking an SSO account asks first, then deletes the clicked provider link; cancel sends nothing', async () => {
     const user = userEvent.setup();
     render(<TwoFactorSettings />);
 
     const row = (await screen.findByText('Beta IdP')).closest('div.flex.items-center.justify-between') as HTMLElement;
     await user.click(within(row).getByRole('button'));
+    const dialog = () => screen.getByText('Unlink account?').closest('div.fixed') as HTMLElement;
+    expect(within(dialog()).getByText(/sign in with Beta IdP/)).toBeInTheDocument();
+    await user.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Unlink account?')).toBeNull();
+    expect(captured.filter((c) => c.method === 'DELETE')).toEqual([]);
+
+    await user.click(within(row).getByRole('button'));
+    await user.click(within(dialog()).getByRole('button', { name: 'Unlink' }));
 
     await waitFor(() => expect(sent('/oidc/links/8')).toHaveLength(1));
     expect(captured.filter((c) => c.method === 'DELETE')).toEqual([

@@ -339,7 +339,28 @@ async def update_user(
             close_sockets = True
         user.username = user_data.username
 
-    if user_data.email is not None:
+    if user_data.email is not None and not user_data.email.strip():
+        # Empty removes the email; null leaves it as it is.
+        if user.email:
+            rows = await db.execute(
+                select(Settings.key, Settings.value).where(
+                    Settings.key.in_(["advanced_auth_enabled", f"user_{user.id}_email_2fa_enabled"])
+                )
+            )
+            flags = {key: (value or "").lower() == "true" for key, value in rows.all()}
+            if flags.get("advanced_auth_enabled"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email is required when advanced authentication is enabled",
+                )
+            # Their sign-in codes go to this address.
+            if flags.get(f"user_{user.id}_email_2fa_enabled"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email is required while the user has email two-factor authentication on",
+                )
+            user.email = None
+    elif user_data.email is not None:
         # Check if new email already exists (case-insensitive)
         existing_email = await db.execute(
             select(User).where(func.lower(User.email) == func.lower(user_data.email), User.id != user_id)

@@ -7,11 +7,13 @@ import type { KProfile } from '../api/client';
 import { matchesPrinterModelSuffix, presetCompatibility, buildCompatibilityIndex, extractPresetModel } from '../utils/slicerPrinterMatch';
 import { toFilamentId } from './spool-form/utils';
 import { Button } from './Button';
+import { ConfirmModal } from './ConfirmModal';
 import { getAmsLabel } from '../utils/amsHelpers';
 import { getSwatchStyle } from '../utils/colors';
 import { useCancellableTimeout } from '../hooks/useCancellableTimeout';
 import { flowApplies, flowLabel, normaliseFlow } from '../utils/nozzleFlow';
 import { useToast } from '../contexts/ToastContext';
+import { ACTIVE_PRINT_STATES } from '../utils/printer';
 
 interface SlotInfo {
   amsId: number;
@@ -55,6 +57,8 @@ interface ConfigureAmsSlotModalProps {
   printerModel?: string;
   onSuccess?: () => void;
   fullScreen?: boolean;
+  // The printer's gcode state; a reset is refused while a print is loaded.
+  printerState?: string | null;
 }
 
 // Known filament material types
@@ -280,9 +284,13 @@ export function ConfigureAmsSlotModal({
   printerModel,
   onSuccess,
   fullScreen,
+  printerState,
 }: ConfigureAmsSlotModalProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  // A running print may be feeding from this tray.
+  const printing = ACTIVE_PRINT_STATES.includes(printerState ?? '');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   // The preset the dialog preselected on open, i.e. what the slot is already
   // on. Lets the K-profile list tell "reopened the slot" from "picked another
@@ -1219,10 +1227,11 @@ export function ConfigureAmsSlotModal({
 
   // Escape key handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    // Escape in the reset confirm closes only the confirm.
+    if (e.key === 'Escape' && !showResetConfirm) {
       onClose();
     }
-  }, [onClose]);
+  }, [onClose, showResetConfirm]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1850,8 +1859,9 @@ export function ConfigureAmsSlotModal({
           {/* Reset button on the left */}
           <Button
             variant="secondary"
-            onClick={() => resetMutation.mutate()}
-            disabled={resetMutation.isPending || configureMutation.isPending}
+            onClick={() => setShowResetConfirm(true)}
+            disabled={printing || resetMutation.isPending || configureMutation.isPending}
+            title={printing ? t('configureAmsSlot.resetBlockedPrinting') : undefined}
             className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-500/10"
           >
             {resetMutation.isPending ? (
@@ -1897,6 +1907,21 @@ export function ConfigureAmsSlotModal({
           </div>
         )}
       </div>
+
+      {showResetConfirm && (
+        <ConfirmModal
+          title={t('configureAmsSlot.resetConfirmTitle')}
+          message={t('configureAmsSlot.resetConfirmMessage')}
+          confirmText={t('configureAmsSlot.resetSlot')}
+          variant="danger"
+          overlayZIndex="z-[60]"
+          onConfirm={() => {
+            setShowResetConfirm(false);
+            resetMutation.mutate();
+          }}
+          onCancel={() => setShowResetConfirm(false)}
+        />
+      )}
     </div>
   );
 }

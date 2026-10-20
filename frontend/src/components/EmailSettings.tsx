@@ -154,8 +154,10 @@ export function EmailSettings() {
       showToast(t('settings.email.errors.enterTestEmail'), 'error');
       return;
     }
+    // What the form holds, saved or not.
     testMutation.mutate({
       test_recipient: testEmail,
+      smtp: smtpSettings,
     });
   };
 

@@ -940,6 +940,7 @@ export default {
       done: 'Fatto',
       starting: 'Avvio...',
       uploadFirmware: 'Carica Firmware',
+      printerBusy: 'La stampante è occupata. Il firmware può essere caricato solo quando è inattiva.',
       uploadFailed: 'Avvio caricamento fallito: {{error}}',
       uploadedToast: 'Firmware caricato! Avvia aggiornamento dal display.',
       availableVersions: 'Versioni disponibili',
@@ -2985,6 +2986,9 @@ export default {
       linkedAccounts: 'Account SSO collegati',
       linkedAccountsDesc: 'Questi provider di identità esterni sono collegati al tuo account.',
       oidcUnlinked: 'Account scollegato.',
+      oidcUnlinkConfirmTitle: 'Scollegare l\'account?',
+      oidcUnlinkConfirmMessage: 'Non potrai più accedere con {{provider}}.',
+      oidcUnlinkConfirmAction: 'Scollega',
     },
     // Session Policy (#1706)
     sessionPolicy: {
@@ -4900,8 +4904,6 @@ export default {
     linkToSpoolman: 'Collega a Spoolman',
     openInSpoolman: 'Apri in Spoolman',
     unlinkSpool: 'Scollega bobina',
-    unlinkConfirmTitle: 'Rimuovere bobina?',
-    unlinkConfirmMessage: 'Questo rimuoverà la bobina da questo slot. I dati della bobina stessa rimarranno invariati.',
     selectSpool: 'Seleziona bobina',
     noUnlinkedSpools: 'Nessuna bobina disponibile',
     linkSuccess: 'Bobina assegnata con successo',
@@ -5656,6 +5658,8 @@ export default {
     backupSkippedNoChanges: 'Backup saltato - nessuna modifica',
     backupFailed2: 'Backup fallito: {{message}}',
     clearedLogs: '{{count}} log eliminati',
+    clearHistoryConfirmTitle: 'Cancellare la cronologia dei backup?',
+    clearHistoryConfirmMessage: 'Questo rimuove tutte le voci dalla cronologia dei backup. I backup stessi vengono mantenuti.',
     failedToClearLogs: 'Eliminazione log fallita: {{message}}',
 
     // Restore from Git backup (#2656)
@@ -7156,6 +7160,9 @@ export default {
     hexLabel: 'Hex – #{{hex}}',
     resetting: 'Ripristino...',
     resetSlot: 'Ripristina slot',
+    resetConfirmTitle: 'Reimpostare lo slot?',
+    resetConfirmMessage: 'Questo cancella l\'impostazione del filamento di questo slot sulla stampante.',
+    resetBlockedPrinting: 'Non disponibile mentre la stampante sta stampando',
     cancel: 'Annulla',
     configuring: 'Configurazione...',
     configureSlot: 'Configura slot',
@@ -8240,6 +8247,8 @@ export default {
 
   // Forecast & Inventory Intelligence
   forecast: {
+    clearAllConfirmTitle: 'Svuotare la lista della spesa?',
+    clearAllConfirmMessage: 'Questo rimuove tutti i {{count}} elementi dalla lista della spesa.',
     title: 'Previsione scorte',
     noSpools: 'Nessuna bobina attiva trovata. Aggiungi bobine al tuo inventario per vedere i dati di previsione.',
     noUsageData: 'Nessun dato di utilizzo disponibile — impossibile proiettare la timeline delle scorte.',
