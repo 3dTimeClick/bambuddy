@@ -186,6 +186,14 @@ class GitHubBackupStatus(BaseModel):
     next_scheduled_run: datetime | None
 
 
+class GitHubTestConnectionRequest(BaseModel):
+    """Credentials to test before they are saved."""
+
+    repo_url: str = Field(..., min_length=1, max_length=500, description="Repository URL")
+    token: str = Field(..., min_length=1, description="Personal Access Token")
+    provider: ProviderType = Field(default=ProviderType.GITHUB, description="Git provider key")
+
+
 class GitHubTestConnectionResponse(BaseModel):
     """Schema for test connection response."""
 

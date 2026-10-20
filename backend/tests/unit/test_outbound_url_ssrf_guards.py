@@ -645,6 +645,7 @@ GUARDED_BODY_URLS = {
     # github_backup._enforce_private_repo, which both POST and PATCH funnel through.
     ("GitHubBackupConfigCreate", "repository_url"),
     ("GitHubBackupConfigUpdate", "repository_url"),
+    ("GitHubTestConnectionRequest", "repo_url"),  # same guard, in the test route
     # SmartPlug{Create,Update} persist these; every read goes back out through
     # RESTSmartPlugService._send_request, which applies the same guard.
     ("SmartPlugCreate", "rest_on_url"),
