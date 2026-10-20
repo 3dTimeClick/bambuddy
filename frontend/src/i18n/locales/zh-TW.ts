@@ -3367,6 +3367,7 @@ export default {
     deleteFilesConfirm: '刪除 {{count}} 個選中的檔案？此操作無法復原。',
     noFiles: '印表機上沒有檔案',
     printerUnavailable: '印表機檔案服務無法使用。請在可連線至印表機時重試。',
+    listingTimedOut: '印表機有回應，但列出此資料夾耗時過長（慢速 SD 卡上的大型資料夾）。請稍後再試。',
     loadingFiles: '載入檔案中...',
     failedToLoad: '載入檔案失敗',
     toast: {

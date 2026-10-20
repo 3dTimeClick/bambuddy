@@ -3410,6 +3410,7 @@ export default {
     deleteFilesConfirm: '{{count}} geselecteerde bestanden verwijderen? Dit kan niet ongedaan worden gemaakt.',
     noFiles: 'Geen bestanden op printer',
     printerUnavailable: 'De bestandsservice van de printer is niet beschikbaar. Probeer het opnieuw wanneer de printer bereikbaar is.',
+    listingTimedOut: 'De printer antwoordt, maar het tonen van deze map duurt te lang (een grote map op een trage SD-kaart). Probeer het zo opnieuw.',
     loadingFiles: 'Bestanden laden...',
     failedToLoad: 'Bestanden laden mislukt',
     toast: {

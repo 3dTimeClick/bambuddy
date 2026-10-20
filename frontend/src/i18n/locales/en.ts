@@ -3412,6 +3412,7 @@ export default {
     deleteFilesConfirm: 'Delete {{count}} selected files? This cannot be undone.',
     noFiles: 'No files on printer',
     printerUnavailable: 'The printer file service is unavailable. Try again when the printer is reachable.',
+    listingTimedOut: 'The printer is answering, but listing this folder is taking too long (a large folder on a slow SD card). Try again in a moment.',
     loadingFiles: 'Loading files...',
     failedToLoad: 'Failed to load files',
     toast: {

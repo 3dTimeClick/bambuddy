@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from ftplib import FTP, FTP_TLS  # nosec B402
 from io import BytesIO
@@ -250,12 +251,44 @@ class DownloadDeadlineExceeded(Exception):
     """
 
 
+def _parse_list_mtime(month: str, day: str, time_or_year: str, *, now_utc: datetime | None = None) -> datetime | None:
+    """The time of an FTP LIST entry, naive, in the printer's own basis.
+
+    "Nov 30 10:15" carries no year: it is the year the entry is not in the
+    future in. Printers report UTC (tested X1C/H2D firmware; see
+    printer_media.match_ipcam_chunks), so "now" is UTC, not the host's local
+    clock -- on a host behind UTC an evening entry read as a future one and
+    went a year back (DB-C8). A day of slack keeps firmware that reports its
+    local time, up to 14 h ahead, in this year too. "Nov 30 2024" has a year
+    and no time. None when the entry cannot be read; mtime is best-effort.
+    """
+    now_utc = now_utc or datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        if ":" in time_or_year:
+            mtime = datetime.strptime(f"{month} {day} {now_utc.year} {time_or_year}", "%b %d %Y %H:%M")
+            if mtime > now_utc + timedelta(days=1):
+                mtime = mtime.replace(year=now_utc.year - 1)
+            return mtime
+        return datetime.strptime(f"{month} {day} {time_or_year}", "%b %d %Y")
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class FileListResult:
     """A directory listing that distinguishes empty from unreachable."""
 
     files: list[dict]
     available: bool
+    # The printer did not answer within the wait: slow, not necessarily gone
+    # (a large /ipcam on a slow card), so not reported as unavailable (TO-C13).
+    timed_out: bool = False
+
+
+# Listings still running, by printer and folder: a refresh joins the one in
+# progress instead of starting another thread, which ftplib cannot cancel and
+# which would otherwise pile up in the shared FTP pool (TO-C13).
+_inflight_listings: dict[tuple[str, str, str], tuple[asyncio.Future, threading.Event]] = {}
 
 
 class DeleteResult(Enum):
@@ -864,29 +897,7 @@ class BambuFTPClient:
 
                     # Parse modification time from FTP listing
                     # Format: "Nov 30 10:15" or "Nov 30  2024"
-                    mtime = None
-                    try:
-                        from datetime import datetime
-
-                        month = parts[5]
-                        day = parts[6]
-                        time_or_year = parts[7]
-
-                        # Determine if it's time (HH:MM) or year
-                        if ":" in time_or_year:
-                            # Recent file: "Nov 30 10:15" - assume current year
-                            year = datetime.now().year
-                            time_str = f"{month} {day} {year} {time_or_year}"
-                            mtime = datetime.strptime(time_str, "%b %d %Y %H:%M")
-                            # If parsed date is in the future, use last year
-                            if mtime > datetime.now():
-                                mtime = mtime.replace(year=year - 1)
-                        else:
-                            # Older file: "Nov 30 2024" - no time, just date
-                            time_str = f"{month} {day} {time_or_year}"
-                            mtime = datetime.strptime(time_str, "%b %d %Y")
-                    except (ValueError, IndexError):
-                        pass  # Non-critical: mtime parsing is best-effort; file entry works without it
+                    mtime = _parse_list_mtime(parts[5], parts[6], parts[7])
 
                     file_entry = {
                         "name": name,
@@ -2286,23 +2297,44 @@ async def list_files_result_async(
     """List a directory without collapsing transport failure into empty."""
 
     loop = asyncio.get_event_loop()
+    key = (ip_address, access_code, path)
+    running = _inflight_listings.get(key)
+    if running is None or running[0].done():
+        # Set once the printer has answered: only then is a timeout a slow
+        # listing rather than a printer that is not there.
+        connected = threading.Event()
 
-    def _list() -> FileListResult:
-        client = BambuFTPClient(ip_address, access_code, timeout=socket_timeout, printer_model=printer_model)
-        if not client.connect():
-            return FileListResult(files=[], available=False)
-        try:
-            return FileListResult(files=client.list_files(path, raise_on_error=True), available=True)
-        except (OSError, ftplib.Error):
-            return FileListResult(files=[], available=False)
-        finally:
-            client.disconnect()
+        def _list() -> FileListResult:
+            client = BambuFTPClient(ip_address, access_code, timeout=socket_timeout, printer_model=printer_model)
+            if not client.connect():
+                return FileListResult(files=[], available=False)
+            connected.set()
+            try:
+                return FileListResult(files=client.list_files(path, raise_on_error=True), available=True)
+            except (OSError, ftplib.Error):
+                return FileListResult(files=[], available=False)
+            finally:
+                client.disconnect()
 
+        running = (loop.run_in_executor(_ftp_executor, _list), connected)
+        _inflight_listings[key] = running
+
+        def _forget(done: asyncio.Future, key: tuple[str, str, str] = key) -> None:
+            entry = _inflight_listings.get(key)
+            if entry is not None and entry[0] is done:
+                del _inflight_listings[key]
+
+        running[0].add_done_callback(_forget)
+    future, connected = running
     try:
-        return await asyncio.wait_for(loop.run_in_executor(_ftp_executor, _list), timeout=timeout)
+        # shield: one caller giving up must not cancel the listing another
+        # caller joined.
+        result = await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
     except TimeoutError:
         logger.warning("FTP list_files timed out after %ss for %s", timeout, path)
-        return FileListResult(files=[], available=False)
+        return FileListResult(files=[], available=False, timed_out=connected.is_set())
+    # Joined callers share the listing; each gets entries of its own to edit.
+    return FileListResult(files=[dict(f) for f in result.files], available=result.available)
 
 
 async def find_remote_file_async(

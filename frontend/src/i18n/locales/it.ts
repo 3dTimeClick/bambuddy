@@ -3367,6 +3367,7 @@ export default {
     deleteFilesConfirm: 'Eliminare {{count}} file selezionati? Questa azione non può essere annullata.',
     noFiles: 'Nessun file sulla stampante',
     printerUnavailable: 'Il servizio file della stampante non è disponibile. Riprova quando la stampante è raggiungibile.',
+    listingTimedOut: "La stampante risponde, ma l'elenco di questa cartella richiede troppo tempo (una cartella grande su una scheda SD lenta). Riprova tra un momento.",
     loadingFiles: 'Caricamento file...',
     failedToLoad: 'Caricamento file fallito',
     toast: {

@@ -1658,7 +1658,10 @@ async def list_printer_files(
     return {
         "path": path,
         "files": files,
-        "warnings": [] if listing.available else ["printer_unavailable"],
+        # Slow is not gone: a large folder on a slow card can outlast the wait (TO-C13).
+        "warnings": (
+            [] if listing.available else ["listing_timed_out"] if listing.timed_out else ["printer_unavailable"]
+        ),
     }
 
 

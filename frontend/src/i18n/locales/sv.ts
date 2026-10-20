@@ -3409,6 +3409,7 @@ errors: {
     deleteFilesConfirm: 'Ta bort {{count}} markerade filer? Detta kan inte ångras.',
     noFiles: 'Inga filer på skrivaren',
     printerUnavailable: 'Skrivarfiltjänsten är inte tillgänglig. Försök igen när skrivaren är tillgänglig.',
+    listingTimedOut: 'Skrivaren svarar, men det tar för lång tid att lista den här mappen (en stor mapp på ett långsamt SD-kort). Försök igen om en stund.',
     loadingFiles: 'Laddar filer...',
     failedToLoad: 'Kunde inte ladda filer',
     toast: {

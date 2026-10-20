@@ -3224,6 +3224,7 @@ export default {
     deleteFilesConfirm: '선택된 {{count}}개 파일을 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.',
     noFiles: '프린터에 파일 없음',
     printerUnavailable: '프린터 파일 서비스를 사용할 수 없습니다. 프린터에 연결할 수 있을 때 다시 시도하세요.',
+    listingTimedOut: '프린터는 응답하지만 이 폴더 목록을 가져오는 데 너무 오래 걸립니다(느린 SD 카드의 큰 폴더). 잠시 후 다시 시도하세요.',
     loadingFiles: '파일 로딩 중...',
     failedToLoad: '파일 로드 실패',
     toast: {

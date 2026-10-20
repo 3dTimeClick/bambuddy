@@ -3367,6 +3367,7 @@ export default {
     deleteFilesConfirm: '删除 {{count}} 个选中的文件？此操作无法撤销。',
     noFiles: '打印机上没有文件',
     printerUnavailable: '打印机文件服务不可用。请在打印机可访问时重试。',
+    listingTimedOut: '打印机有响应，但列出此文件夹耗时过长（慢速 SD 卡上的大文件夹）。请稍后重试。',
     loadingFiles: '加载文件中...',
     failedToLoad: '加载文件失败',
     toast: {

@@ -3383,6 +3383,7 @@ export default {
     deleteFilesConfirm: 'Seçilen {{count}} dosya silinsin mi? Bu geri alınamaz.',
     noFiles: 'Yazıcıda dosya yok',
     printerUnavailable: 'Yazıcı dosya hizmeti kullanılamıyor. Yazıcıya erişilebildiğinde tekrar deneyin.',
+    listingTimedOut: 'Yazıcı yanıt veriyor, ancak bu klasörü listelemek çok uzun sürüyor (yavaş bir SD karttaki büyük bir klasör). Biraz sonra tekrar deneyin.',
     loadingFiles: 'Dosyalar yükleniyor...',
     failedToLoad: 'Dosyalar yüklenemedi',
     toast: {

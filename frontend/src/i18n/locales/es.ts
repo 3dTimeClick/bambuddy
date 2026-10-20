@@ -3382,6 +3382,7 @@ export default {
     deleteFilesConfirm: '¿Eliminar {{count}} archivos seleccionados? Esto no se puede deshacer.',
     noFiles: 'No hay archivos en la impresora',
     printerUnavailable: 'El servicio de archivos de la impresora no está disponible. Inténtelo de nuevo cuando la impresora esté accesible.',
+    listingTimedOut: 'La impresora responde, pero listar esta carpeta tarda demasiado (una carpeta grande en una tarjeta SD lenta). Inténtelo de nuevo en un momento.',
     loadingFiles: 'Cargando archivos...',
     failedToLoad: 'Error al cargar los archivos',
     toast: {

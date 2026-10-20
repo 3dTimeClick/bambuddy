@@ -3367,6 +3367,7 @@ export default {
     deleteFilesConfirm: 'Excluir {{count}} arquivos selecionados? Isso não pode ser desfeito.',
     noFiles: 'Nenhum arquivo na impressora',
     printerUnavailable: 'O serviço de arquivos da impressora está indisponível. Tente novamente quando a impressora estiver acessível.',
+    listingTimedOut: 'A impressora está respondendo, mas listar esta pasta está demorando demais (uma pasta grande em um cartão SD lento). Tente novamente em instantes.',
     loadingFiles: 'Carregando arquivos...',
     failedToLoad: 'Falha ao carregar arquivos',
     toast: {

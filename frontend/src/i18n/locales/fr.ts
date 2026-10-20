@@ -3368,6 +3368,7 @@ export default {
     deleteFilesConfirm: 'Supprimer les {{count}} fichiers sélectionnés ?',
     noFiles: 'Aucun fichier sur l\'imprimante',
     printerUnavailable: 'Le service de fichiers de l\'imprimante est indisponible. Réessayez lorsque l\'imprimante est accessible.',
+    listingTimedOut: "L'imprimante répond, mais lister ce dossier prend trop de temps (un dossier volumineux sur une carte SD lente). Réessayez dans un instant.",
     loadingFiles: 'Chargement...',
     failedToLoad: 'Échec chargement fichiers',
     toast: {

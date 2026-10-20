@@ -5377,7 +5377,7 @@ export const api = {
         path: string;
         mtime?: string;
       }>;
-      warnings: Array<'printer_unavailable'>;
+      warnings: Array<'printer_unavailable' | 'listing_timed_out'>;
     }>(`/printers/${printerId}/files?path=${encodeURIComponent(path)}`),
   getPrinterFileDownloadUrl: (printerId: number, path: string) =>
     `${API_BASE}/printers/${printerId}/files/download?path=${encodeURIComponent(path)}`,

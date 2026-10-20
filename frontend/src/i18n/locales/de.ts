@@ -3380,6 +3380,7 @@ export default {
     deleteFilesConfirm: '{{count}} ausgewählte Dateien löschen? Dies kann nicht rückgängig gemacht werden.',
     noFiles: 'Keine Dateien auf dem Drucker',
     printerUnavailable: 'Der Dateidienst des Druckers ist nicht erreichbar. Versuchen Sie es erneut, wenn der Drucker verfügbar ist.',
+    listingTimedOut: 'Der Drucker antwortet, aber das Auflisten dieses Ordners dauert zu lange (ein großer Ordner auf einer langsamen SD-Karte). Versuchen Sie es gleich noch einmal.',
     loadingFiles: 'Dateien werden geladen...',
     failedToLoad: 'Dateien konnten nicht geladen werden',
     toast: {

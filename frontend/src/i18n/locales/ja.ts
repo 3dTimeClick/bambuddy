@@ -3380,6 +3380,7 @@ export default {
     deleteFilesConfirm: '選択した{{count}}件のファイルを削除しますか？元に戻せません。',
     noFiles: 'このディレクトリにファイルがありません',
     printerUnavailable: 'プリンターのファイルサービスを利用できません。プリンターに接続できる状態で再試行してください。',
+    listingTimedOut: 'プリンターは応答していますが、このフォルダーの一覧取得に時間がかかりすぎています（遅い SD カード上の大きなフォルダー）。少し待ってから再試行してください。',
     loadingFiles: 'ファイルを読み込み中...',
     failedToLoad: 'ファイルの読み込みに失敗しました',
     toast: {
