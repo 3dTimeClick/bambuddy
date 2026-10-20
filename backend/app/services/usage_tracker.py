@@ -1070,7 +1070,12 @@ async def on_print_complete(
                 # 100 g/$X print with a 10 g/$X/10 partial (#1378).
                 from backend.app.services.print_log import other_runs_of
 
-                if not await other_runs_of(db, archive):
+                # Nor from a run that did not finish: the archive's cost is one
+                # full print of the file -- the queue estimate, plate scaling and
+                # billing read it so -- and a failed run's partial cost already
+                # lands on its own Print Log entry. Spoolman mode never wrote it
+                # either (COST-3).
+                if status == "completed" and not await other_runs_of(db, archive):
                     archive.cost = round(total_cost, 2)
                     await db.commit()
 

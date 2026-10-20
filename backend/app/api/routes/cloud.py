@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core import database
 from backend.app.core.auth import (
     RequirePermissionIfAuthEnabled,
     _user_from_api_key,
@@ -24,6 +25,7 @@ from backend.app.core.auth import (
 )
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.tasks import spawn_background_task
 from backend.app.models.api_key import APIKey
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
@@ -184,6 +186,8 @@ router = APIRouter(prefix="/cloud", tags=["cloud"], dependencies=[Depends(_cloud
 def _forget_account_presets(account: int | None) -> None:
     """Drop what was read with an account's cloud token, once that token changes."""
     _filament_id_name_cache.pop(account, None)
+    # A build still running reads with the old token; it must not be joined.
+    _filament_id_map_inflight.pop(account, None)
     for key in [key for key in _filament_cache if key[0] == account]:
         del _filament_cache[key]
 
@@ -191,6 +195,7 @@ def _forget_account_presets(account: int | None) -> None:
 def forget_all_cloud_presets() -> None:
     """Drop every account's cached presets (the user table was replaced)."""
     _filament_id_name_cache.clear()
+    _filament_id_map_inflight.clear()
     _filament_cache.clear()
 
 
@@ -1303,11 +1308,12 @@ async def get_builtin_filaments(
 # cloud account: the user whose token read it, or None for the global token
 # used when auth is off. Value: (time read, mapping).
 _filament_id_name_cache: dict[int | None, tuple[float, dict[str, str]]] = {}
+# Builds still running, by account (RC-C11).
+_filament_id_map_inflight: dict[int | None, asyncio.Future] = {}
 
 
 @router.get("/filament-id-map")
 async def get_filament_id_map(
-    db: AsyncSession = Depends(get_db),
     current_user: User | None = cloud_caller(Permission.FILAMENTS_READ),
 ):
     """
@@ -1326,7 +1332,36 @@ async def get_filament_id_map(
     if cached and time.time() - cached[0] < FILAMENT_CACHE_TTL:
         return cached[1]
 
-    cloud = await build_authenticated_cloud(db, current_user)
+    # One build per account at a time: when the cache expired, every K-profile
+    # view asked at once and each ran the full 1 + N fetch (RC-C11). Registered
+    # before anything is awaited, so callers arriving together all join it.
+    running = _filament_id_map_inflight.get(account)
+    if running is None or running.done():
+        running = spawn_background_task(_build_filament_id_map(current_user, account), name="cloud-filament-id-map")
+        _filament_id_map_inflight[account] = running
+
+        def _forget(done: asyncio.Future, account: int | None = account) -> None:
+            if _filament_id_map_inflight.get(account) is done:
+                del _filament_id_map_inflight[account]
+
+        running.add_done_callback(_forget)
+    try:
+        # shield: a caller that goes away must not cancel the build others joined.
+        return dict(await asyncio.shield(running))
+    except Exception:
+        return cached[1] if cached else {}
+
+
+async def _build_filament_id_map(user: User | None, account: int | None) -> dict[str, str]:
+    """Fetch an account's custom presets and map their filament ids to names.
+
+    Reads the stored token in a session of its own, closed before the Bambu
+    Cloud round-trips: no request holds a database connection across them.
+    """
+    import time
+
+    async with database.async_session() as db:
+        cloud = await build_authenticated_cloud(db, user)
     if cloud is None or not cloud.is_authenticated:
         if cloud is not None:
             await cloud.close()
@@ -1355,10 +1390,11 @@ async def get_filament_id_map(
             except Exception:
                 pass
 
-        _filament_id_name_cache[account] = (time.time(), result)
+        # Not when the account signed out meanwhile: its build was dropped,
+        # and this map was read with the token that is gone.
+        if _filament_id_map_inflight.get(account) is asyncio.current_task():
+            _filament_id_name_cache[account] = (time.time(), result)
         return result
-    except Exception:
-        return cached[1] if cached else {}
     finally:
         await cloud.close()
 

@@ -29,6 +29,11 @@ from backend.app.utils.paho_teardown import retire_paho_client
 
 logger = logging.getLogger(__name__)
 
+# How long a manual load's tray target stays a hint for an H2D's tray_now: long
+# enough for a real load to report, short enough that a refused one cannot
+# relabel a later print's load of the same slot number (FW-C7).
+PENDING_TRAY_TARGET_TTL = 120.0
+
 # AMS module name prefixes used in get_version responses.
 # The numeric suffix after '/' is the AMS unit ID as reported in push_status.
 #   "ams/<id>"  – original AMS (X1C, X1E, P1S, …)
@@ -1043,6 +1048,8 @@ class PrinterState:
     last_loaded_tray: int = -1
     # Pending load target - used to track what tray we're loading for H2D disambiguation
     pending_tray_target: int | None = None
+    # When it was set (time.monotonic): see PENDING_TRAY_TARGET_TTL.
+    pending_tray_target_at: float | None = None
     # AMS status for filament change tracking (from print.ams.ams_status field)
     # ams_status is a combined value: lower 8 bits = sub status, bits 8-15 = main status
     # Main status: 0=idle, 1=filament_change, 2=rfid_identifying, 3=assist, 4=calibration, etc.
@@ -2586,15 +2593,16 @@ class BambuMQTTClient:
                         self._dev_mode_probe_seq is not None
                         and print_data.get("sequence_id") == self._dev_mode_probe_seq
                     )
-                    if (
-                        cmd == "ams_filament_setting"
-                        and not is_dev_mode_probe
-                        and isinstance(result, str)
-                        and result.lower() != "success"
-                    ):
+                    # extrusion_cali_sel too (FW-C3): every RFID re-read
+                    # re-applies the spool's K-profile and logs "Applied PA
+                    # profile", so its refusal must reach the bundle beside it.
+                    # The printer's word, not a verdict: the extrusion_cali_*
+                    # acks are known to say "fail" for writes that applied.
+                    if not is_dev_mode_probe and isinstance(result, str) and result.lower() != "success":
                         logger.info(
-                            "[%s] ams_filament_setting refused: result=%s reason=%s ams_id=%s tray_id=%s",
+                            "[%s] %s refused: result=%s reason=%s ams_id=%s tray_id=%s",
                             self.serial_number,
+                            cmd,
                             result,
                             print_data.get("reason", ""),
                             print_data.get("ams_id"),
@@ -3377,6 +3385,19 @@ class BambuMQTTClient:
                 if self._is_dual_nozzle and 0 <= parsed_tray_now <= 3:
                     # First, check if we have a pending target that matches this slot
                     pending_target = self.state.pending_tray_target
+                    pending_at = self.state.pending_tray_target_at
+                    if (
+                        pending_target is not None
+                        and pending_at is not None
+                        and time.monotonic() - pending_at > PENDING_TRAY_TARGET_TTL
+                    ):
+                        # A load the printer refused or dropped: nothing clears
+                        # it (tray_now stays 255), and a print loading the same
+                        # slot number on another AMS long after was shown as
+                        # this target (FW-C7). Fall through to the snow field.
+                        self.state.pending_tray_target = None
+                        self.state.pending_tray_target_at = None
+                        pending_target = None
                     if pending_target is not None:
                         # Same slot rule as the snow branch below: an AMS-HT
                         # (128-135) has its one tray in slot 0.
@@ -5247,7 +5268,10 @@ class BambuMQTTClient:
                         for e in self.state.hms_errors:
                             # Extract short code from existing errors
                             e_module = (e.attr >> 16) & 0xFFFF
-                            e_error = int(e.code.replace("0x", ""), 16) if e.code else 0
+                            # The low half only: an hms[] code carries its alert
+                            # level above it (0x18061 for 0500_8061), and read
+                            # whole it never matched, listing the fault twice (M-U9).
+                            e_error = (int(e.code.replace("0x", ""), 16) & 0xFFFF) if e.code else 0
                             existing_short_codes.add(f"{e_module:04X}_{e_error:04X}")
 
                         if short_code not in existing_short_codes:
@@ -7859,6 +7883,7 @@ class BambuMQTTClient:
         # Track this load request for H2D dual-nozzle disambiguation
         # H2D reports only slot number (0-3) in tray_now, so we use our tracked value
         self.state.pending_tray_target = tray_id
+        self.state.pending_tray_target_at = time.monotonic()
         logger.info("[%s] Set pending_tray_target=%s for H2D disambiguation", self.serial_number, tray_id)
 
         return True
@@ -7965,6 +7990,7 @@ class BambuMQTTClient:
 
         # Clear tracked load request since we're unloading
         self.state.pending_tray_target = None
+        self.state.pending_tray_target_at = None
         logger.info("[%s] Cleared pending_tray_target (unload)", self.serial_number)
 
         return True

@@ -164,6 +164,14 @@ async def test_a_completion_reconciled_at_reconnect_has_no_actual_duration(test_
     assert archive_data["actual_time_seconds"] is None
 
 
+async def test_completion_stops_the_start_estimate_before_writing_the_cost(test_engine, db_session, queued_print):
+    """COST-4: the background estimate must not outlive the real cost."""
+    with patch("backend.app.main._settle_archive_cost_estimate", new_callable=AsyncMock) as settle:
+        await _complete(test_engine, queued_print["printer"], "completed")
+
+    settle.assert_awaited_once_with(queued_print["archive"])
+
+
 async def test_a_failed_print(test_engine, db_session, queued_print):
     await _complete(test_engine, queued_print["printer"], "failed")
 

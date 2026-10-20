@@ -443,6 +443,72 @@ class TestCostCalculation:
         # Cost = 20g / 1000 * 20.0 = 0.40
         assert results[0]["cost"] == 0.40
 
+    async def test_a_failed_first_run_leaves_the_full_print_cost_on_the_archive(self):
+        """COST-3: an archive's cost is one full print of the file -- what the
+        queue estimate, plate scaling and billing read it as. A run that failed
+        half way charged its partial cost to its Print Log entry, and also
+        wrote it onto the archive, so a reprint was estimated and billed from
+        half a print. Spoolman mode never did."""
+        spool = _make_spool(spool_id=1, label_weight=1000, cost_per_kg=20.0)
+        assignment = _make_assignment(spool_id=1)
+        archive = _make_archive(archive_id=10)
+        archive.cost = 5.0  # the full-print estimate from print start
+
+        _active_sessions[1] = PrintSession(
+            printer_id=1,
+            print_name="Test",
+            started_at=datetime.now(timezone.utc),
+            tray_remain_start={(0, 0): 80},
+            tray_now_at_start=0,
+        )
+
+        # Failed at 50% progress
+        printer_manager = MagicMock()
+        printer_manager.get_status.return_value = SimpleNamespace(
+            raw_data={"ams": [{"id": 0, "tray": [{"id": 0, "remain": 70}]}]},
+            progress=50,
+            layer_num=25,
+            tray_now=0,
+        )
+
+        # db returns: archive, queue_item(None), assignment, spool
+        # ... and the archive again for the cost it carries
+        db = _mock_db_sequential([archive, None, assignment, spool, archive])
+
+        # 40g total, but only 50% used
+        filament_usage = [{"slot_id": 1, "used_g": 40.0, "type": "PLA", "color": "#FF0000"}]
+
+        with (
+            # Its first run: the archive's cost is the one it would take.
+            patch("backend.app.services.print_log.other_runs_of", AsyncMock(return_value=[])),
+            patch("backend.app.core.config.settings") as mock_settings,
+            patch("backend.app.api.routes.settings.get_setting", return_value="15.0"),
+            patch(
+                "backend.app.utils.threemf_tools.extract_filament_usage_from_3mf",
+                return_value=filament_usage,
+            ),
+            patch(
+                "backend.app.utils.threemf_tools.extract_layer_filament_usage_from_3mf",
+                return_value=None,  # No layer data, use linear scaling
+            ),
+        ):
+            mock_settings.base_dir = MagicMock()
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_settings.base_dir.__truediv__ = MagicMock(return_value=mock_path)
+
+            results = await on_print_complete(
+                printer_id=1,
+                data={"status": "failed", "last_progress": 50.0},
+                printer_manager=printer_manager,
+                db=db,
+                archive_id=10,
+            )
+
+        # The run's own cost is still measured (it goes to its Print Log entry).
+        assert results[0]["cost"] == 0.40
+        assert archive.cost == 5.0
+
     async def _failed_after_firmware_reset(self, *, last_progress=0.0, last_layer_num=0, layer_usage=None):
         """A failed print whose printer already reset progress and layer to 0."""
         spool = _make_spool(spool_id=1, label_weight=1000, cost_per_kg=20.0)

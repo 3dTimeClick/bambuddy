@@ -5483,12 +5483,21 @@ async def update_file(
         # and _without_print_name strips the embedded 3MF Title on import (#1489).
 
     if data.folder_id is not None:
-        if data.folder_id == 0:
-            file.folder_id = None
-        else:
+        target_folder = None
+        if data.folder_id != 0:
             # library:update_all moves into any folder, as before (#3201).
-            await get_writable_folder(db, data.folder_id, None if can_modify_all else user)
-            file.folder_id = data.folder_id
+            target_folder = await get_writable_folder(db, data.folder_id, None if can_modify_all else user)
+        # Into or out of an external folder the bytes have to move too, and a
+        # read-only one refuses them: that is the move route's work. Here only
+        # folder_id changed, so the file showed in a folder its bytes were not
+        # in (F8).
+        unchanged = (target_folder.id if target_folder is not None else None) == file.folder_id
+        if not unchanged and (file.is_external or (target_folder is not None and target_folder.is_external)):
+            raise HTTPException(
+                status_code=400,
+                detail="Move a file into or out of an external folder with POST /api/v1/library/files/move",
+            )
+        file.folder_id = target_folder.id if target_folder is not None else None
 
     if data.project_id is not None:
         if data.project_id == 0:

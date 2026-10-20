@@ -107,6 +107,7 @@ from backend.app.services.ams_assignment_lock import get_ams_assignment_lock
 from backend.app.services.archive import ArchiveService, peek_plate_index_in_3mf, swap_plate_suffix
 from backend.app.services.archive_cost_estimate import (
     schedule_archive_cost_estimate as _schedule_archive_cost_estimate,
+    settle_archive_cost_estimate as _settle_archive_cost_estimate,
 )
 from backend.app.services.archive_purge import archive_purge_service
 from backend.app.services.bambu_ftp import (
@@ -8434,6 +8435,10 @@ async def _close_out_print(printer_id: int, data: dict):
     notify_plate_id: int | None = None
     if archive_id:
         notify_plate_id = _print_plate_ids.pop(archive_id, None)
+
+    # The start estimate must not outlive the real cost written below (COST-4).
+    if archive_id:
+        await _settle_archive_cost_estimate(archive_id)
 
     # Internal inventory: track AMS remain% deltas (skip if Spoolman handles usage)
     try:

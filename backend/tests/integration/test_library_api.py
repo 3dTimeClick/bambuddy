@@ -310,6 +310,60 @@ class TestLibraryFilesAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    @pytest.mark.parametrize("direction", ["into", "out of"])
+    async def test_an_edit_does_not_move_a_file_across_the_external_boundary(
+        self, async_client: AsyncClient, folder_factory, file_factory, db_session, direction
+    ):
+        """F8: the edit route only changed folder_id -- no byte move, no
+        read-only check -- so the file showed in a folder its bytes are not
+        in. Such a move goes through POST /library/files/move."""
+        internal = await folder_factory(name="Mine")
+        nas = await folder_factory(name="NAS", is_external=True, external_path="/mnt/nas")
+        if direction == "into":
+            file = await file_factory(folder_id=internal.id, filename="a.3mf", is_external=False)
+            target = nas.id
+        else:
+            file = await file_factory(folder_id=nas.id, filename="a.3mf", is_external=True)
+            target = internal.id
+
+        response = await async_client.put(f"/api/v1/library/files/{file.id}", json={"folder_id": target})
+
+        assert response.status_code == 400
+        assert "/library/files/move" in response.json()["detail"]
+        await db_session.refresh(file)
+        assert file.folder_id != target
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_an_external_file_sent_with_its_own_folder_is_no_move(
+        self, async_client: AsyncClient, folder_factory, file_factory
+    ):
+        nas = await folder_factory(name="NAS", is_external=True, external_path="/mnt/nas")
+        file = await file_factory(folder_id=nas.id, filename="a.3mf", is_external=True)
+
+        response = await async_client.put(
+            f"/api/v1/library/files/{file.id}", json={"folder_id": nas.id, "notes": "kept"}
+        )
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_an_edit_still_moves_a_file_between_its_own_folders(
+        self, async_client: AsyncClient, folder_factory, file_factory, db_session
+    ):
+        first = await folder_factory(name="One")
+        second = await folder_factory(name="Two")
+        file = await file_factory(folder_id=first.id, filename="a.3mf", is_external=False)
+
+        response = await async_client.put(f"/api/v1/library/files/{file.id}", json={"folder_id": second.id})
+
+        assert response.status_code == 200
+        await db_session.refresh(file)
+        assert file.folder_id == second.id
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_list_files_internal_only(self, async_client: AsyncClient, folder_factory, file_factory, db_session):
         """#1621: `internal_only=true` restricts the listing to files in managed
         storage (`is_external=False`) so a linked NAS with hundreds of files
