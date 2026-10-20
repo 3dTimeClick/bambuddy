@@ -285,6 +285,11 @@ def done_completing(printer_id: int) -> None:
     _completing.discard(printer_id)
 
 
+def is_completing(printer_id: int) -> bool:
+    """The printer's finished print is being closed out (on_print_complete runs)."""
+    return printer_id in _completing
+
+
 def printer_is_charging(printer_id: int) -> bool:
     """A print's usage is still to be charged: it runs, or it ended and its
     completion has not booked it yet. The AMS remain% sync leaves the

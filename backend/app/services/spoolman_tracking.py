@@ -416,6 +416,96 @@ def _snapshot_tray_remain(raw_data: dict, skipped_out: list[str] | None = None) 
     return snapshot
 
 
+def _extract_3mf_tracking(full_path, plate_id: int | None) -> tuple[list | None, dict | None, dict | None]:
+    """What Spoolman's tracking reads from a print's 3MF: the per-filament
+    grams, the per-layer usage (JSON keys) and the filament properties."""
+    from backend.app.utils.threemf_tools import (
+        extract_filament_properties_from_3mf,
+        extract_filament_usage_from_3mf,
+        extract_layer_filament_usage_from_3mf,
+    )
+
+    filament_usage = extract_filament_usage_from_3mf(full_path, plate_id) or None
+    layer_usage_json: dict | None = None
+    layer_usage = extract_layer_filament_usage_from_3mf(full_path, plate_id)
+    if layer_usage:
+        # Convert int keys to string for JSON serialization
+        layer_usage_json = {str(k): v for k, v in layer_usage.items()}
+        logger.debug("[SPOOLMAN] Parsed %s layers from G-code", len(layer_usage))
+    return filament_usage, layer_usage_json, extract_filament_properties_from_3mf(full_path)
+
+
+async def attach_recovered_3mf(
+    printer_id: int,
+    archive_id: int,
+    file_path: str,
+    db,
+    printer_manager,
+    *,
+    plate_id: int | None = None,
+    may_start: bool = True,
+) -> None:
+    """Add a fallback archive's recovered 3MF to Spoolman's tracking of its print.
+
+    Print start found no 3MF, so it stored only the AMS remain% snapshot and
+    completion would charge the remain% change. Only the 3MF's own data is
+    added: the snapshot was taken at print start, and replacing it from the
+    mid-print state now would charge the wrong change for a slot the 3MF does
+    not cover. Usage already tracked is left alone.
+
+    When print start stored nothing (no slot had a remain%), the 3MF is
+    tracked on its own if ``may_start``: from the recovery inside the print's
+    close-out, which runs before the charge, or from any other while the print
+    runs and is not being closed. During a close-out another recovery's row
+    could follow the charge that already deleted the print's tracking, and be
+    left behind.
+    """
+    from backend.app.api.routes.settings import get_setting
+    from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+
+    spoolman_enabled = await get_setting(db, "spoolman_enabled")
+    if not spoolman_enabled or spoolman_enabled.lower() != "true":
+        return
+    full_path = (
+        app_settings.base_dir / file_path
+    )  # SEC-PATH-OK: file_path is archive.file_path — DB-stored, internally generated
+    if not file_path or not full_path.exists():
+        return
+
+    row = (
+        await db.execute(
+            select(ActivePrintSpoolman)
+            .where(ActivePrintSpoolman.printer_id == printer_id)
+            .where(ActivePrintSpoolman.archive_id == archive_id)
+        )
+    ).scalar_one_or_none()
+    if row is not None and row.filament_usage:
+        return
+    if row is None and not may_start:
+        return
+
+    filament_usage, layer_usage_json, filament_properties = _extract_3mf_tracking(full_path, plate_id)
+    if not filament_usage:
+        return
+    if row is None:
+        state = printer_manager.get_status(printer_id)
+        row = ActivePrintSpoolman(
+            printer_id=printer_id,
+            archive_id=archive_id,
+            ams_trays=build_ams_tray_lookup(state.raw_data) if state and state.raw_data else {},
+        )
+        db.add(row)
+    row.filament_usage = filament_usage
+    row.layer_usage = layer_usage_json
+    row.filament_properties = filament_properties
+    await db.commit()
+    logger.info(
+        "[SPOOLMAN] Archive %s: tracking now has the recovered 3MF's usage (%d filament(s))",
+        archive_id,
+        len(filament_usage),
+    )
+
+
 async def store_print_data(
     printer_id: int,
     archive_id: int,
@@ -442,11 +532,6 @@ async def store_print_data(
     from backend.app.api.routes.settings import get_setting
     from backend.app.models.active_print_spoolman import ActivePrintSpoolman
     from backend.app.models.print_queue import PrintQueueItem
-    from backend.app.utils.threemf_tools import (
-        extract_filament_properties_from_3mf,
-        extract_filament_usage_from_3mf,
-        extract_layer_filament_usage_from_3mf,
-    )
 
     # Check if Spoolman is enabled
     spoolman_enabled = await get_setting(db, "spoolman_enabled")
@@ -505,15 +590,7 @@ async def store_print_data(
         effective_plate_id = (
             plate_id if plate_id is not None else (queue_item.plate_id if queue_item is not None else None)
         )
-        filament_usage = extract_filament_usage_from_3mf(full_path, effective_plate_id) or None
-
-        layer_usage = extract_layer_filament_usage_from_3mf(full_path, effective_plate_id)
-        if layer_usage:
-            # Convert int keys to string for JSON serialization
-            layer_usage_json = {str(k): v for k, v in layer_usage.items()}
-            logger.debug("[SPOOLMAN] Parsed %s layers from G-code", len(layer_usage))
-
-        filament_properties = extract_filament_properties_from_3mf(full_path)
+        filament_usage, layer_usage_json, filament_properties = _extract_3mf_tracking(full_path, effective_plate_id)
     else:
         # No 3MF on disk — common for "Untitled" prints whose .gcode.3mf
         # was never on the printer's FTP. Logged at debug since the

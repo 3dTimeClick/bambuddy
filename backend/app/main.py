@@ -3877,6 +3877,27 @@ async def _recover_fallback_archive_locked(
             source_3mf,
             recovered.file_size,
         )
+        # Spoolman's tracking stored no 3MF usage at print start and would
+        # charge the AMS remain% change; the built-in tracker reads the archive
+        # at completion and needs nothing. Also at the print's end (``price``
+        # False): that recovery runs inside the close-out, before the charge.
+        try:
+            from backend.app.services.spoolman_tracking import attach_recovered_3mf
+            from backend.app.services.usage_tracker import is_completing
+
+            await attach_recovered_3mf(
+                printer_id,
+                recovered.id,
+                recovered.file_path,
+                db,
+                printer_manager,
+                plate_id=_get_start_plate_id(recovered.id) or recovered.plate_id,
+                may_start=not price or (recovered.status == "printing" and not is_completing(printer_id)),
+            )
+        except Exception:
+            logger.warning(
+                "[RECOVER] Archive %s: could not add the 3MF to Spoolman's usage tracking", archive_id, exc_info=True
+            )
         if price and recovered.status == "printing":
             # Print start priced it from the default rate, having no 3MF to
             # estimate from; now it has one. An ended print is left alone: its
