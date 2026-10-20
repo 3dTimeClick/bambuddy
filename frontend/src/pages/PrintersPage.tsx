@@ -2684,6 +2684,10 @@ function PrinterCard({
       queryClient.invalidateQueries({ queryKey: ['virtual-printers'] });
       queryClient.invalidateQueries({ queryKey: ['api-keys'] });
       queryClient.invalidateQueries({ queryKey: ['smart-plugs'] });
+      // Its slot assignments went with it, in both inventory modes; spools
+      // would read as still loaded.
+      queryClient.invalidateQueries({ queryKey: ['spool-assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
       // Obico's printer list lost it; a cached copy would save it back.
       queryClient.invalidateQueries({ queryKey: ['settings'] });
     },

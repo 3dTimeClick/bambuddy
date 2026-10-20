@@ -500,7 +500,8 @@ export function FinancePage() {
       transactionId: selectedEditTransactionId,
       data: {
         user_id: editTransactionUserId || undefined,
-        cost_center_id: editTransactionCostCenterId || undefined,
+        // null moves it to no cost center; left out, the backend keeps the old one.
+        cost_center_id: editTransactionCostCenterId || null,
         amount: amount ?? undefined,
         description: editTransactionDescription || undefined,
       },
