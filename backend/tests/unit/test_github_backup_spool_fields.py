@@ -76,3 +76,17 @@ async def test_collects_the_total_consumed_reset_point(db_session):
     await GitHubBackupService()._collect_spools(db_session, files)
 
     assert files["spools/inventory.json"]["spools"][0]["weight_used_baseline"] == 300
+
+
+@pytest.mark.asyncio
+async def test_collects_when_the_spool_was_last_used(db_session):
+    """LU-4: without it, every spool read as never used after a restore."""
+    from datetime import datetime
+
+    db_session.add(Spool(material="PLA", last_used=datetime(2026, 10, 18, 9, 15)))
+    await db_session.commit()
+
+    files: dict = {}
+    await GitHubBackupService()._collect_spools(db_session, files)
+
+    assert files["spools/inventory.json"]["spools"][0]["last_used"] == "2026-10-18 09:15:00"

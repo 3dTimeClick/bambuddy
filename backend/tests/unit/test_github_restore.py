@@ -889,6 +889,28 @@ class TestRestoreSpools:
         assert spool.last_dried_temp == 55
 
     @pytest.mark.asyncio
+    async def test_restores_when_the_spool_was_last_used(self, db_session):
+        """LU-4 -- written with str() like the drying date."""
+        tally = _CategoryTally()
+        entry = self._spool_entry(last_used="2026-10-18 09:15:00")
+
+        await _service()._restore_spools(db_session, {"spools": [entry]}, None, False, tally, {})
+        await db_session.commit()
+
+        assert (await db_session.execute(select(Spool))).scalars().one().last_used == datetime(2026, 10, 18, 9, 15)
+
+    @pytest.mark.asyncio
+    async def test_older_backup_keeps_the_live_last_used(self, db_session):
+        db_session.add(Spool(material="PLA", tag_uid="AABBCCDD", last_used=datetime(2026, 9, 1, 8, 0)))
+        await db_session.commit()
+        tally = _CategoryTally()
+
+        await _service()._restore_spools(db_session, {"spools": [self._spool_entry()]}, None, True, tally, {})
+        await db_session.commit()
+
+        assert (await db_session.execute(select(Spool))).scalars().one().last_used == datetime(2026, 9, 1, 8, 0)
+
+    @pytest.mark.asyncio
     async def test_matches_existing_spool_by_tag_uid(self, db_session):
         db_session.add(Spool(material="PLA", tag_uid="AABBCCDD", color_name="Old"))
         await db_session.commit()
@@ -1401,6 +1423,51 @@ class TestRestoreArchives:
         }
         entry.update(overrides)
         return entry
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", ["printing", "paused"])
+    async def test_a_print_running_when_backed_up_comes_back_closed(self, db_session, status):
+        """ST/I7: restored as running, the next reconnect closed it as a print
+        that had just failed -- a failure notification and a Print Log row.
+        It is closed here the way the stale-archive cleanup closes one."""
+        tally = _CategoryTally()
+
+        entry = self._archive_entry(status=status, completed_at=None)
+        await _service()._restore_archives(db_session, {"archives": [entry]}, False, tally, {})
+        await db_session.commit()
+
+        row = (await db_session.execute(select(PrintArchive))).scalar_one()
+        assert (row.status, row.failure_reason) == ("cancelled", "noStatusUpdate")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("local_status", "local_reason"), [("printing", None), ("completed", None), ("failed", "nozzleClog")]
+    )
+    async def test_an_overwrite_keeps_what_the_local_row_knows_of_a_print_backed_up_mid_way(
+        self, db_session, local_status, local_reason
+    ):
+        """The local row is the same print, still running or since ended: the
+        backup's snapshot of it in flight has nothing better to say."""
+        db_session.add(
+            PrintArchive(
+                filename="benchy.3mf",
+                file_path="/data/benchy.3mf",
+                file_size=2048,
+                content_hash="abc123",
+                started_at=datetime(2026, 3, 1, 10, 0, 0),
+                status=local_status,
+                failure_reason=local_reason,
+            )
+        )
+        await db_session.commit()
+        tally = _CategoryTally()
+
+        entry = self._archive_entry(status="printing", completed_at=None)
+        await _service()._restore_archives(db_session, {"archives": [entry]}, True, tally, {})
+        await db_session.commit()
+
+        row = (await db_session.execute(select(PrintArchive))).scalar_one()
+        assert (row.status, row.failure_reason) == (local_status, local_reason)
 
     @pytest.mark.asyncio
     async def test_inserts_metadata_only_row_with_empty_file_path(self, db_session):

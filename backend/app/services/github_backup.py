@@ -812,6 +812,9 @@ class GitHubBackupService:
                 "category": s.category,
                 "low_stock_threshold_pct": s.low_stock_threshold_pct,
                 "storage_location": s.storage_location,
+                # When it was last printed with (LU-4): without it, every spool
+                # read as never used after a restore.
+                "last_used": str(s.last_used) if s.last_used else None,
                 # Last drying (#2863).
                 "last_dried_at": str(s.last_dried_at) if s.last_dried_at else None,
                 "last_dried_temp": s.last_dried_temp,
