@@ -5922,7 +5922,7 @@ export default {
     itemsPrintedHelp: 'Bu baskı işinde üretilen öğe sayısı. Tüm tabla bozulduysa 0 girin.',
     filamentUsed: 'Kullanılan filament (g)',
     filamentUsedPlaceholder: 'ör. 46.16',
-    filamentUsedHelp: 'Bir baskı 3MF dosyası olmadan arşivlendiyse elle girin; böylece filament toplamlarına yine de dahil olur. 3MF dosyası olan bir arşiv yeniden tarandığında bu değer dosyadan yeniden okunur.',
+    filamentUsedHelp: 'Bir baskı 3MF dosyası olmadan arşivlendiyse elle girin; böylece filament toplamlarına yine de dahil olur.',
     filamentUsedLocked: 'Bu değeri yalnızca tüm arşivleri düzenleyebilen kullanıcılar değiştirebilir: bu arşivin sonraki baskıları buna göre ücretlendirilir.',
     statusHelp: 'İstatistiklerde Başarısız ve Yarıda kesildi hata olarak sayılır. İptal edildi durdurulmuş sayılır ve başarı oranını düşürmez.',
     notes: 'Notlar',

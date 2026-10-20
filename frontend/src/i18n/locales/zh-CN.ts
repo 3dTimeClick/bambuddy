@@ -5936,7 +5936,7 @@ export default {
     itemsPrintedHelp: '此打印任务中生产的物品数量。整块打印板报废时填 0。',
     filamentUsed: '已用耗材 (g)',
     filamentUsedPlaceholder: '例如 46.16',
-    filamentUsedHelp: '当打印任务在没有 3MF 的情况下归档时，可手动填写，使其仍计入耗材总量。重新扫描带有 3MF 的归档时，该数值会从文件中重新读取。',
+    filamentUsedHelp: '当打印任务在没有 3MF 的情况下归档时，可手动填写，使其仍计入耗材总量。',
     filamentUsedLocked: '只有可以编辑所有归档的用户才能更改此数值：此归档之后的打印将据此计费。',
     statusHelp: '在统计中，“失败”和“已中止”计为失败。“已取消”计为停止，不会降低成功率。',
     notes: '备注',

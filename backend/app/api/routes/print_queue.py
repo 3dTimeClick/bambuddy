@@ -749,7 +749,9 @@ async def list_queue(
     elif target_model:
         query = query.where(func.lower(PrintQueueItem.target_model) == target_model.lower())
     if status:
-        query = query.where(PrintQueueItem.status == status)
+        # Several statuses, comma-separated (?status=pending,printing).
+        statuses = [part.strip() for part in status.split(",") if part.strip()]
+        query = query.where(PrintQueueItem.status.in_(statuses))
 
     result = await db.execute(query)
     items = result.scalars().all()

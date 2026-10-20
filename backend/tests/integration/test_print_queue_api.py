@@ -121,6 +121,22 @@ class TestPrintQueueAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_list_filters_on_several_statuses(self, async_client: AsyncClient, queue_item_factory):
+        """The wiki documents ?status=pending,printing; it was matched as one
+        literal status, so it returned nothing."""
+        pending = await queue_item_factory(status="pending")
+        printing = await queue_item_factory(status="printing")
+        await queue_item_factory(status="completed")
+
+        several = await async_client.get("/api/v1/queue/?status=pending,printing")
+        one = await async_client.get("/api/v1/queue/?status=printing")
+
+        assert several.status_code == 200
+        assert sorted(item["id"] for item in several.json()) == sorted([pending.id, printing.id])
+        assert [item["id"] for item in one.json()] == [printing.id]
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     @pytest.mark.parametrize("pinned_first", [True, False], ids=["pinned-above-any", "any-above-pinned"])
     async def test_list_follows_queue_position_across_pinned_and_any_jobs(
         self, async_client: AsyncClient, printer_factory, queue_item_factory, pinned_first

@@ -5698,7 +5698,7 @@ export default {
     itemsPrintedHelp: '이 인쇄 작업에서 생산된 항목 수. 플레이트 전체를 버린 경우 0을 입력하세요.',
     filamentUsed: '사용된 필라멘트 (g)',
     filamentUsedPlaceholder: '예: 46.16',
-    filamentUsedHelp: '3MF 없이 보관된 인쇄는 직접 입력하면 필라멘트 합계에 반영됩니다. 3MF가 있는 보관 항목을 다시 스캔하면 이 값은 파일에서 다시 읽어옵니다.',
+    filamentUsedHelp: '3MF 없이 보관된 인쇄는 직접 입력하면 필라멘트 합계에 반영됩니다.',
     filamentUsedLocked: '모든 아카이브를 편집할 수 있는 사용자만 이 값을 변경할 수 있습니다. 이 아카이브의 이후 출력은 이 값을 기준으로 청구됩니다.',
     statusHelp: '통계에서 \'실패\'와 \'중단됨\'은 실패로 집계됩니다. \'취소됨\'은 중지로 집계되며 성공률을 낮추지 않습니다.',
     notes: '메모',

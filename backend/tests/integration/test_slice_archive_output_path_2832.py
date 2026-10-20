@@ -84,7 +84,7 @@ class TestTheReportedFailure:
 
     async def test_the_archive_row_points_at_the_file(self, db_session, archive_factory, printer_factory, archive_root):
         """A row whose file_path does not exist is the same class of bug one
-        step later -- every reprint and rescan reads it back."""
+        step later -- every reprint reads it back."""
         from backend.app.core.config import settings
         from backend.app.models.archive import PrintArchive
 

@@ -5957,7 +5957,7 @@ export default {
     itemsPrintedHelp: 'Número de elementos producidos en este trabajo de impresión. Use 0 si toda la placa se estropeó.',
     filamentUsed: 'Filamento usado (g)',
     filamentUsedPlaceholder: 'p. ej. 46.16',
-    filamentUsedHelp: 'Introdúcelo a mano cuando una impresión se haya archivado sin su 3MF, para que siga contando en los totales de filamento. Al volver a escanear un archivo que sí tiene su 3MF, el valor se lee de nuevo del fichero.',
+    filamentUsedHelp: 'Introdúcelo a mano cuando una impresión se haya archivado sin su 3MF, para que siga contando en los totales de filamento.',
     filamentUsedLocked: 'Solo los usuarios que pueden editar todos los archivos pueden cambiar este valor: las impresiones posteriores de este archivo se cobran a partir de él.',
     statusHelp: 'Fallida y Abortada cuentan como fallos en las estadísticas. Cancelada cuenta como detenida y no reduce la tasa de éxito.',
     notes: 'Notas',

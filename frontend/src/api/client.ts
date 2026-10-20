@@ -7614,38 +7614,6 @@ export const api = {
       body: JSON.stringify({ queue_item_ids: queueItemIds }),
     }),
 
-  // Project Attachments
-  uploadProjectAttachment: async (projectId: number, file: File): Promise<{
-    status: string;
-    filename: string;
-    original_name: string;
-    attachments: ProjectAttachment[];
-  }> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const headers: Record<string, string> = {};
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
-    const response = await fetch(`${API_BASE}/projects/${projectId}/attachments`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
-    }
-    return response.json();
-  },
-  getProjectAttachmentUrl: (projectId: number, filename: string) =>
-    `${API_BASE}/projects/${projectId}/attachments/${encodeURIComponent(filename)}`,
-  deleteProjectAttachment: (projectId: number, filename: string) =>
-    request<{ status: string; message: string; attachments: ProjectAttachment[] | null }>(
-      `/projects/${projectId}/attachments/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    ),
-
   // #1155: Cover image
   // Browsers can't attach `Authorization: Bearer ...` to `<img src>`, so we
   // append the stream-token query string the same way archive thumbnails do.

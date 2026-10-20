@@ -45,8 +45,8 @@ class ArchiveUpdate(IgnoresNullForRequiredColumns, ArchiveBase):
     # 'api' — some script or integration did it.
     user_verdict_source: str | None = Field(default=None, pattern="^(dialog|printer_card|api)$")
     # Editable because a print archived without its 3MF has no figure at all,
-    # and nothing else can supply one after the fact -- rescan needs a file
-    # this archive does not have (#1820). Bounded because it feeds the filament
+    # and nothing else can supply one after the fact -- the figure is read from
+    # a 3MF this archive does not have (#1820). Bounded because it feeds the filament
     # totals: 100 kg is far past any single print and well short of a value
     # that would swamp a chart.
     filament_used_grams: Annotated[float | None, Field(ge=0, le=100_000)] = None

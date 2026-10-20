@@ -6,13 +6,10 @@ sum the spool usage of every run, so an archive printed three times was priced
 three times over; editing its grams repriced nothing.
 """
 
-import zipfile
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from backend.app.core.config import settings
 from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.spool_usage_history import SpoolUsageHistory
 
@@ -69,23 +66,6 @@ async def test_recalculate_still_prices_untracked_grams_at_the_default(
     assert (await async_client.post("/api/v1/archives/recalculate-costs")).status_code == 200
 
     assert await _cost(async_client, archive_id) == 3.25
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_rescan_prices_one_print(
-    async_client: AsyncClient, archive_factory, printer_factory, db_session, tmp_path, monkeypatch
-):
-    monkeypatch.setattr(settings, "base_dir", tmp_path)
-    archive_id = await _archive(archive_factory, printer_factory, db_session, grams=100.0)
-    (tmp_path / "archives/test").mkdir(parents=True)
-    with zipfile.ZipFile(tmp_path / "archives/test/test_print.gcode.3mf", "w") as zf:
-        zf.writestr("3D/3dmodel.model", "<model/>")
-    await _usage(db_session, archive_id, (100.0, 3.0), (100.0, 3.0), (100.0, 3.0))
-
-    assert (await async_client.post(f"/api/v1/archives/{archive_id}/rescan")).status_code == 200
-
-    assert await _cost(async_client, archive_id) == 3.0
 
 
 @pytest.mark.asyncio

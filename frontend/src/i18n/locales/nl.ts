@@ -6000,7 +6000,7 @@ export default {
     itemsPrintedHelp: 'Aantal items dat met deze afdruktaak is geproduceerd. Gebruik 0 als de hele plaat mislukt is.',
     filamentUsed: 'Gebruikt filament (g)',
     filamentUsedPlaceholder: 'bijv. 46.16',
-    filamentUsedHelp: 'Stel dit handmatig in wanneer een afdruk zonder 3MF is gearchiveerd, zodat deze toch meetelt in de filamenttotalen. Bij het opnieuw scannen van een archief met een 3MF wordt de waarde weer uit het bestand gelezen.',
+    filamentUsedHelp: 'Stel dit handmatig in wanneer een afdruk zonder 3MF is gearchiveerd, zodat deze toch meetelt in de filamenttotalen.',
     filamentUsedLocked: 'Alleen gebruikers die alle archieven mogen bewerken, kunnen deze waarde wijzigen: latere afdrukken van dit archief worden ermee afgerekend.',
     statusHelp: 'Mislukt en Afgebroken tellen in de statistieken als mislukt. Geannuleerd telt als gestopt en verlaagt het succespercentage niet.',
     notes: 'Notities',

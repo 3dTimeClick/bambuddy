@@ -5936,7 +5936,7 @@ export default {
     itemsPrintedHelp: '此列印任務中生產的物品數量。整塊列印板報廢時填 0。',
     filamentUsed: '已用耗材 (g)',
     filamentUsedPlaceholder: '例如 46.16',
-    filamentUsedHelp: '當列印工作在沒有 3MF 的情況下封存時，可手動填寫，使其仍計入耗材總量。重新掃描具有 3MF 的封存項目時，此數值會從檔案重新讀取。',
+    filamentUsedHelp: '當列印工作在沒有 3MF 的情況下封存時，可手動填寫，使其仍計入耗材總量。',
     filamentUsedLocked: '只有可以編輯所有封存的使用者才能變更此數值：此封存之後的列印將據此計費。',
     statusHelp: '在統計中，「失敗」和「已中止」計為失敗。「已取消」計為停止，不會降低成功率。',
     notes: '備註',

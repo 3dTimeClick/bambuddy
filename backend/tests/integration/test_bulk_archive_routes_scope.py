@@ -1,8 +1,7 @@
 """Bulk archive actions keep to the caller's printers.
 
-Recalculating costs and rescanning all archives went over every archive,
-so a member of a group limited to some printers rewrote other printers'
-archives and got their ids back in the error list.
+Recalculating costs went over every archive, so a member of a group limited
+to some printers rewrote other printers' archives.
 """
 
 from __future__ import annotations
@@ -22,21 +21,6 @@ async def _member(client: AsyncClient, printer_ids: list[int]) -> dict[str, str]
     perms = await _group(client, admin, "perms", permissions=[*TEAM_PERMISSIONS, "archives:update_all"])
     team = await _group(client, admin, "team", printer_ids=printer_ids)
     return _auth((await _user(client, admin, "member", [perms, team]))[0])
-
-
-async def test_rescan_all_reports_only_the_team_printers_archives(
-    async_client: AsyncClient, printer_factory, archive_factory
-):
-    a, b = await printer_factory(name="A"), await printer_factory(name="B")
-    # No file behind either archive, so each one lands in the error list.
-    on_a = await archive_factory(a.id, file_path="archives/missing-a.3mf")
-    await archive_factory(b.id, file_path="archives/missing-b.3mf")
-    member = await _member(async_client, [a.id])
-
-    response = await async_client.post("/api/v1/archives/rescan-all", headers=member)
-
-    assert response.status_code == 200, response.text
-    assert [error["id"] for error in response.json()["errors"]] == [on_a.id]
 
 
 async def test_recalculating_costs_leaves_other_printers_alone(

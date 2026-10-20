@@ -5937,7 +5937,7 @@ export default {
     itemsPrintedHelp: 'Nombre d\'objets produits. Indiquez 0 si tout le plateau est raté.',
     filamentUsed: 'Filament utilisé (g)',
     filamentUsedPlaceholder: 'p. ex. 46.16',
-    filamentUsedHelp: 'À saisir à la main lorsqu\'une impression a été archivée sans son 3MF, afin qu\'elle compte quand même dans les totaux de filament. Une nouvelle analyse d\'une archive qui possède son 3MF relit la valeur depuis le fichier.',
+    filamentUsedHelp: 'À saisir à la main lorsqu\'une impression a été archivée sans son 3MF, afin qu\'elle compte quand même dans les totaux de filament.',
     filamentUsedLocked: 'Seuls les utilisateurs autorisés à modifier toutes les archives peuvent changer cette valeur : les impressions suivantes de cette archive sont facturées à partir d\'elle.',
     statusHelp: 'Échouée et Interrompue comptent comme des échecs dans les statistiques. Annulée compte comme arrêtée et ne fait pas baisser le taux de réussite.',
     notes: 'Notes',

@@ -5949,7 +5949,7 @@ export default {
     itemsPrintedHelp: 'Anzahl der in diesem Druckauftrag produzierten Teile. 0, wenn die ganze Platte unbrauchbar war.',
     filamentUsed: 'Verbrauchtes Filament (g)',
     filamentUsedPlaceholder: 'z. B. 46.16',
-    filamentUsedHelp: 'Von Hand eintragen, wenn ein Druck ohne 3MF archiviert wurde, damit er in die Filament-Summen eingeht. Beim erneuten Einlesen eines Archivs mit 3MF wird der Wert wieder aus der Datei übernommen.',
+    filamentUsedHelp: 'Von Hand eintragen, wenn ein Druck ohne 3MF archiviert wurde, damit er in die Filament-Summen eingeht.',
     filamentUsedLocked: 'Nur Benutzer, die alle Archive bearbeiten dürfen, können diesen Wert ändern: Spätere Drucke dieses Archivs werden danach berechnet.',
     statusHelp: 'Fehlgeschlagen und Abgebrochen zählen in der Statistik als Fehler. Gestoppt zählt als angehalten und senkt die Erfolgsquote nicht.',
     notes: 'Notizen',

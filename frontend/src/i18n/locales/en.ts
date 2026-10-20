@@ -6002,7 +6002,7 @@ export default {
     itemsPrintedHelp: 'Number of items produced in this print job. Use 0 if the whole plate was ruined.',
     filamentUsed: 'Filament used (g)',
     filamentUsedPlaceholder: 'e.g. 46.16',
-    filamentUsedHelp: 'Set this by hand when a print archived without its 3MF, so it still counts towards the filament totals. Rescanning an archive that has its 3MF reads the figure back from the file.',
+    filamentUsedHelp: 'Set this by hand when a print archived without its 3MF, so it still counts towards the filament totals.',
     filamentUsedLocked: 'Only users who can edit all archives can change this figure: later prints of this archive are charged from it.',
     statusHelp: 'Failed and Aborted count as failures in the statistics. Cancelled counts as stopped and does not lower the success rate.',
     notes: 'Notes',

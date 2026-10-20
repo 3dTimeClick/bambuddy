@@ -395,7 +395,7 @@ describe('EditArchiveModal', () => {
   });
 
   describe('filament grams (#1820)', () => {
-    // A print archived without its 3MF carries no weight at all, and no rescan
+    // A print archived without its 3MF carries no weight at all, and nothing
     // can supply one — there is no file to read. Typing it here is the only
     // route, so the field has to reach the API, and an untouched save must not
     // overwrite a figure that came from a real slice.

@@ -400,7 +400,7 @@ export function EditArchiveModal({ archive, onClose, existingTags = [] }: EditAr
           </div>
 
           {/* Filament used - the only way to supply a figure for a print that
-              archived without its 3MF, which no rescan can repair (#1820). */}
+              archived without its 3MF, which has nothing to read it from (#1820). */}
           <div>
             <label className="block text-sm text-bambu-gray mb-1" htmlFor="archive-filament-grams">
               <Weight className="w-4 h-4 inline mr-1" />

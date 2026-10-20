@@ -810,8 +810,8 @@ class TestArchivesAPI:
         self, async_client: AsyncClient, archive_factory, printer_factory, db_session
     ):
         """#1820: a print that archived without its 3MF has no filament figure
-        and no way to recover one — rescan needs a file this archive does not
-        have. The edit is the only route, so it has to reach the log entry too:
+        and no way to recover one — the figure is read from a 3MF this archive
+        does not have. The edit is the only route, so it has to reach the log entry too:
         the Projects roll-up and the Prometheus counter sum PrintLogEntry, not
         the archive.
         """
