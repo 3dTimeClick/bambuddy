@@ -2188,8 +2188,6 @@ export default {
     upToDate: 'Güncelsiniz',
     updateAvailable: 'Güncelleme mevcut',
     // Bildirimler
-    notificationLanguage: 'Bildirim Dili',
-    notificationLanguageDescription: 'Push bildirimleri için dil',
     bedCooledThreshold: 'Tabla Soğuma Eşiği',
     bedCooledThresholdDescription: 'Bir baskıdan sonra tablanın soğumuş kabul edildiği sıcaklık',
     userNotificationsEnabled: 'Kullanıcı Bildirimleri',
@@ -2316,7 +2314,6 @@ export default {
     // Kenar çubuğu
     sidebarOrder: 'Kenar çubuğu sırası',
     // Kamera
-    saveThumbnails: 'Küçük resimleri kaydet',
     captureFinishPhoto: 'Bitiş fotoğrafı çek',
     noPrintersConfigured: 'Yapılandırılmış yazıcı yok',
     // Arşiv ayarları
@@ -2860,7 +2857,6 @@ export default {
     // Arşiv
     autoArchivePrints: 'Baskıları otomatik arşivle',
     autoArchiveDescription: 'Baskılar tamamlandığında 3MF dosyalarını otomatik olarak kaydet. Kapalıyken hiçbir yazıcı Bambuddy dışında başlatılan baskıları arşivlemez.',
-    saveThumbnailsDescription: '3MF dosyalarından önizleme görüntülerini çıkar ve kaydet',
     captureFinishPhotoDescription: 'Baskı tamamlandığında yazıcı kamerasından bir fotoğraf çek. Bambuddy, baskı sırasında kısa bir zaman atlamalı kayıt yapar, böylece fotoğraf tabla inmeden önceki andan alınabilir. Bu baskı için zaman atlamalı kaydı etkinleştirdiyseniz dosya saklanır, aksi takdirde fotoğraf çekildikten sonra otomatik olarak silinir.',
     finishPhotoRestorePlate: 'Bitiş fotoğrafı için tablayı yükselt',
     finishPhotoRestorePlateDescription: 'Yazıcı, baskı bittiğinde tablayı yaklaşık 100 mm aşağı indirir ve tamamlanmış baskı kameranın çerçevesinin altında kalır. Bambuddy tablayı son basılan katmanın hemen üzerine geri kaldırır, fotoğrafı çeker ve ardından tekrar indirir. Baskı yüksekliği bilinmiyorsa veya kuyrukta başka bir iş varsa atlanır.',

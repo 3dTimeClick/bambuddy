@@ -2188,8 +2188,6 @@ export default {
     upToDate: 'Está actualizado',
     updateAvailable: 'Actualización disponible',
     // Notifications
-    notificationLanguage: 'Idioma de las notificaciones',
-    notificationLanguageDescription: 'Idioma de las notificaciones push',
     bedCooledThreshold: 'Umbral de cama enfriada',
     bedCooledThresholdDescription: 'Temperatura por debajo de la cual se considera que la cama se ha enfriado tras una impresión',
     userNotificationsEnabled: 'Notificaciones de usuario',
@@ -2316,7 +2314,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Orden de la barra lateral',
     // Camera
-    saveThumbnails: 'Guardar miniaturas',
     captureFinishPhoto: 'Capturar foto de finalización',
     noPrintersConfigured: 'No hay impresoras configuradas',
     // Updates
@@ -2859,7 +2856,6 @@ export default {
     // Archive
     autoArchivePrints: 'Archivar impresiones automáticamente',
     autoArchiveDescription: 'Guardar automáticamente los archivos 3MF cuando se completan las impresiones. Desactivado: ninguna impresora archiva las impresiones iniciadas fuera de Bambuddy.',
-    saveThumbnailsDescription: 'Extraer y guardar imágenes de vista previa de los archivos 3MF',
     captureFinishPhotoDescription: 'Tomar una foto desde la cámara de la impresora cuando se completa la impresión. Bambuddy graba un breve timelapse durante la impresión para que la foto pueda obtenerse del momento previo al descenso de la cama; el archivo del timelapse se conserva si activaste el timelapse para esta impresión, de lo contrario se elimina automáticamente tras capturar la foto.',
     finishPhotoRestorePlate: 'Elevar la cama para la foto final',
     finishPhotoRestorePlateDescription: 'La impresora baja la cama unos 100 mm al terminar una impresión, dejando la pieza terminada por debajo del encuadre de la cámara. Bambuddy la vuelve a subir hasta justo encima de la última capa impresa, toma la foto y luego la baja de nuevo. Se omite si se desconoce la altura de la impresión o si hay otro trabajo en cola.',

@@ -2185,8 +2185,6 @@ export default {
     upToDate: '已是最新版本',
     updateAvailable: '有可用更新',
     // Notifications
-    notificationLanguage: '通知語言',
-    notificationLanguageDescription: '推送通知的語言',
     bedCooledThreshold: '熱床冷卻閾值',
     bedCooledThresholdDescription: '列印後熱床被視為已冷卻的溫度',
     userNotificationsEnabled: '使用者通知',
@@ -2313,7 +2311,6 @@ export default {
     // Sidebar
     sidebarOrder: '側邊欄順序',
     // Camera
-    saveThumbnails: '儲存縮圖',
     captureFinishPhoto: '拍攝完成照片',
     noPrintersConfigured: '未設定印表機',
     // Updates
@@ -2854,7 +2851,6 @@ export default {
     progressInTitleDescription: '在瀏覽器分頁中顯示目前列印的百分比和進度環。',
     autoArchivePrints: '自動歸檔列印',
     autoArchiveDescription: '列印完成時自動儲存3MF檔案。關閉時，所有印表機都不會歸檔在 Bambuddy 之外啟動的列印。',
-    saveThumbnailsDescription: '從3MF檔案中提取並儲存預覽影像',
     captureFinishPhotoDescription: '列印完成時從印表機攝影機拍照。Bambuddy 會在列印期間錄製一段短縮時攝影，以便從熱床下降前的瞬間取得照片；如果您為本次列印啟用了縮時攝影，檔案將保留，否則會在拍照完成後自動刪除。',
     finishPhotoRestorePlate: '為完成照片抬升熱床',
     finishPhotoRestorePlateDescription: '列印結束時印表機會將熱床下降約 100 mm，使完成的模型落在相機取景範圍之下。Bambuddy 會將熱床抬回到最後一層列印高度略上方，拍攝照片後再次下降。若列印高度未知或佇列中還有其他任務，則跳過此步驟。',

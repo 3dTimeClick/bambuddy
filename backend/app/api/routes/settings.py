@@ -1333,7 +1333,7 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
 
                 # Identify columns that need type conversion (SQLite stores booleans
                 # as int and datetimes as str — asyncpg requires native Python types)
-                from datetime import datetime as dt
+                from datetime import datetime as dt, timezone
 
                 bool_columns = set()
                 datetime_columns = set()
@@ -1365,7 +1365,9 @@ async def _import_sqlite_to_postgres(sqlite_path: Path):
                                     if sd is not None:
                                         not_null_defaults[col.name] = sd
 
-                now = dt.now()
+                # Naive UTC, as every stored timestamp is: the host's local
+                # time put backfilled rows hours off (DB-C4).
+                now = dt.now(timezone.utc).replace(tzinfo=None)
                 value_fixes = _restored_value_fixes(table_name)
 
                 def _convert_row(

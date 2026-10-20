@@ -123,3 +123,37 @@ describe('SettingsPage printer temperature history retention', () => {
     });
   });
 });
+
+/**
+ * settings-2 / settings-3: "Save thumbnails" and "Notification Language" were
+ * saved but nothing read them -- thumbnails were always stored, notifications
+ * always used their template text. The controls are gone; the API keeps the
+ * fields for scripts that send them.
+ */
+describe('SettingsPage controls that did nothing', () => {
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+    vi.mocked(localStorage.getItem).mockReset();
+    localStorage.clear();
+    setAuthToken(null);
+    server.use(
+      http.get('/api/v1/settings/', () => HttpResponse.json(settings)),
+      http.get('/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: false, requires_setup: false })),
+    );
+  });
+
+  it('has no "Save thumbnails" toggle', async () => {
+    render(<SettingsPage />);
+    expect(await screen.findByText('Capture finish photo')).toBeInTheDocument();
+    expect(screen.queryByText('Save thumbnails')).not.toBeInTheDocument();
+  });
+
+  it('has no notification language picker', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await screen.findByText('Date Format');
+    await user.click(screen.getAllByText('Notifications')[0]);
+    expect(await screen.findByRole('button', { name: /^Add$/ }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText('Notification Language')).not.toBeInTheDocument();
+  });
+});

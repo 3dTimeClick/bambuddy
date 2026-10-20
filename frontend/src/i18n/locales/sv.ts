@@ -2204,8 +2204,6 @@ export default {
     upToDate: 'Du har den senaste versionen',
     updateAvailable: 'Uppdatering tillgänglig',
     // Notifications
-    notificationLanguage: 'Notisspråk',
-    notificationLanguageDescription: 'Språk för push-notiser',
     bedCooledThreshold: 'Tröskelvärde för sval byggplatta',
     bedCooledThresholdDescription: 'Temperatur under vilken byggplattan anses sval efter en utskrift',
     userNotificationsEnabled: 'Användarnotiser',
@@ -2332,7 +2330,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Sidofältsordning',
     // Camera
-    saveThumbnails: 'Spara minibilder',
     captureFinishPhoto: 'Ta färdig-foto',
     noPrintersConfigured: 'Inga skrivare konfigurerade',
     // Updates
@@ -2876,7 +2873,6 @@ export default {
     // Archive
     autoArchivePrints: 'Auto-arkivera utskrifter',
     autoArchiveDescription: 'Spara automatiskt 3MF-filer när utskrifter slutförs. Av: ingen skrivare arkiverar utskrifter som startats utanför Bambuddy.',
-    saveThumbnailsDescription: 'Extrahera och spara förhandsvisningsbilder från 3MF-filer',
     captureFinishPhotoDescription: 'Ta ett foto från skrivarkameran när utskriften slutförs. Bambuddy spelar in en kort timelapse under utskriften så att fotot kan hämtas från ögonblicket innan byggplattan sänks; timelapse-filen behålls om du aktiverat timelapse för denna utskrift, annars tas den automatiskt bort efter att fotot tagits.',
     finishPhotoRestorePlate: 'Återställ platta för foto',
     finishPhotoRestorePlateDescription: 'Skrivaren sänker byggplattan cirka 100 mm när en utskrift slutförs, vilket lämnar den färdiga utskriften under kamerans bildruta. Bambuddy höjer tillbaka den precis ovanför det sista utskrivna skiktet, tar fotot och sänker den igen. Hoppas över när utskriftshöjden är okänd eller om ett annat jobb är köat.',

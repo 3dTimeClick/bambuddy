@@ -2205,8 +2205,6 @@ export default {
     upToDate: 'Je bent up-to-date',
     updateAvailable: 'Update beschikbaar',
     // Notifications
-    notificationLanguage: 'Taal voor meldingen',
-    notificationLanguageDescription: 'Taal voor pushmeldingen',
     bedCooledThreshold: 'Drempel voor afgekoeld bed',
     bedCooledThresholdDescription: 'Temperatuur waaronder het bed na een afdruk als afgekoeld wordt beschouwd',
     userNotificationsEnabled: 'Gebruikersmeldingen',
@@ -2333,7 +2331,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Volgorde zijbalk',
     // Camera
-    saveThumbnails: 'Miniaturen opslaan',
     captureFinishPhoto: 'Eindfoto vastleggen',
     noPrintersConfigured: 'Geen printers geconfigureerd',
     // Updates
@@ -2877,7 +2874,6 @@ export default {
     // Archive
     autoArchivePrints: 'Afdrukken automatisch archiveren',
     autoArchiveDescription: '3MF-bestanden automatisch opslaan wanneer afdrukken zijn voltooid. Uit: geen enkele printer archiveert afdrukken die buiten Bambuddy zijn gestart.',
-    saveThumbnailsDescription: 'Voorbeeldafbeeldingen uit 3MF-bestanden extraheren en opslaan',
     captureFinishPhotoDescription: 'Maak een foto met de printercamera wanneer de afdruk is voltooid. Bambuddy neemt tijdens de afdruk een korte timelapse op zodat de foto kan worden genomen van het moment voordat het bed zakt; het timelapsebestand blijft behouden als je timelapse voor deze afdruk hebt ingeschakeld, anders wordt het automatisch verwijderd nadat de foto is vastgelegd.',
     finishPhotoRestorePlate: 'Plaat herstellen voor eindfoto',
     finishPhotoRestorePlateDescription: 'De printer laat de bouwplaat ongeveer 100 mm zakken wanneer een afdruk eindigt, waardoor de voltooide afdruk onder het camerabeeld komt. Bambuddy brengt de plaat terug tot net boven de laatst geprinte laag, maakt de foto en laat hem daarna weer zakken. Wordt overgeslagen wanneer de afdrukhoogte onbekend is of er een andere taak in de wachtrij staat.',

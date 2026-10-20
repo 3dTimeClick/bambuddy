@@ -2140,8 +2140,6 @@ export default {
     upToDate: 'Sei aggiornato',
     updateAvailable: 'Aggiornamento disponibile',
     // Notifications
-    notificationLanguage: 'Lingua notifiche',
-    notificationLanguageDescription: 'Lingua per notifiche push',
     bedCooledThreshold: 'Soglia raffreddamento piatto',
     bedCooledThresholdDescription: 'Temperatura sotto la quale il piatto è considerato raffreddato dopo una stampa',
     userNotificationsEnabled: 'Notifiche utente',
@@ -2268,7 +2266,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Ordine barra laterale',
     // Camera
-    saveThumbnails: 'Salva miniature',
     captureFinishPhoto: 'Acquisisci foto finale',
     noPrintersConfigured: 'Nessuna stampante configurata',
     // Updates
@@ -2809,7 +2806,6 @@ export default {
     progressInTitleDescription: 'Mostra la percentuale della stampa attiva e un anello di avanzamento nella scheda del browser.',
     autoArchivePrints: 'Archiviazione automatica stampe',
     autoArchiveDescription: 'Salva automaticamente i file 3MF al completamento delle stampe. Disattivato: nessuna stampante archivia le stampe avviate al di fuori di Bambuddy.',
-    saveThumbnailsDescription: 'Estrai e salva le immagini di anteprima dai file 3MF',
     captureFinishPhotoDescription: 'Scatta una foto dalla fotocamera della stampante al completamento della stampa. Bambuddy registra un breve timelapse durante la stampa in modo che la foto possa essere ricavata dal momento precedente all\'abbassamento del piatto; il file del timelapse viene mantenuto se hai abilitato il timelapse per questa stampa, altrimenti viene eliminato automaticamente dopo l\'acquisizione della foto.',
     finishPhotoRestorePlate: 'Solleva il piatto per la foto finale',
     finishPhotoRestorePlateDescription: 'La stampante abbassa il piatto di circa 100 mm al termine di una stampa, lasciando l\'oggetto finito sotto l\'inquadratura della fotocamera. Bambuddy lo risolleva fino a poco sopra l\'ultimo strato stampato, scatta la foto e poi lo riabbassa. Ignorato se l\'altezza di stampa è sconosciuta o se un altro lavoro è in coda.',

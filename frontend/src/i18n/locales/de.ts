@@ -2185,8 +2185,6 @@ export default {
     upToDate: 'Sie sind auf dem neuesten Stand',
     updateAvailable: 'Update verfügbar',
     // Notifications
-    notificationLanguage: 'Benachrichtigungssprache',
-    notificationLanguageDescription: 'Sprache für Push-Benachrichtigungen',
     bedCooledThreshold: 'Bett-Abkühlung Schwellenwert',
     bedCooledThresholdDescription: 'Temperatur, unter der das Bett nach einem Druck als abgekühlt gilt',
     userNotificationsEnabled: 'Benutzerbenachrichtigungen',
@@ -2313,7 +2311,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Seitenleisten-Reihenfolge',
     // Camera
-    saveThumbnails: 'Vorschaubilder speichern',
     captureFinishPhoto: 'Abschlussfoto aufnehmen',
     noPrintersConfigured: 'Keine Drucker konfiguriert',
     // Updates
@@ -2857,7 +2854,6 @@ export default {
     // Archive
     autoArchivePrints: 'Drucke automatisch archivieren',
     autoArchiveDescription: '3MF-Dateien automatisch speichern, wenn Drucke abgeschlossen sind. Aus: Kein Drucker archiviert Drucke, die außerhalb von Bambuddy gestartet wurden.',
-    saveThumbnailsDescription: 'Vorschaubilder aus 3MF-Dateien extrahieren und speichern',
     captureFinishPhotoDescription: 'Foto von der Druckerkamera aufnehmen, wenn der Druck abgeschlossen ist. Bambuddy zeichnet während des Drucks einen kurzen Zeitraffer auf, damit das Foto aus dem Moment vor dem Absenken der Druckplatte stammen kann. Die Zeitraffer-Datei bleibt erhalten, wenn du den Zeitraffer für diesen Druck aktiviert hast, andernfalls wird sie nach Aufnahme des Fotos automatisch gelöscht.',
     finishPhotoRestorePlate: 'Druckplatte für Abschlussfoto anheben',
     finishPhotoRestorePlateDescription: 'Der Drucker senkt die Druckplatte am Druckende um etwa 100 mm ab, wodurch der fertige Druck unterhalb des Kamerabildausschnitts liegt. Bambuddy hebt sie wieder bis knapp über die zuletzt gedruckte Schicht an, nimmt das Foto auf und senkt sie danach wieder ab. Wird übersprungen, wenn die Druckhöhe unbekannt ist oder ein weiterer Auftrag in der Warteschlange steht.',

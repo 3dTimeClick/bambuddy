@@ -2207,8 +2207,6 @@ export default {
     upToDate: 'You are up to date',
     updateAvailable: 'Update available',
     // Notifications
-    notificationLanguage: 'Notification Language',
-    notificationLanguageDescription: 'Language for push notifications',
     bedCooledThreshold: 'Bed Cooled Threshold',
     bedCooledThresholdDescription: 'Temperature below which the bed is considered cooled after a print',
     userNotificationsEnabled: 'User Notifications',
@@ -2335,7 +2333,6 @@ export default {
     // Sidebar
     sidebarOrder: 'Sidebar order',
     // Camera
-    saveThumbnails: 'Save thumbnails',
     captureFinishPhoto: 'Capture finish photo',
     noPrintersConfigured: 'No printers configured',
     // Updates
@@ -2879,7 +2876,6 @@ export default {
     // Archive
     autoArchivePrints: 'Auto-archive prints',
     autoArchiveDescription: 'Automatically save 3MF files when prints complete. When off, no printer archives prints started outside Bambuddy.',
-    saveThumbnailsDescription: 'Extract and save preview images from 3MF files',
     captureFinishPhotoDescription: 'Take a photo from printer camera when print completes. Bambuddy records a brief timelapse during the print so the photo can be sourced from the moment before the bed drops; the timelapse file is kept if you enabled timelapse for this print, otherwise it is deleted automatically after the photo is captured.',
     finishPhotoRestorePlate: 'Restore plate for finish photo',
     finishPhotoRestorePlateDescription: 'The printer drops the build plate about 100 mm when a print ends, leaving the finished print below the camera\'s framing. Bambuddy raises it back to just above the last printed layer, takes the photo, then lowers it again. Skipped when the print height is unknown or another job is queued.',
