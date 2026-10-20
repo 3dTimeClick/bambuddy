@@ -5682,6 +5682,7 @@ async def _run_migrations(conn):
     # IntegrityError the route maps back to the same 400. create_all() adds it
     # on fresh installs only — this covers databases whose table predates it.
     await _migrate_location_ha_sensor_unique_binding(conn)
+    await _migrate_printer_maintenance_unique(conn)
 
     # Migration: the stock alert templates name the colour and subtype (#2955).
     # The forecast groups by colour, so two colours of one product would
@@ -6898,6 +6899,59 @@ async def _migrate_location_ha_sensor_unique_binding(conn) -> None:
         conn,
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_location_ha_sensors_location_entity "
         "ON location_ha_sensors (location_id, entity_id)",
+    )
+
+
+async def _migrate_printer_maintenance_unique(conn) -> None:
+    """Unique index on printer_maintenance (printer_id, maintenance_type_id) (FO-C14).
+
+    A printer's maintenance rows are created on first read with no constraint,
+    so two concurrent reads could each create one. Same name and shape as the
+    Index in the model, so fresh and upgraded databases end up identical.
+
+    Duplicates are merged first, since CREATE UNIQUE INDEX refuses to build
+    over them: the most recently performed row is kept (the highest id, the
+    one the page showed, when none was performed), and the history of the
+    others moves onto it.
+    """
+    from sqlalchemy import text
+
+    async with conn.begin_nested():
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT id, printer_id, maintenance_type_id, last_performed_at FROM printer_maintenance "
+                    "WHERE (printer_id, maintenance_type_id) IN ("
+                    "SELECT printer_id, maintenance_type_id FROM printer_maintenance "
+                    "GROUP BY printer_id, maintenance_type_id HAVING COUNT(*) > 1)"
+                )
+            )
+        ).all()
+        groups: dict[tuple[int, int], list] = {}
+        for row in rows:
+            groups.setdefault((row.printer_id, row.maintenance_type_id), []).append(row)
+        for group in groups.values():
+            # Latest performance first; never-performed rows last, oldest first.
+            performed = sorted(
+                (r for r in group if r.last_performed_at is not None), key=lambda r: str(r.last_performed_at)
+            )
+            # Never performed: the highest id, the row the page showed (it
+            # kept the last one read) and so the one holding the user's settings.
+            keep = performed[-1] if performed else max(group, key=lambda r: r.id)
+            for row in group:
+                if row.id == keep.id:
+                    continue
+                await conn.execute(
+                    text(
+                        "UPDATE maintenance_history SET printer_maintenance_id = :keep WHERE printer_maintenance_id = :gone"
+                    ),
+                    {"keep": keep.id, "gone": row.id},
+                )
+                await conn.execute(text("DELETE FROM printer_maintenance WHERE id = :gone"), {"gone": row.id})
+    await _safe_execute(
+        conn,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_printer_maintenance_printer_type "
+        "ON printer_maintenance (printer_id, maintenance_type_id)",
     )
 
 

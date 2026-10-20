@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -299,6 +300,36 @@ def maintenance_alert_values(item: MaintenanceStatus) -> tuple[float, float, str
     return (item.hours_since_maintenance, item.interval_hours, "hours")
 
 
+async def _get_or_create_maintenance_item(db: AsyncSession, printer_id: int, type_id: int) -> PrinterMaintenance:
+    """The printer's row for this type, created with defaults if missing.
+
+    Insert first, in a savepoint: two reads of a new printer (two dashboards,
+    or a dashboard and the background check) each used to create the row. The
+    unique index now refuses the second, which takes the first's (FO-C14).
+    """
+    item = PrinterMaintenance(
+        printer_id=printer_id,
+        maintenance_type_id=type_id,
+        enabled=True,
+        last_performed_hours=0.0,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(item)
+            await db.flush()
+        return item
+    except IntegrityError:
+        existing = await db.scalar(
+            select(PrinterMaintenance).where(
+                PrinterMaintenance.printer_id == printer_id,
+                PrinterMaintenance.maintenance_type_id == type_id,
+            )
+        )
+        if existing is None:
+            raise
+        return existing
+
+
 async def _get_printer_maintenance_internal(
     printer_id: int,
     db: AsyncSession,
@@ -356,21 +387,15 @@ async def _get_printer_maintenance_internal(
             if not maint_type.is_system:
                 continue
 
-            # Create default entry for this printer/type
-            item = PrinterMaintenance(
-                printer_id=printer_id,
-                maintenance_type_id=maint_type.id,
-                enabled=True,
-                last_performed_hours=0.0,
-            )
-            db.add(item)
-            await db.flush()
+            # Create default entry for this printer/type, or take the one a
+            # concurrent read just created.
+            item = await _get_or_create_maintenance_item(db, printer_id, maint_type.id)
 
-            interval = maint_type.default_interval_hours
-            interval_type = default_interval_type
-            enabled = True
-            last_performed_hours = 0.0
-            last_performed_at = None
+            interval = item.custom_interval_hours or maint_type.default_interval_hours
+            interval_type = getattr(item, "custom_interval_type", None) or default_interval_type
+            enabled = item.enabled
+            last_performed_hours = item.last_performed_hours
+            last_performed_at = item.last_performed_at
             item_id = item.id
 
         # Calculate status based on interval type
@@ -552,7 +577,13 @@ async def assign_maintenance_type(
         last_performed_hours=0.0,
     )
     db.add(item)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent assign (a double click) passed the check above too; the
+        # unique index refuses this one (FO-C14).
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Maintenance type already assigned to this printer") from None
 
     # Re-fetch with relationship loaded for response serialization
     from sqlalchemy.orm import selectinload
@@ -647,7 +678,8 @@ async def perform_maintenance(
 
     # Calculate status
     interval = item.custom_interval_hours or item.maintenance_type.default_interval_hours
-    interval_type = getattr(item.maintenance_type, "interval_type", "hours") or "hours"
+    # The item's own interval type first, as the status list reads it (dbcol-09).
+    interval_type = item.custom_interval_type or getattr(item.maintenance_type, "interval_type", "hours") or "hours"
     hours_since = current_hours - item.last_performed_hours
     hours_until = interval - hours_since
 

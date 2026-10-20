@@ -1196,6 +1196,7 @@ async def forget_printer(printer_id: int) -> None:
         _kill_switch_stopped,
         _printer_offline_published,
         _nozzle_count_updated,
+        _runtime_seen_connected,
     ):
         marked.discard(printer_id)
 
@@ -10157,6 +10158,16 @@ def stop_printer_sensor_history_recording():
 _runtime_tracking_task: asyncio.Task | None = None
 RUNTIME_TRACKING_INTERVAL = 30  # Update every 30 seconds
 
+# Printers the runtime tracker has seen connected since startup. One of them
+# going offline clears its timestamp, so the time it was away is not counted
+# when it comes back printing (DB-C5). A printer not yet seen -- still
+# connecting after a restart -- keeps it for a grace period: a print that ran
+# on through a Bambuddy restart is counted from the stored timestamp, as before.
+_runtime_seen_connected: set[int] = set()
+# A printer never seen connected this long after the tracker started is
+# offline, not still connecting: its stored timestamp predates a gap too.
+RUNTIME_STARTUP_GRACE_SECONDS = 120
+
 
 async def track_printer_runtime():
     """Background task to track printer active runtime (RUNNING state only).
@@ -10170,6 +10181,7 @@ async def track_printer_runtime():
 
     # Wait for MQTT connections to establish on startup
     await asyncio.sleep(15)
+    started = time.monotonic()
 
     while True:
         try:
@@ -10197,7 +10209,23 @@ async def track_printer_runtime():
                     continue
                 if not state.connected:
                     logger.debug("[%s] Runtime tracking: not connected", pname)
+                    offline = pid in _runtime_seen_connected or (
+                        time.monotonic() - started > RUNTIME_STARTUP_GRACE_SECONDS
+                    )
+                    if offline and last_update is not None:
+                        try:
+                            async with async_session() as db:
+                                printer = await db.get(Printer, pid)
+                                if printer:
+                                    printer.last_runtime_update = None
+                                    await db.commit()
+                        except Exception as e:
+                            # Still marked: the next offline tick tries again.
+                            logger.warning("[%s] Runtime tracking commit failed: %s", pname, e)
+                            continue
+                    _runtime_seen_connected.discard(pid)
                     continue
+                _runtime_seen_connected.add(pid)
 
                 needs_commit = False
                 new_runtime = runtime_secs

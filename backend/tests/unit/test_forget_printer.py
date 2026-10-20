@@ -85,6 +85,7 @@ def _entries(printer_id: int) -> dict[str, tuple]:
         "_unknown_tag_last_broadcast": (printer_id, {(0, 0): ("uid", "x")}),
         "_last_status_broadcast": (printer_id, "hash"),
         "_nozzle_count_updated": (printer_id, None),
+        "_runtime_seen_connected": (printer_id, None),
         "_fallback_3mf_retry_tasks": (printer_id, _sleeper()),
         "_connection_watchdog_last_attempt": (printer_id, 1.0),
         "_ams_index_only_logged": ((printer_id, 0), None),
