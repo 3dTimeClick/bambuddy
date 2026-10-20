@@ -650,6 +650,9 @@ describe('useWebSocket hook', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['slotPresets'] });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['spool-assignments'] });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['spoolman-slot-assignments'] });
+      // The print dialog prices each slot and shows its grams from this one,
+      // in both modes; an open dialog kept the previous spool's figures.
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['printer-inventory-remain'] });
 
       vi.useRealTimers();
       vi.unstubAllGlobals();

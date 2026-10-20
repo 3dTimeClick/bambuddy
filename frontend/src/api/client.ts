@@ -4118,6 +4118,9 @@ export interface SlotMaterial {
    *  third-party spool, so this is the only place a slot's real identity
    *  exists. Null when the binding resolves to a spool we cannot describe. */
   spool?: SlotSpoolIdentity | null;
+  /** Per-kg rate a print off this spool is charged at; null when unpriced,
+   *  which is charged at the default rate. Optional for an older backend. */
+  cost_per_kg?: number | null;
 }
 
 /** Display identity of an inventory-bound slot. See `SlotMaterial.spool`. */

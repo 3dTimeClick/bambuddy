@@ -352,6 +352,8 @@ export function useWebSocket() {
     queryClient.invalidateQueries({ queryKey: ['spool-assignments'] });
     queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
     queryClient.invalidateQueries({ queryKey: ['slotPresets'] });
+    // Both modes' bindings, which the print dialog prices and weighs slots from.
+    queryClient.invalidateQueries({ queryKey: ['printer-inventory-remain'] });
   }, [queryClient]);
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
