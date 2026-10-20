@@ -95,6 +95,7 @@ def _fake_state(**overrides):
         "layer_num": None,
         "remaining_time": None,
         "speed_level": None,
+        "airduct_mode": None,
         "stg_cur": 0,  # get_derived_status_name does ``0 <= state.stg_cur < 255``
         "subtask_name": None,
         "total_layers": None,

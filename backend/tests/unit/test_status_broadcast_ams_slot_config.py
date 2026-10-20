@@ -92,6 +92,7 @@ def _state(trays: list[dict], ams_extra: dict | None = None) -> SimpleNamespace:
         firmware_version=None,
         developer_mode=None,
         print_ams_mapping=None,
+        airduct_mode=0,
     )
 
 

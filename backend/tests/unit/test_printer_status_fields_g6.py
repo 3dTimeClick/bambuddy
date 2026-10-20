@@ -73,6 +73,7 @@ def _push_state(**overrides):
         "firmware_version": "01.09.00.00",
         "developer_mode": False,
         "print_ams_mapping": None,
+        "airduct_mode": 0,
     }
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -117,6 +118,8 @@ class TestAChangeAloneIsPushed:
         [
             {"developer_mode": True},
             {"firmware_version": "01.10.00.00"},
+            # Cooling/heating switched on the printer's screen (PSF-4).
+            {"airduct_mode": 1},
             {"nozzles": [NozzleInfo(nozzle_type="stainless_steel", nozzle_diameter="0.6")]},
             {"print_ams_mapping": [0, 2]},
         ],

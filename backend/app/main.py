@@ -2061,6 +2061,9 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
         state.firmware_version,
         state.developer_mode,
         tuple(state.print_ams_mapping) if isinstance(state.print_ams_mapping, list) else None,
+        # Cooling/heating, switched on the printer's screen too: on an idle
+        # printer nothing else moves the key (PSF-4).
+        state.airduct_mode,
     )
     status_key = f"{status_key}:{machine_key}"
 

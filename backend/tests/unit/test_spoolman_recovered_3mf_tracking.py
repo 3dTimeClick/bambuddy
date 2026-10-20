@@ -63,7 +63,13 @@ async def seeded(test_engine, tmp_path):
     from backend.app import main as main_module
 
     maker, printer_id, archive_id = await _seed(test_engine, tmp_path)
-    with patch.dict(main_module._active_prints, {(printer_id, DISPATCH_FILENAME): archive_id}, clear=True):
+    # Empty, not whatever a test before on this worker left: the recovery reads
+    # the printed plate from it, and a plate the 3MF has no usage for tracks
+    # nothing.
+    with (
+        patch.dict(main_module._active_prints, {(printer_id, DISPATCH_FILENAME): archive_id}, clear=True),
+        patch.dict(main_module._print_plate_ids, {}, clear=True),
+    ):
         yield maker, printer_id, archive_id
 
 

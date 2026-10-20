@@ -73,6 +73,7 @@ def _state(connected: bool, state: str = "IDLE") -> SimpleNamespace:
         ams_filament_backup=None,
         firmware_version=None,
         developer_mode=None,
+        airduct_mode=0,
         print_ams_mapping=None,
     )
 

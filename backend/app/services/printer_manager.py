@@ -1818,6 +1818,9 @@ def printer_state_to_dict(
         "active_extruder": state.active_extruder,
         # Print speed mode (1=silent, 2=standard, 3=sport, 4=ludicrous)
         "speed_level": state.speed_level,
+        # Switched on the printer's screen too; REST-only, the card showed the
+        # old mode until the next poll (PSF-4).
+        "airduct_mode": state.airduct_mode,
         # H2C nozzle rack (tool-changer dock positions)
         # Map raw MQTT field names (type/diameter) to schema names (nozzle_type/nozzle_diameter)
         "nozzle_rack": [
@@ -1831,6 +1834,9 @@ def printer_state_to_dict(
                 "serial_number": n.get("serial_number", ""),
                 "filament_color": n.get("filament_color", ""),
                 "filament_id": n.get("filament_id", ""),
+                # The push replaces the whole rack: without it a slot lost its
+                # material label on every push (PSF-3).
+                "filament_type": n.get("filament_type", ""),
             }
             for n in (state.nozzle_rack or [])
         ],
