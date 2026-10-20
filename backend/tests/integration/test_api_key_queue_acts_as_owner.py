@@ -316,9 +316,8 @@ class TestBatches:
 class TestAnOwnOnlyOwner:
     """An owner who may change only their own queue items.
 
-    Their key is refused at the permission gate (it needs the ``*_all``
-    permission of its owner), so it changes no other user's item, and an
-    owner's deactivation stops it.
+    Their key changes their items and no other user's item (see
+    test_api_key_own_rows.py), and an owner's deactivation stops it.
     """
 
     async def _items(self, db_session, world) -> tuple[PrintQueueItem, PrintQueueItem]:
@@ -346,7 +345,8 @@ class TestAnOwnOnlyOwner:
         deleted = await async_client.delete(f"/api/v1/queue/{other.id}", headers=key)
 
         assert patched.status_code in (403, 404)
-        assert bulk.status_code in (200, 403), bulk.text
+        assert bulk.status_code == 200, bulk.text
+        assert bulk.json()["skipped_count"] == 1
         assert deleted.status_code in (403, 404)
         await db_session.refresh(other)
         assert other.manual_start is False

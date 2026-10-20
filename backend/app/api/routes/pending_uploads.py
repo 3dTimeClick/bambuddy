@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, require_ownership_permission
+from backend.app.core.auth import ApiKeyActor, RequirePermissionIfAuthEnabled, require_ownership_permission
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.pending_upload import PendingUpload
@@ -92,7 +92,7 @@ async def _augment_with_display_name(
 @router.get("/", response_model=list[PendingUploadResponse])
 async def list_pending_uploads(
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -110,7 +110,7 @@ async def list_pending_uploads(
 @router.get("/count")
 async def get_pending_count(
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -219,7 +219,7 @@ async def discard_all_pending(
 async def get_pending_upload(
     upload_id: int,
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,

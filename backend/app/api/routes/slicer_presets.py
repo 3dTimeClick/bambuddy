@@ -27,6 +27,7 @@ from backend.app.api.routes.orca_cloud import (
     _load_credentials as _load_orca_credentials,
 )
 from backend.app.core.auth import (
+    ApiKeyActor,
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     is_auth_enabled,
@@ -818,7 +819,7 @@ async def list_loaded_spools(
 async def get_preview_slice_progress(
     request_id: str,
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_READ_ALL,
             Permission.LIBRARY_READ_OWN,

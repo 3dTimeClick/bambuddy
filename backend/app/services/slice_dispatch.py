@@ -31,7 +31,7 @@ class SliceJob:
     source_id: int
     source_name: str
     # JWT user id that started the job, for per-row scoping of the polling
-    # endpoint. None for API-key / auth-disabled callers (no per-row identity);
+    # endpoint. None when no user was recorded (auth off, some API-key paths);
     # those jobs are visible only to READ_ALL pollers — see slice_jobs.py.
     owner_id: int | None = None
     status: SliceJobStatus = "pending"

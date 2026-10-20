@@ -684,7 +684,7 @@ async def list_queue(
         None, description="Filter by target model (also includes model-based items when combined with printer_id)"
     ),
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -1306,11 +1306,25 @@ async def add_to_queue(
     return _enrich_response(item)
 
 
+def _releases_model_job(item: PrintQueueItem, update_data: dict) -> bool:
+    """Whether an edit lets the scheduler dispatch ``item`` as an "any printer
+    of a model" job: it starts a waiting one, or takes the printer off one that
+    keeps its model. The scheduler then picks from its creator's printers,
+    which a limited key may not reach (see ``ensure_model_target_allowed``).
+    """
+    if update_data.get("printer_id", item.printer_id) is not None:
+        return False
+    if not update_data.get("target_model", item.target_model):
+        return False
+    starts = bool(item.manual_start) and "manual_start" in update_data and not update_data["manual_start"]
+    return starts or item.printer_id is not None
+
+
 @router.patch("/bulk", response_model=PrintQueueBulkUpdateResponse)
 async def bulk_update_queue_items(
     data: PrintQueueBulkUpdate,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_UPDATE_ALL,
             Permission.QUEUE_UPDATE_OWN,
@@ -1376,6 +1390,12 @@ async def bulk_update_queue_items(
         ):
             skipped_count += 1
             continue
+        if _releases_model_job(item, update_data):
+            try:
+                ensure_model_target_allowed(user, printer_scope)
+            except HTTPException:
+                skipped_count += 1
+                continue
 
         item_update_data = update_data.copy()
         rebinds = "printer_id" in item_update_data and item_update_data["printer_id"] != item.printer_id
@@ -1855,7 +1875,7 @@ async def list_batches(
     external_source: str | None = Query(None, description="Filter by the integration that created the batch"),
     external_ref: str | None = Query(None, description="Filter by the external record the batch fulfils"),
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -1917,7 +1937,7 @@ async def list_batches(
 async def get_batch(
     batch_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -2065,7 +2085,7 @@ async def _build_batch_response(
 async def get_queue_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -2105,7 +2125,7 @@ async def update_queue_item(
     item_id: int,
     data: PrintQueueItemUpdate,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_UPDATE_ALL,
             Permission.QUEUE_UPDATE_OWN,
@@ -2156,6 +2176,8 @@ async def update_queue_item(
         and not may_start_queue_item(user, can_modify_all, item.created_by_id)
     ):
         raise HTTPException(403, _AWAITING_REVIEW)
+    if _releases_model_job(item, update_data):
+        ensure_model_target_allowed(user, printer_scope)
 
     # Normalize target_model if being updated (see add_to_queue for why the
     # code map has to run first).
@@ -2303,7 +2325,7 @@ async def update_queue_item(
 async def delete_queue_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_DELETE_ALL,
             Permission.QUEUE_DELETE_OWN,
@@ -2502,7 +2524,7 @@ async def resume_model_queue_after_failure(
 async def cancel_queue_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_UPDATE_ALL,
             Permission.QUEUE_UPDATE_OWN,
@@ -2551,7 +2573,7 @@ async def cancel_queue_item(
 async def stop_queue_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_UPDATE_ALL,
             Permission.QUEUE_UPDATE_OWN,
@@ -2685,7 +2707,7 @@ async def start_queue_item(
     item_id: int,
     skip_filament_check: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_UPDATE_ALL,
             Permission.QUEUE_UPDATE_OWN,
@@ -2737,6 +2759,10 @@ async def start_queue_item(
             raise HTTPException(403, "You can only start your own queue items")
     if not may_start_queue_item(user, can_modify_all, item.created_by_id):
         raise HTTPException(403, _AWAITING_REVIEW)
+    if item.printer_id is None and item.target_model:
+        # The scheduler picks from the creator's printers, which a limited key
+        # may not reach (and claiming an unowned job makes the owner creator).
+        ensure_model_target_allowed(user, printer_scope)
 
     if item.status != "pending":
         raise HTTPException(400, f"Can only start pending items, current status: '{item.status}'")

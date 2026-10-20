@@ -86,14 +86,18 @@ ALL_PRINTERS = PrinterScope()
 
 
 def ensure_model_target_allowed(user, scope: PrinterScope) -> None:
-    """Refuse an "any printer of a model" job from a limited caller with no user.
+    """Refuse an "any printer of a model" job from a limited caller that is no user.
 
     The scheduler keeps such a job within its *creator's* scope, but a job
-    queued through an API key records no creator, so a key limited to certain
-    printers could otherwise reach the rest of the fleet through it. Users are
-    unaffected: their jobs carry their id.
+    queued through an API key records no creator, or its owner as creator, and
+    a key may be limited to fewer printers than its owner, so a limited key
+    could otherwise reach the rest of the fleet through it. A key comes as
+    ``None`` or as its ``ApiKeyActor``. Users are unaffected: their jobs carry
+    their id.
     """
-    if user is None and not scope.is_unrestricted:
+    from backend.app.core.auth import ApiKeyActor
+
+    if (user is None or isinstance(user, ApiKeyActor)) and not scope.is_unrestricted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A caller limited to certain printers must queue to a specific printer, not to any printer of a model",

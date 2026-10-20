@@ -153,11 +153,11 @@ _APIKEY_SCOPE_BY_PERMISSION: dict[Permission, str | tuple[str, ...]] = {
     # can_manage_library — file-manager scope (upload/rename/delete library
     # entries + MakerWorld import which downloads files into the library).
     # OWN and ALL ownership variants map to the same scope so the
-    # `require_ownership_permission` checker (which gates on `all_perm`)
-    # passes the API key through. This matches `can_queue` and the
-    # archives/inventory scopes — API keys have no per-row ownership identity
-    # (line 1663), so splitting OWN/ALL across allowlist/denylist made the
-    # whole library curation surface unreachable for API keys (#1832).
+    # `require_ownership_permission` checker passes the API key through and
+    # lets its owner's OWN/ALL permission decide the rows. This matches
+    # `can_queue` and the archives/inventory scopes; splitting OWN/ALL across
+    # allowlist/denylist made the whole library curation surface unreachable
+    # for API keys (#1832).
     # LIBRARY_PURGE stays admin-only as a genuinely destructive op that
     # bypasses the soft-delete window.
     Permission.LIBRARY_UPLOAD: "can_manage_library",
@@ -193,10 +193,9 @@ _APIKEY_SCOPE_BY_PERMISSION: dict[Permission, str | tuple[str, ...]] = {
     # can_manage_archives — print-history curation. Carved out of the admin
     # denylist so automations can prune old prints via API key (#1888): the
     # archive delete/update routes gate on
-    # ``require_ownership_permission(ARCHIVES_*_ALL, ARCHIVES_*_OWN)``, which
-    # resolves the ALL permission for API keys (no per-row ownership identity,
-    # same as can_queue / can_manage_library), so OWN and ALL map to the same
-    # scope. ARCHIVES_PURGE stays admin-only (see denylist) as a genuinely
+    # ``require_ownership_permission(ARCHIVES_*_ALL, ARCHIVES_*_OWN)``, where
+    # the key's owner's OWN/ALL permission decides the rows (same as can_queue
+    # / can_manage_library), so OWN and ALL map to the same scope. ARCHIVES_PURGE stays admin-only (see denylist) as a genuinely
     # destructive op that drops the stats contribution, mirroring LIBRARY_PURGE.
     # ARCHIVES_REPRINT_* stays under can_queue (it enqueues a print).
     Permission.ARCHIVES_CREATE: "can_manage_archives",
@@ -2171,9 +2170,11 @@ async def validated_api_key_from_request(
     """Return the validated API key carried by a request, if any.
 
     Permission dependencies intentionally return ``None`` for API-key callers so
-    routes do not mistake a key for a user identity. Printer-bound routes still
-    need the key row to enforce ``printer_ids`` after the normal scope/owner
-    permission gate has run. This helper recognizes both supported transports.
+    routes do not mistake a key for a user identity (the ownership dependency
+    returns an ``ApiKeyActor`` for a key whose owner may act on own rows only).
+    Printer-bound routes still need the key row to enforce ``printer_ids`` after
+    the normal scope/owner permission gate has run. This helper recognizes both
+    supported transports.
     """
 
     candidate = x_api_key
@@ -2249,7 +2250,7 @@ async def get_printer_scope_if_auth_enabled(
 RequestPrinterScope = Depends(get_printer_scope_if_auth_enabled)
 
 
-def queue_review_required_for(user: User | None) -> bool:
+def queue_review_required_for(user: User | ApiKeyActor | None) -> bool:
     """Whether jobs ``user`` queues must wait for someone to start them (#1620).
 
     None is auth-off or a legacy ownerless API key, neither of which has a
@@ -2263,7 +2264,7 @@ def queue_review_required_for(user: User | None) -> bool:
     )
 
 
-def may_start_queue_item(user: User | None, can_modify_all: bool, created_by_id: int | None) -> bool:
+def may_start_queue_item(user: User | ApiKeyActor | None, can_modify_all: bool, created_by_id: int | None) -> bool:
     """Whether the caller may start a waiting queue item (#1620).
 
     ``can_modify_all`` is what ``require_ownership_permission`` answered for
@@ -2789,14 +2790,15 @@ def require_ownership_permission(
     - User with ``all_permission`` can modify any item
     - User with ``own_permission`` can only modify items where created_by_id == user.id
     - Ownerless items (created_by_id = null) require ``all_permission``
-    - API keys (via X-API-Key header or Bearer bb_xxx) must satisfy the
-      ``all_permission``'s API-key scope flag (e.g. ``can_queue`` for
-      ``QUEUE_UPDATE_ALL``) and then receive ``can_modify_all=True``.
-      OWN/ALL ownership pairs map to the same scope flag in
-      ``_APIKEY_SCOPE_BY_PERMISSION`` so checking ``all_permission`` is the
-      correct gate; API keys have no per-row ownership identity. Pre-
-      GHSA-r2qv-8222-hqg3 fix this returned ``(None, True)`` for any valid
-      key with no scope check — see ``core/auth.py`` allowlist commentary.
+    - API keys (via X-API-Key header or Bearer bb_xxx) act as their owner:
+      a key whose owner holds ``all_permission`` gets ``(None, True)``; a key
+      whose owner holds only ``own_permission`` gets ``(ApiKeyActor, False)``,
+      so the route's per-row check compares rows against the owner's id.
+      Either way the key needs the permission's scope flag (OWN and ALL map
+      to the same one). A legacy key without an owner owns nothing and still
+      needs ``all_permission``. Pre-GHSA-r2qv-8222-hqg3 this returned
+      ``(None, True)`` for any valid key with no scope check — see
+      ``core/auth.py`` allowlist commentary.
 
     Returns:
         A dependency function that returns (user, can_modify_all).
@@ -2806,10 +2808,22 @@ def require_ownership_permission(
     all_perm = all_permission.value if isinstance(all_permission, Permission) else all_permission
     own_perm = own_permission.value if isinstance(own_permission, Permission) else own_permission
 
+    async def _api_key_ownership(db: AsyncSession, api_key: APIKey) -> tuple[ApiKeyActor | None, bool]:
+        owner = await resolve_apikey_owner(db, api_key)
+        if owner is None:
+            # A legacy key without an owner has no id to own rows by.
+            _check_apikey_permissions(api_key, [all_perm])
+            return None, True
+        _check_apikey_permissions(api_key, [all_perm, own_perm], owner=owner, require_any=True)
+        actor = ApiKeyActor(api_key, owner)
+        if actor.has_permission(all_perm):
+            return None, True
+        return actor, False
+
     async def checker(
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
         x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    ) -> tuple[User | None, bool]:
+    ) -> tuple[User | ApiKeyActor | None, bool]:
         """Returns (user, can_modify_all).
 
         - can_modify_all=True: user can modify any item
@@ -2823,17 +2837,11 @@ def require_ownership_permission(
             # GHSA-r2qv-8222-hqg3: previously API keys received (None, True)
             # unconditionally on ownership-modify routes — a "queue-only" key
             # could delete any user's archives, library files, queue items.
-            # OWN and ALL ownership perms both map to the same scope flag
-            # (e.g. both QUEUE_UPDATE_OWN and QUEUE_UPDATE_ALL → can_queue),
-            # so checking ``all_perm`` against the api_key's scope is the
-            # correct gate. API keys don't have per-row ownership identity, so
-            # on pass we keep can_modify_all=True (preserves prior intent,
-            # narrows access to keys with the right scope flag).
+            # A key now passes only with the scope flag, and acts as its owner.
             if x_api_key:
                 api_key = await _validate_api_key(db, x_api_key)
                 if api_key:
-                    await authorize_api_key(db, api_key, [all_perm])
-                    return None, True
+                    return await _api_key_ownership(db, api_key)
 
             # Check for Bearer token (could be JWT or API key)
             if credentials is not None:
@@ -2842,8 +2850,7 @@ def require_ownership_permission(
                 if token.startswith("bb_"):
                     api_key = await _validate_api_key(db, token)
                     if api_key:
-                        await authorize_api_key(db, api_key, [all_perm])
-                        return None, True
+                        return await _api_key_ownership(db, api_key)
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Invalid API key",
@@ -2985,9 +2992,9 @@ def require_media_token_ownership(
     token holder.
 
     Header callers are delegated to :func:`require_ownership_permission`
-    unchanged -- including its API-key rule, where a key satisfying the ALL
-    permission's scope flag gets ``can_read_all=True`` because keys have no
-    per-row identity.
+    unchanged -- including its API-key rule, where a key acts as its owner: its
+    owner's ALL permission gives ``can_read_all=True``, the OWN one an
+    ``ApiKeyActor`` limited to the owner's rows.
     """
     all_perm = all_permission.value if isinstance(all_permission, Permission) else all_permission
     own_perm = own_permission.value if isinstance(own_permission, Permission) else own_permission
@@ -2997,7 +3004,7 @@ def require_media_token_ownership(
         token: str | None = None,
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
         x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    ) -> tuple[User | None, bool]:
+    ) -> tuple[User | ApiKeyActor | None, bool]:
         async with async_session() as db:
             if not await is_auth_enabled(db):
                 return None, True  # Auth disabled, allow all
