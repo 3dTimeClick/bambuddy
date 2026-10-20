@@ -21,6 +21,7 @@ the same NULL-is-meaningful contract on the `/start` path.
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -69,7 +70,8 @@ async def sliced_library_file(db_session):
     route rejects rows whose file is missing from disk)."""
     from backend.app.models.library import LibraryFile
 
-    rel_path = "archive/library/files/attribution_probe.gcode.3mf"
+    # Unique: the checkout's library folder is shared by every xdist worker.
+    rel_path = f"archive/library/files/attribution_probe_{uuid4().hex}.gcode.3mf"
     abs_path = Path(app_settings.base_dir) / rel_path
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(b"probe")

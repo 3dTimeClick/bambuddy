@@ -4,6 +4,7 @@ import io
 import tempfile
 import zipfile
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -749,13 +750,15 @@ class TestLibraryAddToQueueAPI:
         written: list[Path] = []
 
         async def _create(**kwargs):
-            counter = len(written) + 1
-            rel_path = kwargs.pop("file_path", f"archive/library/files/queue_probe_{counter}.gcode.3mf")
+            # A unique name: this is the checkout's real library folder, shared by
+            # every xdist worker, and a sibling's teardown deleted a same-named
+            # probe this test still needed ("File not found on disk").
+            rel_path = kwargs.pop("file_path", f"archive/library/files/queue_probe_{uuid4().hex}.gcode.3mf")
             abs_path = Path(app_settings.base_dir) / rel_path
             abs_path.parent.mkdir(parents=True, exist_ok=True)
             abs_path.write_bytes(b"probe")
             written.append(abs_path)
-            kwargs.setdefault("filename", f"queue_probe_{counter}.gcode.3mf")
+            kwargs.setdefault("filename", Path(rel_path).name)
             return await library_file_factory(file_path=rel_path, **kwargs)
 
         yield _create
