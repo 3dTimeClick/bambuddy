@@ -33,6 +33,10 @@ from backend.app.utils.notification_photos import save_notification_photo
 
 logger = logging.getLogger(__name__)
 
+# How long a digest event is kept for: through one failed daily digest, so it
+# goes out with the next one, then dropped (FO-C4).
+DIGEST_RETRY_HOURS = 48
+
 # Honest User-Agent — matches the convention used by every other outbound
 # httpx client in the codebase (bambu_cloud, makerworld, firmware_check,
 # inventory). Previously this client leaked python-httpx/<version>, which
@@ -1377,14 +1381,16 @@ class NotificationService:
         variables: dict | None = None,
         photo_cache: dict | None = None,
         printer_id: int | None = None,
+        bypass_quiet_hours: bool = False,
     ) -> tuple[bool, str]:
         """Send notification to a specific provider.
 
         *photo_cache* lets the providers of one send share a single persisted
-        photo URL (see _get_or_build_photo_url).
+        photo URL (see _get_or_build_photo_url). *bypass_quiet_hours* is for
+        the daily digest, which goes out at the time chosen for it.
         """
         # Check quiet hours
-        if self._is_in_quiet_hours(provider):
+        if not bypass_quiet_hours and self._is_in_quiet_hours(provider):
             logger.info("Skipping notification to %s - quiet hours active", provider.name)
             return True, "Skipped - quiet hours"
 
@@ -3043,7 +3049,19 @@ class NotificationService:
             )
             queue_entries = list(result.scalars().all())
 
+            # Events kept after a failed digest get the next one, not every
+            # one after it: a provider whose digest always fails (revoked
+            # credentials, a busy day too long for Pushover) would otherwise
+            # grow its queue without end. Before FO-C4 a failed day was
+            # simply deleted.
+            cutoff = datetime.utcnow() - timedelta(hours=DIGEST_RETRY_HOURS)
+            expired = [e for e in queue_entries if e.created_at is not None and e.created_at < cutoff]
+            for entry in expired:
+                await db.delete(entry)
+            queue_entries = [e for e in queue_entries if e not in expired]
+
             if not queue_entries:
+                await db.commit()
                 logger.debug("No queued notifications for provider %s", provider.name)
                 return
 
@@ -3063,15 +3081,21 @@ class NotificationService:
                 event_label = event_type.replace("_", " ").title()
                 body_parts.append(f"== {event_label} ({len(entries)}) ==")
                 for entry in entries:
-                    time_str = entry.created_at.strftime("%H:%M")
+                    # From an earlier day (late yesterday, or kept from a
+                    # failed digest): say which day.
+                    if entry.created_at.date() != datetime.utcnow().date():
+                        time_str = entry.created_at.strftime("%m-%d %H:%M")
+                    else:
+                        time_str = entry.created_at.strftime("%H:%M")
                     printer_info = f"[{entry.printer_name}] " if entry.printer_name else ""
                     body_parts.append(f"  {time_str} {printer_info}{entry.title}")
                 body_parts.append("")
 
             body = "\n".join(body_parts)
 
-            # Send the digest
-            success, error = await self._send_to_provider(provider, title, body, db)
+            # Send the digest. At its own time even inside quiet hours: skipped
+            # there, it was logged as sent and its events deleted (FO-C4).
+            success, error = await self._send_to_provider(provider, title, body, db, bypass_quiet_hours=True)
 
             # Log the digest
             await self._log_notification(
@@ -3084,9 +3108,11 @@ class NotificationService:
                 error_message=error if not success else None,
             )
 
-            # Clear the queue
-            for entry in queue_entries:
-                await db.delete(entry)
+            # Clear the queue once it went out; a failed send keeps the events
+            # for the next digest instead of losing them (FO-C4).
+            if success:
+                for entry in queue_entries:
+                    await db.delete(entry)
             await db.commit()
 
             if success:

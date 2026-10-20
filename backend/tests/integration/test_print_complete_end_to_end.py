@@ -87,7 +87,7 @@ async def queued_print(db_session, printer_factory):
     return {"printer": printer.id, "user": user.id, "center": center.id, "archive": archive.id, "item": item.id}
 
 
-async def _complete(test_engine, printer_id: int, status: str, name: str = "part", extra: dict | None = None) -> None:
+async def _complete(test_engine, printer_id: int, status: str, name: str = "part", extra: dict | None = None):
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     tasks_before = set(asyncio.all_tasks())
     with (
@@ -123,6 +123,7 @@ async def _complete(test_engine, printer_id: int, status: str, name: str = "part
             _done, pending = await asyncio.wait(spawned, timeout=10)
             # Left running, they would carry on into the next test unpatched
             assert not pending, f"background work still running: {pending}"
+    return notif
 
 
 async def _rows(db_session, archive_id: int, item_id: int):
@@ -152,6 +153,15 @@ async def test_a_completed_print(test_engine, db_session, queued_print):
         RUN,
     )
     assert abs(charge.amount) == pytest.approx(5.0)
+
+
+async def test_a_completion_reconciled_at_reconnect_has_no_actual_duration(test_engine, db_session, queued_print):
+    """DB-C9: the printer was offline and the print ended at some unknown time;
+    the reconnect closes it now, so now minus its start is not its duration."""
+    notif = await _complete(test_engine, queued_print["printer"], "aborted", extra={"_reconciled": True})
+
+    archive_data = notif.on_print_complete.await_args.kwargs["archive_data"]
+    assert archive_data["actual_time_seconds"] is None
 
 
 async def test_a_failed_print(test_engine, db_session, queued_print):

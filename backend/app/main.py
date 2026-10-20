@@ -4741,6 +4741,11 @@ async def on_print_start(printer_id: int, data: dict):
         expected_keys = _expected_print_keys(printer_id, filename, subtask_name)
 
         expected_archive_id = None
+        # Who queued it, taken with the entries it was registered beside: left
+        # behind once those are gone (the archive deleted mid-dispatch, or the
+        # start notification already sent), the expiry never saw it, and an
+        # unrelated later print of that name was attributed to that user (EP-2).
+        fallback_creator = None
         for key in expected_keys:
             expected_archive_id = _expected_prints.pop(key, None)
             _expected_print_registered_at.pop(key, None)
@@ -4749,6 +4754,9 @@ async def on_print_start(printer_id: int, data: dict):
                 for other_key in expected_keys:
                     _expected_prints.pop(other_key, None)
                     _expected_print_registered_at.pop(other_key, None)
+                    creator = _expected_print_creators.pop(other_key, None)
+                    if fallback_creator is None:
+                        fallback_creator = creator
                 break
 
         if expected_archive_id:
@@ -4987,13 +4995,7 @@ async def on_print_start(printer_id: int, data: dict):
                 if not notification_sent:
                     # Use archive's created_by_id; fall back to the creator registered via
                     # register_expected_print (handles library-file-based queue items where
-                    # the freshly-created archive has no created_by_id yet).
-                    # Pop ALL matching keys so no stale entries remain in the dict.
-                    fallback_creator = None
-                    for key in expected_keys:
-                        popped = _expected_print_creators.pop(key, None)
-                        if fallback_creator is None:
-                            fallback_creator = popped
+                    # the freshly-created archive has no created_by_id yet), taken above.
                     archive_data = {
                         "print_time_seconds": archive.print_time_seconds,
                         "created_by_id": archive.created_by_id or fallback_creator,
@@ -8542,7 +8544,15 @@ async def _close_out_print(printer_id: int, data: dict):
                             # How long it really ran, as the archive path reports it (#1198).
                             started = to_naive_utc(queue_item.started_at)
                             ended = to_naive_utc(queue_item.completed_at)
-                            if started and ended and (ended - started).total_seconds() > 0:
+                            # Not for a completion reconciled at reconnect: it
+                            # ended at an unknown time while the printer was
+                            # offline, and "now" is the reconnect (DB-C9).
+                            if (
+                                not data.get("_reconciled")
+                                and started
+                                and ended
+                                and (ended - started).total_seconds() > 0
+                            ):
                                 no_archive_data["actual_time_seconds"] = int((ended - started).total_seconds())
                             # Estimated time: the queue item caches it from its
                             # archive or library file; otherwise read the library
@@ -9276,7 +9286,11 @@ async def _close_out_print(printer_id: int, data: dict):
                         # Falls back to None so the notification path can decide whether to
                         # render the slicer estimate as a last resort.
                         actual_time_seconds = None
-                        if archive.started_at and archive.completed_at:
+                        # Unknown for a completion reconciled at reconnect: the
+                        # print ended while the printer was offline and
+                        # completed_at is the reconnect, so the gap would read
+                        # as the duration -- 14 h for a night offline (DB-C9).
+                        if archive.started_at and archive.completed_at and not data.get("_reconciled"):
                             elapsed = (archive.completed_at - archive.started_at).total_seconds()
                             if elapsed > 0:
                                 actual_time_seconds = int(elapsed)

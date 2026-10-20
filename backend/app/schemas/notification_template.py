@@ -32,6 +32,19 @@ class EventType(StrEnum):
 
 # Available variables for each event type
 EVENT_VARIABLES: dict[str, list[str]] = {
+    # Post-print outcome request (#1898): good/reject are the one-tap links,
+    # confirm_url opens the archive's confirmation dialog.
+    "print_confirm_request": [
+        "printer",
+        "filename",
+        "confirm_url",
+        "good_url",
+        "reject_url",
+        "archive_id",
+        "finish_photo_url",
+        "timestamp",
+        "app_name",
+    ],
     "print_start": ["printer", "filename", "estimated_time", "eta", "timestamp", "app_name"],
     "print_complete": [
         "printer",
@@ -142,6 +155,7 @@ EVENT_VARIABLES: dict[str, list[str]] = {
 # Events whose real notification can carry a camera snapshot — mirrors which
 # NotificationService.on_* methods accept image_data.
 PHOTO_CAPABLE_EVENTS: set[str] = {
+    "print_confirm_request",
     "print_start",
     "print_complete",
     "print_failed",
@@ -242,6 +256,17 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
         "confidence": "0.87",
         "action": "pause",
         "timestamp": "2024-01-15 15:10",
+        "app_name": "Bambuddy",
+    },
+    "print_confirm_request": {
+        "printer": "Bambu X1C",
+        "filename": "Benchy",
+        "confirm_url": "http://bambuddy.local:8000/archives?confirm=42",
+        "good_url": "http://bambuddy.local:8000/api/v1/archives/confirm/sample-token/good",
+        "reject_url": "http://bambuddy.local:8000/api/v1/archives/confirm/sample-token/reject",
+        "archive_id": "42",
+        "finish_photo_url": "/api/v1/archives/42/photos/finish_20240115_143500_abc12345.jpg",
+        "timestamp": "2024-01-15 14:35",
         "app_name": "Bambuddy",
     },
     "plate_not_empty": {

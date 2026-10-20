@@ -19,7 +19,7 @@ from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.user import User
 
 
-async def _complete_without_archive(test_engine, printer_id: int, status: str = "completed"):
+async def _complete_without_archive(test_engine, printer_id: int, status: str = "completed", **extra):
     """Run on_print_complete for a print no archive matches.
 
     Returns (archive_data the notification got, user-email mock). The queue
@@ -51,7 +51,7 @@ async def _complete_without_archive(test_engine, printer_id: int, status: str = 
         mock_pm.clear_current_print_user = MagicMock()
         mock_pm.set_awaiting_plate_clear = MagicMock()
 
-        await on_print_complete(printer_id, {"filename": "", "subtask_name": "Benchy", "status": status})
+        await on_print_complete(printer_id, {"filename": "", "subtask_name": "Benchy", "status": status, **extra})
 
     spawned = [c for c in mock_spawn.call_args_list if c.kwargs.get("name") == "notify-no-archive"]
     assert len(spawned) == 1, mock_spawn.call_args_list
@@ -145,3 +145,23 @@ class TestAQueueJobWhoseArchiveWasNotFound:
 
         assert archive_data["print_time_seconds"] == 4200
         assert "actual_time_seconds" not in archive_data  # no start time recorded
+
+
+class TestACompletionReconciledAtReconnect:
+    @pytest.mark.asyncio
+    async def test_has_no_actual_duration(self, test_engine, db_session, printer_factory):
+        """DB-C9: the printer was offline, the print ended at some unknown time,
+        and the reconnect closes the job now -- the gap is not how long it ran."""
+        printer = await printer_factory()
+        await _queue_item(
+            db_session,
+            printer.id,
+            status="printing",
+            print_time_seconds=4200,
+            started_at=datetime.now(timezone.utc) - timedelta(hours=14),
+        )
+
+        archive_data, _ = await _complete_without_archive(test_engine, printer.id, status="aborted", _reconciled=True)
+
+        assert archive_data["print_time_seconds"] == 4200
+        assert "actual_time_seconds" not in archive_data
