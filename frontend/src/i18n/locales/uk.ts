@@ -7216,6 +7216,7 @@ export default {
     cancel: "Скасувати",
     configuring: "Налаштування...",
     configureSlot: "Налаштувати слот",
+    kValueUnsent: 'Філамент встановлено, але значення K не вдалося надіслати на принтер.',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'Цей профіль Orca не має власного ID філаменту, тому OrcaSlicer бачитиме цей слот як Generic {{material}}.',

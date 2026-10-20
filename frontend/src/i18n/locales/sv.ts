@@ -7224,6 +7224,7 @@ errors: {
     cancel: 'Avbryt',
     configuring: 'Konfigurerar...',
     configureSlot: 'Konfigurera fack',
+    kValueUnsent: 'Filamentet ställdes in, men K-värdet kunde inte skickas till skrivaren.',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'Den här Orca-profilen har inget eget filament-ID, så OrcaSlicer kommer att se den här platsen som Generic {{material}}.',

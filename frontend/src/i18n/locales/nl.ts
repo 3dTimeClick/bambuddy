@@ -7226,6 +7226,7 @@ export default {
     cancel: 'Annuleren',
     configuring: 'Configureren...',
     configureSlot: 'Sleuf configureren',
+    kValueUnsent: 'Het filament is ingesteld, maar de K-waarde kon niet naar de printer worden verzonden.',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'Dit Orca-profiel heeft geen eigen filament-ID, dus OrcaSlicer ziet deze sleuf als Generic {{material}}.',

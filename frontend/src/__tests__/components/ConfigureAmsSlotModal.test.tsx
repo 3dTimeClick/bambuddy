@@ -321,6 +321,32 @@ describe('ConfigureAmsSlotModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('warns when a manual K value could not be sent (FW-C5)', async () => {
+    // The route used to report the slot configured either way.
+    const ORCA_ID = '3f2a9c1e-4b7d-4a02-9f61-8c5e2d1a7b30';
+    (api.orcaCloudListProfiles as ReturnType<typeof vi.fn>).mockResolvedValue({
+      filament: [{ setting_id: ORCA_ID, name: 'Homebrew PLA @Orca', type: 'filament', is_custom: true }],
+      printer: [],
+      process: [],
+    });
+    (api.configureAmsSlot as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true, tray_info_idx: 'P56e1be0', orca_fallback_reason: '', k_value_unsent: true,
+    });
+
+    const slotInfo = { ...defaultProps.slotInfo, savedPresetId: ORCA_ID };
+    render(<ConfigureAmsSlotModal {...defaultProps} slotInfo={slotInfo} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Homebrew PLA @Orca')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Configure Slot/i }));
+
+    expect(
+      await screen.findByText('The filament was set, but the K value could not be sent to the printer.'),
+    ).toBeInTheDocument();
+  });
+
   it('uses the filament_id nested under setting when the envelope has none (#3003)', async () => {
     // Bambu Cloud returns a custom preset's own filament_id on the envelope for
     // some presets and inside the preset JSON for others. Only the envelope was

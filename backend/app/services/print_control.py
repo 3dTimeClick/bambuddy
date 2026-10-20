@@ -29,8 +29,9 @@ def mark_stopped_by_user(printer_id: int) -> None:
 def stop_print_by_user(printer_id: int, *, mark_when_unsent: bool = False) -> bool:
     """Send the stop command; returns whether it was sent.
 
-    The printer is marked as stopped by the user when the command was sent,
-    or always with ``mark_when_unsent`` (the queue, which closes the job even
+    The printer is marked as stopped by the user when the command was sent
+    and the printer is not known to be idle (nothing to stop), or always with
+    ``mark_when_unsent`` (the queue, which closes the job even
     when the printer is offline, so a "failed" it reports later still reads
     as the user's cancel). Errors sending the command propagate to the caller.
     """
@@ -40,6 +41,23 @@ def stop_print_by_user(printer_id: int, *, mark_when_unsent: bool = False) -> bo
         if mark_when_unsent:
             mark_stopped_by_user(printer_id)
         raise
-    if sent or mark_when_unsent:
+    if mark_when_unsent or (sent and not _known_idle(printer_id)):
         mark_stopped_by_user(printer_id)
     return sent
+
+
+def _known_idle(printer_id: int) -> bool:
+    """The printer reports a state with no print loaded.
+
+    A stop sent then stops nothing, and its mark would linger until the next
+    print's start clears it -- which a new MQTT client that first sees that
+    print mid-way never runs, so the print's later failure read as the user's
+    cancel (USP/I4). An unknown state is not idle: the mark is the safe side.
+    That includes "unknown", the state before the first report after a
+    (re)connect.
+    """
+    status = printer_manager.get_status(printer_id)
+    state = getattr(status, "state", None)
+    if not state or state == "unknown":
+        return False
+    return state not in printer_manager.ACTIVE_PRINT_STATES

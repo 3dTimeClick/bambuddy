@@ -6790,6 +6790,8 @@ export const api = {
       tray_info_idx?: string;
       // Why an Orca profile went out as the generic for its material, or "".
       orca_fallback_reason?: '' | 'no_filament_id' | 'lookup_failed' | 'no_permission';
+      /** A manual K value could not be sent; the filament setting was. */
+      k_value_unsent?: boolean;
     }>(
       `/printers/${printerId}/slots/${amsId}/${trayId}/configure?${params}`,
       { method: 'POST' }

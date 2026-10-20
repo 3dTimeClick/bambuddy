@@ -3537,6 +3537,46 @@ class TestConfigureAmsSlotPersistsKProfile:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_a_manual_k_value_that_could_not_be_sent_is_reported(
+        self, async_client: AsyncClient, printer_factory
+    ):
+        """FW-C5: with no profile picked, the K value goes out on its own
+        command; when that send failed the route still said "Configured"."""
+        printer = await printer_factory(model="X1C")
+        mock_client = MagicMock()
+        mock_client.ams_set_filament_setting.return_value = True
+        mock_client.extrusion_cali_sel.return_value = True
+        mock_client.extrusion_cali_set.return_value = False
+        mock_client.request_status_update.return_value = True
+        mock_state = MagicMock()
+        mock_state.ams_extruder_map = {"0": 0}
+        mock_state.raw_data = {"ams": {"ams": []}}
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+            mock_pm.get_status.return_value = mock_state
+            response = await async_client.post(
+                f"/api/v1/printers/{printer.id}/slots/0/1/configure",
+                params={
+                    "tray_info_idx": "GFL05",
+                    "tray_type": "PLA",
+                    "tray_sub_brands": "Bambu PLA Basic",
+                    "tray_color": "FF8800FF",
+                    "nozzle_temp_min": 190,
+                    "nozzle_temp_max": 230,
+                    "cali_idx": -1,
+                    "nozzle_diameter": "0.4",
+                    "k_value": 0.025,
+                },
+            )
+
+        mock_client.extrusion_cali_set.assert_called_once()
+        # The filament itself was set, so the dialog still saves the slot preset.
+        assert response.status_code == 200
+        assert response.json()["k_value_unsent"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_writes_spool_kprofile_when_local_assigned(
         self,
         async_client: AsyncClient,

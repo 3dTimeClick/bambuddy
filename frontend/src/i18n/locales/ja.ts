@@ -7176,6 +7176,7 @@ export default {
     cancel: 'キャンセル',
     configuring: '設定中...',
     configureSlot: 'スロットを設定',
+    kValueUnsent: 'フィラメントは設定されましたが、K 値をプリンターに送信できませんでした。',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'このOrcaプロファイルには独自のフィラメントIDがないため、OrcaSlicerではこのスロットがGeneric {{material}}として表示されます。',

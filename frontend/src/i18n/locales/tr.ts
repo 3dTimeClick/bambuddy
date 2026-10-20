@@ -7118,6 +7118,7 @@ export default {
     cancel: 'İptal',
     configuring: 'Yapılandırılıyor...',
     configureSlot: 'Yuvayı Yapılandır',
+    kValueUnsent: 'Filament ayarlandı, ancak K değeri yazıcıya gönderilemedi.',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'Bu Orca profilinin kendine ait bir filament kimliği yok, bu yüzden OrcaSlicer bu yuvayı Generic {{material}} olarak görecek.',

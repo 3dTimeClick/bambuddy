@@ -627,6 +627,10 @@ export function ConfigureAmsSlotModal({
         orca_profile_id: isOrca ? orcaSettingId : undefined,
       });
 
+      if (result.k_value_unsent) {
+        showToast(t('configureAmsSlot.kValueUnsent'), 'warning');
+      }
+
       if (isOrca && result.orca_fallback_reason) {
         showToast(
           t(`configureAmsSlot.orcaFallback.${result.orca_fallback_reason}`, { material: trayType }),

@@ -59,6 +59,52 @@ def test_a_failing_send_raises_and_marks_only_when_asked(marks):
     assert 4 in marks
 
 
+@pytest.mark.parametrize(
+    ("state", "marked"),
+    [
+        ("RUNNING", True),
+        ("PAUSE", True),
+        ("PREPARE", True),
+        ("IDLE", False),
+        ("FINISH", False),
+        # Before the first report after a (re)connect, and after a power-off.
+        ("unknown", True),
+        ("", True),
+        (None, True),
+    ],
+)
+def test_a_stop_on_an_idle_printer_leaves_no_mark(marks, state, marked):
+    """USP/I4: the mark is cleared only by the next print's start, which is
+    missed when a new MQTT client first sees that print mid-way; its later
+    failure was then reported as the user's cancel. A printer in an unknown
+    state is still marked."""
+    from types import SimpleNamespace
+
+    status = SimpleNamespace(state=state) if state is not None else None
+    with (
+        patch("backend.app.services.print_control.printer_manager.stop_print", return_value=True) as send,
+        patch("backend.app.services.print_control.printer_manager.get_status", return_value=status),
+    ):
+        assert stop_print_by_user(4) is True
+    send.assert_called_once_with(4)
+    assert (4 in marks) is marked
+
+
+def test_the_queue_marks_an_idle_printer_too(marks):
+    """The queue stops a job it knows it started; a printer that reads idle
+    there may simply not have reported yet."""
+    from types import SimpleNamespace
+
+    with (
+        patch("backend.app.services.print_control.printer_manager.stop_print", return_value=True),
+        patch(
+            "backend.app.services.print_control.printer_manager.get_status", return_value=SimpleNamespace(state="IDLE")
+        ),
+    ):
+        stop_print_by_user(4, mark_when_unsent=True)
+    assert 4 in marks
+
+
 # Files allowed to send a stop command themselves: the shared function, the
 # printer manager and MQTT client that implement it, and main.py's kill switch,
 # which stops unauthorised prints automatically (not a user stop, no mark).

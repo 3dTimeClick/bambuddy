@@ -7162,6 +7162,7 @@ export default {
     cancel: 'Annulla',
     configuring: 'Configurazione...',
     configureSlot: 'Configura slot',
+    kValueUnsent: 'Il filamento è stato impostato, ma non è stato possibile inviare il valore K alla stampante.',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: 'Questo profilo Orca non ha un ID filamento proprio, quindi OrcaSlicer vedrà questo slot come Generic {{material}}.',

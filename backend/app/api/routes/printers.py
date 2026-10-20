@@ -1073,7 +1073,6 @@ async def diagnose_connection(
 async def diagnose_printer(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
 ):
     """Run connection diagnostics for an existing saved printer.
 
@@ -1085,8 +1084,9 @@ async def diagnose_printer(
     """
     from backend.app.services.printer_diagnostic import PUBLISH_WAIT_DEFAULT
 
-    result = await db.execute(select(Printer).where(Printer.id == printer_id))
-    printer = result.scalar_one_or_none()
+    # A short session, released before the probes and the wait (as RC-C9).
+    async with database.async_session() as db:
+        printer = (await db.execute(select(Printer).where(Printer.id == printer_id))).scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
     return await run_connection_diagnostic(
@@ -3174,6 +3174,7 @@ async def configure_ams_slot(
     # the existing profile's metadata (extruder_id, nozzle_id, name, setting_id),
     # corrupting it — e.g., overwriting a High Flow extruder 1 profile with
     # hardcoded extruder_id=0 and nozzle_id=HS00.
+    k_value_unsent = False
     if k_value > 0 and cali_idx < 0:
         # Calculate global tray ID for extrusion_cali_set
         if ams_id <= 3:
@@ -3183,7 +3184,7 @@ async def configure_ams_slot(
         else:
             global_tray_id = tray_id
 
-        client.extrusion_cali_set(
+        k_value_unsent = not client.extrusion_cali_set(
             tray_id=global_tray_id,
             k_value=k_value,
             nozzle_diameter=nozzle_diameter,
@@ -3378,6 +3379,10 @@ async def configure_ams_slot(
         # "lookup_failed" or "no_permission". Cleared when a K-profile realigned
         # the slot to its own specific filament after all.
         "orca_fallback_reason": "" if realigned_to_kprofile else orca_fallback_reason,
+        # The filament setting went out but a manual K value did not (FW-C5).
+        # Only the send is known: the printer's answer to it is not trusted --
+        # an X1C answers "fail" to a K value it applied.
+        "k_value_unsent": k_value_unsent,
     }
 
 
@@ -4199,7 +4204,6 @@ async def get_printable_objects(
     printer_id: int,
     reload: bool = False,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get the list of printable objects for the current print.
 
@@ -4209,8 +4213,10 @@ async def get_printable_objects(
     Args:
         reload: If True, reload objects from the archive file (useful after restart)
     """
-    result = await db.execute(select(Printer).where(Printer.id == printer_id))
-    printer = result.scalar_one_or_none()
+    # Short sessions, released before the FTP download below (RC-C9): it can
+    # take a while from a printer that is mid-print.
+    async with database.async_session() as db:
+        printer = (await db.execute(select(Printer).where(Printer.id == printer_id))).scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
 
@@ -4233,16 +4239,17 @@ async def get_printable_objects(
 
         subtask_id = str(getattr(client.state, "subtask_id", "") or "").strip()
         if subtask_id not in ("", "0"):
-            archive = await db.scalar(
-                select(PrintArchive)
-                .where(
-                    PrintArchive.printer_id == printer_id,
-                    PrintArchive.status == "printing",
-                    PrintArchive.subtask_id == subtask_id,
+            async with database.async_session() as db:
+                archive = await db.scalar(
+                    select(PrintArchive)
+                    .where(
+                        PrintArchive.printer_id == printer_id,
+                        PrintArchive.status == "printing",
+                        PrintArchive.subtask_id == subtask_id,
+                    )
+                    .order_by(PrintArchive.created_at.desc())
+                    .limit(1)
                 )
-                .order_by(PrintArchive.created_at.desc())
-                .limit(1)
-            )
             if archive is not None:
                 objects, bbox_all = extract_printable_objects_from_archive(
                     settings.base_dir / archive.file_path,

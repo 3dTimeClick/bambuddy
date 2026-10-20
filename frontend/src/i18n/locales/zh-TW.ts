@@ -7160,6 +7160,7 @@ export default {
     cancel: '取消',
     configuring: '設定中...',
     configureSlot: '設定槽位',
+    kValueUnsent: '耗材已設定，但無法將 K 值傳送到印表機。',
     // Why an Orca profile went into the slot as the generic for its material (#3216)
     orcaFallback: {
       no_filament_id: '此 Orca 設定檔沒有自己的線材 ID，因此 OrcaSlicer 會將此槽位識別為 Generic {{material}}。',
