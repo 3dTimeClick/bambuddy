@@ -4543,21 +4543,13 @@ async def on_print_start(printer_id: int, data: dict):
                         printer.plate_detection_roi_h,
                     )
 
-                # Auto-turn on chamber light if it's off for better detection
-                light_was_off = False
-                client = printer_manager.get_client(printer_id)
-                if client and client.state:
-                    light_was_off = not client.state.chamber_light
-                    if light_was_off:
-                        logger.info("[PLATE CHECK] Turning on chamber light for printer %s", printer_id)
-                        client.set_chamber_light(True)
-                        # Wait for light to physically turn on and camera to adjust exposure
-                        await asyncio.sleep(2.5)
-
+                # The light is held, not switched, so a live view opened
+                # meanwhile keeps it when the check lets go (SP-C11). Every
+                # printer, whatever the camera light mode: detection needs it.
                 plate_photo_data = None
                 objects_detected = False
                 check_failure: str | None = None
-                try:
+                async with camera_light(printer, any_mode=True, settle=2.5):
                     logger.info("[PLATE CHECK] Running plate detection for printer %s", printer_id)
                     plate_result = await check_plate_empty(
                         printer_id=printer_id,
@@ -4596,19 +4588,6 @@ async def on_print_start(printer_id: int, data: dict):
                         except Exception as snap_err:
                             logger.warning(
                                 "[PLATE CHECK] Failed to capture snapshot for printer %s: %s", printer_id, snap_err
-                            )
-                finally:
-                    # Restore chamber light to original state as soon as the
-                    # camera is done with it, whatever happened above.
-                    if light_was_off and client:
-                        logger.info("[PLATE CHECK] Restoring chamber light to off for printer %s", printer_id)
-                        try:
-                            client.set_chamber_light(False)
-                        except Exception as light_err:
-                            logger.warning(
-                                "[PLATE CHECK] Failed to restore chamber light for printer %s: %s",
-                                printer_id,
-                                light_err,
                             )
 
                 if objects_detected:

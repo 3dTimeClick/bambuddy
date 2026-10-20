@@ -173,6 +173,7 @@ async def test_forget_printer_clears_the_services():
     camera._last_frame_times[GONE] = 1.0
     camera._stream_start_times[GONE] = 1.0
     camera._active_external_streams[GONE] = 1
+    camera._external_live_readers[GONE] = 1
     from backend.app.api.routes import printers
 
     printers._cover_cache[GONE] = {("Cube", "front"): b"png"}
@@ -198,6 +199,7 @@ async def test_forget_printer_clears_the_services():
     assert GONE not in camera._last_frame_times
     assert GONE not in camera._stream_start_times
     assert GONE not in camera._active_external_streams
+    assert GONE not in camera._external_live_readers
     assert GONE not in printers._cover_cache
     assert GONE not in printers._cover_404_cache
     assert not [key for key in printer_file_cache._entries if key[0] == GONE]

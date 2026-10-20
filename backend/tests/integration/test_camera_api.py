@@ -826,3 +826,25 @@ class TestCameraStreamPoolHygiene:
                 f"camera_stream re-introduced a get_db-held session via parameter {name!r} — "
                 "it would stay open for the entire stream (issue #2572)"
             )
+
+    @pytest.mark.parametrize(
+        "route",
+        [
+            "test_camera",
+            "diagnose_camera_route",
+            "test_external_camera",
+            "check_plate_empty",
+            "calibrate_plate_detection",
+        ],
+    )
+    def test_capturing_routes_do_not_hold_a_get_db_session(self, route):
+        """RC-C10: these capture, diagnose or run OpenCV for 10-30 s after one
+        printer lookup; a ``Depends(get_db)`` session pinned a pooled
+        connection idle-in-transaction for all of it."""
+        import inspect
+
+        from backend.app.api.routes import camera
+
+        for name, param in inspect.signature(getattr(camera, route)).parameters.items():
+            dependency = getattr(param.default, "dependency", None)
+            assert dependency is not camera.get_db, f"{route} holds a get_db session via {name!r} (RC-C10)"
