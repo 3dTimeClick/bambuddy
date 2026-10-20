@@ -92,7 +92,7 @@ class TestNozzleOffsetCalibration:
     async def test_a_late_slicer_choice_is_patched_on(self, tmp_path):
         added: list = []
         position_max = MagicMock(scalar=MagicMock(return_value=None))
-        pending = MagicMock(all=MagicMock(return_value=[(101,)]))
+        pending = MagicMock(all=MagicMock(return_value=[(101, None, None)]))
         factory, db = _session(added, [position_max, pending, MagicMock()])
         inst = _vp(tmp_path, factory, target_printer_id=7)
         inst._mqtt = MagicMock()
@@ -132,7 +132,7 @@ class TestNozzlePositionsNeedOnePrinter:
     async def test_an_any_model_vp_does_not_patch_them_on_late(self, tmp_path):
         added: list = []
         position_max = MagicMock(scalar=MagicMock(return_value=None))
-        pending = MagicMock(all=MagicMock(return_value=[(101,)]))
+        pending = MagicMock(all=MagicMock(return_value=[(101, None, None)]))
         factory, db = _session(added, [position_max, pending, MagicMock()])
         inst = _vp(tmp_path, factory)
         inst._mqtt = MagicMock()
@@ -199,7 +199,7 @@ class TestAmsOnOff:
     async def test_a_vp_for_any_printer_does_not_patch_it_on_late(self, tmp_path):
         added: list = []
         position_max = MagicMock(scalar=MagicMock(return_value=None))
-        pending = MagicMock(all=MagicMock(return_value=[(101,)]))
+        pending = MagicMock(all=MagicMock(return_value=[(101, None, None)]))
         factory, db = _session(added, [position_max, pending, MagicMock()])
         inst = _vp(tmp_path, factory)
         inst._mqtt = MagicMock()
@@ -235,7 +235,7 @@ class TestLateAmsMappingPerPlate:
         import time
 
         added: list = []
-        pending = MagicMock(all=MagicMock(return_value=[(101, None), (102, None)]))
+        pending = MagicMock(all=MagicMock(return_value=[(101, None, None), (102, None, None)]))
         factory, db = _session(added, [pending, MagicMock(), MagicMock()])
         inst = VirtualPrinterInstance(
             vp_id=78,

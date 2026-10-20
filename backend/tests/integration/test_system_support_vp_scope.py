@@ -157,27 +157,31 @@ async def test_a_member_cannot_point_a_virtual_printer_at_another_printer(async_
 
 
 async def test_the_legacy_virtual_printer_settings_keep_to_the_caller_printers(
-    async_client: AsyncClient, printer_factory
+    async_client: AsyncClient, printer_factory, db_session
 ):
+    from backend.app.models.settings import Settings
+
     a_id, b_id, admin, member = await _setup(async_client, printer_factory)
-    set_up = await async_client.put(
-        f"/api/v1/settings/virtual-printer?mode=proxy&target_printer_id={b_id}", headers=admin
-    )
-    assert set_up.status_code == 200, set_up.text
+    # Stored by an older version, which still let this route aim it.
+    db_session.add(Settings(key="virtual_printer_target_printer_id", value=str(b_id)))
+    await db_session.commit()
 
     shown = await async_client.get("/api/v1/settings/virtual-printer", headers=member)
-    changed = await async_client.put("/api/v1/settings/virtual-printer?mode=archive", headers=member)
+    changed = await async_client.put("/api/v1/settings/virtual-printer?archive_name_source=filename", headers=member)
 
     assert shown.json()["target_printer_id"] is None
     assert changed.status_code == 404
-    kept = (await async_client.get("/api/v1/settings/virtual-printer", headers=admin)).json()
-    assert (kept["mode"], kept["target_printer_id"]) == ("proxy", b_id)
 
-    await async_client.put(f"/api/v1/settings/virtual-printer?target_printer_id={a_id}", headers=admin)
-    aimed = await async_client.put(f"/api/v1/settings/virtual-printer?target_printer_id={b_id}", headers=member)
-    assert aimed.status_code == 400
+    # The settings also reach the first virtual printer: with the stored target
+    # now one the member may use, the 404 comes from that row alone.
+    from sqlalchemy import update
 
-    # The settings also reach the first virtual printer.
+    await db_session.execute(
+        update(Settings).where(Settings.key == "virtual_printer_target_printer_id").values(value=str(a_id))
+    )
+    await db_session.commit()
+    allowed = await async_client.put("/api/v1/settings/virtual-printer?archive_name_source=filename", headers=member)
+    assert allowed.status_code == 200, allowed.text
     await async_client.post(
         "/api/v1/virtual-printers", headers=admin, json={"name": "first", "mode": "proxy", "target_printer_id": b_id}
     )

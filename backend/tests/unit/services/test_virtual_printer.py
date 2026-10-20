@@ -2391,7 +2391,7 @@ class TestVirtualPrinterInstance:
         position_max_result = MagicMock()
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
-        select_pending_result.all = MagicMock(return_value=[(101,)])
+        select_pending_result.all = MagicMock(return_value=[(101, None, None)])
         update_result = MagicMock()
         mock_db.execute = AsyncMock(side_effect=[position_max_result, select_pending_result, update_result])
 
@@ -2504,7 +2504,7 @@ class TestVirtualPrinterInstance:
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
         # (queue_item_id, archive_id) — matches the id set by db.add above.
-        select_pending_result.all = MagicMock(return_value=[(101, 55)])
+        select_pending_result.all = MagicMock(return_value=[(101, 55, None)])
         update_result = MagicMock()
         select_archives_result = MagicMock()
         select_archives_result.scalars = MagicMock(
@@ -2603,7 +2603,7 @@ class TestVirtualPrinterInstance:
         position_max_result = MagicMock()
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
-        select_pending_result.all = MagicMock(return_value=[(201, 65)])
+        select_pending_result.all = MagicMock(return_value=[(201, 65, None)])
         update_result = MagicMock()
         # No 4th execute() expected — the archive patch must be skipped
         # entirely, so only 3 calls should ever happen.
@@ -2699,7 +2699,7 @@ class TestVirtualPrinterInstance:
         position_max_result = MagicMock()
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
-        select_pending_result.all = MagicMock(return_value=[(301, 75)])
+        select_pending_result.all = MagicMock(return_value=[(301, 75, None)])
         update_result = MagicMock()
         select_archives_result = MagicMock()
         select_archives_result.scalars = MagicMock(
@@ -2794,7 +2794,7 @@ class TestVirtualPrinterInstance:
         position_max_result = MagicMock()
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
-        select_pending_result.all = MagicMock(return_value=[(401, 85)])
+        select_pending_result.all = MagicMock(return_value=[(401, 85, None)])
         update_result = MagicMock()
         # No 4th execute(): with nothing to save there is no archive SELECT.
         mock_db.execute = AsyncMock(side_effect=[position_max_result, select_pending_result, update_result])
@@ -2881,7 +2881,7 @@ class TestVirtualPrinterInstance:
         position_max_result = MagicMock()
         position_max_result.scalar = MagicMock(return_value=None)
         select_pending_result = MagicMock()
-        select_pending_result.all = MagicMock(return_value=[(301,)])
+        select_pending_result.all = MagicMock(return_value=[(301, None, None)])
         update_result = MagicMock()
         mock_db.execute = AsyncMock(side_effect=[position_max_result, select_pending_result, update_result])
 

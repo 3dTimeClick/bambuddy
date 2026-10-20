@@ -629,17 +629,23 @@ class VirtualPrinterInstance:
 
         try:
             async with self._session_factory() as db:
-                # Only stamp items still pending; once the scheduler has
-                # picked the row up we can't safely race the dispatcher.
+                # Only stamp items still pending and unclaimed; once the
+                # scheduler has picked the row up we can't safely race the
+                # dispatcher. A claim leaves the status "pending" while the
+                # upload runs with the row's current mapping, so the claim is
+                # checked too, and again in the writes below.
+                unclaimed = (PrintQueueItem.status == "pending", PrintQueueItem.dispatching_at.is_(None))
                 result = await db.execute(
-                    select(PrintQueueItem.id, PrintQueueItem.archive_id).where(
+                    select(PrintQueueItem.id, PrintQueueItem.archive_id, PrintQueueItem.dispatching_at).where(
                         PrintQueueItem.id.in_(queue_item_ids),
                         PrintQueueItem.status == "pending",
                     )
                 )
                 rows = result.all()
-                eligible_ids = [row[0] for row in rows]
-                if not eligible_ids:
+                eligible_ids = [row[0] for row in rows if row[2] is None]
+                # A claimed job's archive still takes the slicer's pick below:
+                # that copy serves later reprints, not this run.
+                if not eligible_ids and (ams_mapping_json is None or not rows):
                     self._recent_queue_items.pop(stash_key, None)
                     return
                 # As in `_add_to_print_queue`: a mapping shorter than a plate's
@@ -659,11 +665,13 @@ class VirtualPrinterInstance:
                         )
                 reached_ids = [i for i in eligible_ids if i not in short_ids]
                 if patch and reached_ids:
-                    await db.execute(update(PrintQueueItem).where(PrintQueueItem.id.in_(reached_ids)).values(**patch))
+                    await db.execute(
+                        update(PrintQueueItem).where(PrintQueueItem.id.in_(reached_ids), *unclaimed).values(**patch)
+                    )
                 short_patch = {k: v for k, v in patch.items() if k != "ams_mapping"}
                 if short_ids and short_patch:
                     await db.execute(
-                        update(PrintQueueItem).where(PrintQueueItem.id.in_(short_ids)).values(**short_patch)
+                        update(PrintQueueItem).where(PrintQueueItem.id.in_(short_ids), *unclaimed).values(**short_patch)
                     )
 
                 # The archive was already created (with no slicer_ams_mapping)
