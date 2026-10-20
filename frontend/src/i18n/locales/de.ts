@@ -7527,6 +7527,7 @@ export default {
       linkFailedSpoolNotFound: 'Der Tag wurde beschrieben, aber die Spule existiert nicht mehr',
       spoolmanUnavailable: 'Spoolman ist nicht verfügbar. Prüfe die URL in den Spoolman-Einstellungen.',
       queueFailed: 'Schreibbefehl konnte nicht eingereiht werden',
+      linkedToAms: 'Diese Spule ist über das AMS mit ihrem Bambu-RFID-Tag verknüpft. Ein Sticker würde diese Verknüpfung in Spoolman ersetzen.',
       tryAgain: 'Erneut versuchen',
       cancel: 'Abbrechen',
       replaceWarning: 'Alter Tag wird getrennt. Neuer Tag ersetzt ihn.',

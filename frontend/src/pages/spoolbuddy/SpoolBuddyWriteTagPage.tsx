@@ -124,7 +124,10 @@ export function SpoolBuddyWriteTagPage() {
     void colorCatalogVersion;
     let list: InventorySpool[];
     if (activeTab === 'existing') {
-      list = spools.filter(s => !s.tag_uid && !s.archived_at);
+      // Not a spool linked by its AMS tray UUID either: that is its tag, and
+      // in Spoolman a sticker would replace it (SM-C5). The two tabs are
+      // each other's complement.
+      list = spools.filter(s => !s.tag_uid && !s.tray_uuid && !s.archived_at);
     } else if (activeTab === 'replace') {
       list = spools.filter(s => (s.tag_uid || s.tray_uuid) && !s.archived_at);
     } else {
@@ -245,10 +248,14 @@ export function SpoolBuddyWriteTagPage() {
       }
     } catch (err) {
       setWriteStatus('error');
+      const status = (err as { status?: number } | null)?.status;
       setWriteMessage(
-        (err as { status?: number } | null)?.status === 503
+        status === 503
           ? t('spoolbuddy.writeTag.spoolmanUnavailable')
-          : t('spoolbuddy.writeTag.queueFailed', 'Failed to queue write command'),
+          : status === 409
+            // A Bambu spool linked by its tray ID in Spoolman (SM-C5).
+            ? t('spoolbuddy.writeTag.linkedToAms')
+            : t('spoolbuddy.writeTag.queueFailed', 'Failed to queue write command'),
       );
     }
   };

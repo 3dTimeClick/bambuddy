@@ -7528,6 +7528,7 @@ export default {
       linkFailedSpoolNotFound: 'タグは書き込まれましたが、スプールはもう存在しません',
       spoolmanUnavailable: 'Spoolman が利用できません。Spoolman 設定の URL を確認してください。',
       queueFailed: '書込みコマンドのキューに失敗しました',
+      linkedToAms: 'このスプールは AMS を通じて Bambu の RFID タグに紐付けられています。ステッカーを書き込むと Spoolman 上のその紐付けが置き換えられます。',
       tryAgain: '再試行',
       cancel: 'キャンセル',
       replaceWarning: '古いタグのリンクが解除され、新しいタグに置き換わります。',

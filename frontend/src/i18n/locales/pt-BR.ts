@@ -7514,6 +7514,7 @@ export default {
       linkFailedSpoolNotFound: 'A etiqueta foi gravada, mas o carretel não existe mais',
       spoolmanUnavailable: 'O Spoolman não está disponível. Verifique a URL nas configurações do Spoolman.',
       queueFailed: 'Falha ao enfileirar comando de gravação',
+      linkedToAms: 'Este carretel está vinculado à sua tag RFID Bambu pelo AMS. Um adesivo substituiria esse vínculo no Spoolman.',
       tryAgain: 'Tentar novamente',
       cancel: 'Cancelar',
       replaceWarning: 'O tag antigo será desvinculado. O novo tag o substituirá.',

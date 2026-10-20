@@ -7578,6 +7578,7 @@ export default {
       linkFailedSpoolNotFound: 'De tag is geschreven, maar de spoel bestaat niet meer',
       spoolmanUnavailable: 'Spoolman is niet beschikbaar. Controleer de URL in de Spoolman-instellingen.',
       queueFailed: 'Schrijfopdracht in wachtrij plaatsen mislukt',
+      linkedToAms: 'Deze spoel is via de AMS gekoppeld aan zijn Bambu-RFID-tag. Een sticker zou die koppeling in Spoolman vervangen.',
       tryAgain: 'Opnieuw proberen',
       cancel: 'Annuleren',
       replaceWarning: 'Oude tag wordt ontkoppeld. Nieuwe tag vervangt deze.',

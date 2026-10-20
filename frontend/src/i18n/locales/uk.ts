@@ -7568,6 +7568,7 @@ export default {
       linkFailedSpoolNotFound: "Мітку записано, але котушки більше не існує",
       spoolmanUnavailable: "Spoolman недоступний. Перевірте URL у налаштуваннях Spoolman.",
       queueFailed: "Не вдалося поставити команду запису в чергу",
+      linkedToAms: "Ця котушка пов'язана зі своєю RFID-міткою Bambu через AMS. Наліпка замінила б цей зв'язок у Spoolman.",
       tryAgain: "Спробуйте знову",
       cancel: "Скасувати",
       replaceWarning: "Старий тег буде від’єднано від котушки, а замість нього буде прив’язано новий.",

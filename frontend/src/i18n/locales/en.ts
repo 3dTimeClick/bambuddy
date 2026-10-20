@@ -7580,6 +7580,7 @@ export default {
       linkFailedSpoolNotFound: 'The tag was written, but the spool no longer exists',
       spoolmanUnavailable: 'Spoolman is unavailable. Check its URL in the Spoolman settings.',
       queueFailed: 'Failed to queue write command',
+      linkedToAms: 'This spool is linked to its Bambu RFID tag through the AMS. A sticker would replace that link in Spoolman.',
       tryAgain: 'Try Again',
       cancel: 'Cancel',
       replaceWarning: 'Old tag will be unlinked. New tag will replace it.',

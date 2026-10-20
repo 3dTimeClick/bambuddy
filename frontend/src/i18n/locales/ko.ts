@@ -7168,6 +7168,7 @@ export default {
       linkFailedSpoolNotFound: '태그는 기록되었지만 스풀이 더 이상 존재하지 않습니다',
       spoolmanUnavailable: 'Spoolman을 사용할 수 없습니다. Spoolman 설정에서 URL을 확인하세요.',
       queueFailed: '쓰기 명령 대기 실패',
+      linkedToAms: '이 스풀은 AMS를 통해 Bambu RFID 태그에 연결되어 있습니다. 스티커를 쓰면 Spoolman에서 그 연결이 대체됩니다.',
       tryAgain: '다시 시도',
       cancel: '취소',
       replaceWarning: '이전 태그가 연결 해제됩니다. 새 태그가 교체합니다.',

@@ -286,6 +286,36 @@ describe('SpoolBuddyWriteTagPage', () => {
     mockOutletContext.sbState.deviceOnline = false; // reset
   });
 
+  it('says why a write for a spool linked to its AMS RFID tag is refused (SM-C5)', async () => {
+    const spool = {
+      id: 98,
+      material: 'PLA',
+      label_weight: 1000,
+      weight_used: 0,
+      tag_uid: null,
+      tray_uuid: null,
+      archived_at: null,
+      rgba: 'FF0000FF',
+    };
+    vi.mocked(mockedApi.getSpools).mockResolvedValue([spool as never]);
+    vi.mocked(mockedSpoolbuddyApi.getDevices).mockResolvedValue([
+      { device_id: 'sb-test', hostname: 'sb-test.local' } as never,
+    ]);
+    vi.mocked(mockedSpoolbuddyApi.writeTag).mockRejectedValueOnce(
+      Object.assign(new Error('linked to its Bambu RFID tag'), { status: 409 }),
+    );
+
+    mockOutletContext.sbState.deviceOnline = true;
+    renderPage();
+    await waitFor(() => expect(screen.getByText('PLA')).toBeDefined());
+    fireEvent.click(screen.getByText('PLA'));
+    await waitFor(() => expect((screen.getByText('Write Tag') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText('Write Tag'));
+
+    await waitFor(() => expect(screen.getByText('spoolbuddy.writeTag.linkedToAms')).toBeDefined());
+    mockOutletContext.sbState.deviceOnline = false; // reset
+  });
+
   it('reads from internal inventory when Spoolman mode is OFF (#1439 parity baseline)', async () => {
     vi.mocked(mockedApi.getSpoolmanSettings).mockResolvedValue({
       spoolman_enabled: 'false',
@@ -361,6 +391,23 @@ describe('SpoolBuddyWriteTagPage', () => {
       expect(screen.getByText('#42')).toBeDefined();
       expect(screen.getByText('#43')).toBeDefined();
     });
+
+    mockOutletContext.sbState.deviceOnline = false;
+  });
+
+  it('leaves a spool linked by its AMS tray UUID out of the untagged list (SM-C5)', async () => {
+    // A Bambu spool created from the AMS is linked by its tray UUID; listed as
+    // untagged, a sticker written to it replaced that link in Spoolman.
+    const spools = [
+      { id: 50, material: 'PLA', label_weight: 1000, weight_used: 0, tag_uid: null, tray_uuid: null, archived_at: null, rgba: 'FF0000FF' },
+      { id: 51, material: 'PLA', label_weight: 1000, weight_used: 0, tag_uid: null, tray_uuid: '9E0B0717BEE94D7887EB1D8DFD1A14F3', archived_at: null, rgba: 'FF0000FF' },
+    ];
+    vi.mocked(mockedApi.getSpools).mockResolvedValue(spools as never);
+    mockOutletContext.sbState.deviceOnline = true;
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('#50')).toBeDefined());
+    expect(screen.queryByText('#51')).toBeNull();
 
     mockOutletContext.sbState.deviceOnline = false;
   });

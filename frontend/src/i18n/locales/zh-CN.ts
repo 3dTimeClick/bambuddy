@@ -7512,6 +7512,7 @@ export default {
       linkFailedSpoolNotFound: '标签已写入，但料卷已不存在',
       spoolmanUnavailable: 'Spoolman 不可用。请检查 Spoolman 设置中的 URL。',
       queueFailed: '排队写入命令失败',
+      linkedToAms: '此料卷已通过 AMS 关联到其 Bambu RFID 标签。写入贴纸会替换 Spoolman 中的这一关联。',
       tryAgain: '重试',
       cancel: '取消',
       replaceWarning: '旧标签将被取消链接。新标签将替换它。',

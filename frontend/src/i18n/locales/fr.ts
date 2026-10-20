@@ -7515,6 +7515,7 @@ export default {
       linkFailedSpoolNotFound: 'L\'étiquette a été écrite, mais la bobine n\'existe plus',
       spoolmanUnavailable: 'Spoolman n\'est pas disponible. Vérifiez son URL dans les paramètres Spoolman.',
       queueFailed: 'Impossible de mettre en file la commande d\'écriture',
+      linkedToAms: "Cette bobine est liée à son tag RFID Bambu via l'AMS. Un autocollant remplacerait ce lien dans Spoolman.",
       tryAgain: 'Réessayer',
       cancel: 'Annuler',
       replaceWarning: 'L\'ancien tag sera dissocié. Le nouveau tag le remplacera.',

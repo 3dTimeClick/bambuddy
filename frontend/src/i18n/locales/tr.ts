@@ -7465,6 +7465,7 @@ export default {
       linkFailedSpoolNotFound: 'Etiket yazıldı, ancak makara artık mevcut değil',
       spoolmanUnavailable: 'Spoolman kullanılamıyor. Spoolman ayarlarındaki URL\'yi kontrol edin.',
       queueFailed: 'Yazma komutu kuyruğa alınamadı',
+      linkedToAms: "Bu makara, AMS üzerinden Bambu RFID etiketine bağlı. Bir etiket yazmak Spoolman'deki bu bağlantının yerini alır.",
       tryAgain: 'Tekrar Dene',
       cancel: 'İptal',
       replaceWarning: 'Eski etiket bağlantısı kaldırılacak. Yeni etiket yerini alacak.',

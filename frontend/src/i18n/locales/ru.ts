@@ -7156,6 +7156,7 @@ export default {
       linkFailedSpoolNotFound: "Метка записана, но катушка больше не существует",
       spoolmanUnavailable: "Spoolman недоступен. Проверьте URL в настройках Spoolman.",
       queueFailed: "Не удалось поставить команду записи в очередь",
+      linkedToAms: 'Эта катушка связана со своей RFID-меткой Bambu через AMS. Наклейка заменит эту связь в Spoolman.',
       tryAgain: "Повторить",
       cancel: "Отмена",
       replaceWarning: "Старая метка будет отвязана и заменена новой.",

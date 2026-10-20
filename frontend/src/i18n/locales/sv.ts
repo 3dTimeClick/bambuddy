@@ -7576,6 +7576,7 @@ errors: {
       linkFailedSpoolNotFound: 'Taggen skrevs, men spolen finns inte längre',
       spoolmanUnavailable: 'Spoolman är inte tillgängligt. Kontrollera URL:en i Spoolman-inställningarna.',
       queueFailed: 'Kunde inte köa skrivkommando',
+      linkedToAms: 'Den här spolen är länkad till sin Bambu-RFID-tagg via AMS. En klistermärkesetikett skulle ersätta den länken i Spoolman.',
       tryAgain: 'Försök igen',
       cancel: 'Avbryt',
       replaceWarning: 'Gamla taggen kommer att avlänkas. Ny tagg kommer att ersätta den.',
