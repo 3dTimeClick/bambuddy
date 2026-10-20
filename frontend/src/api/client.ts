@@ -1021,8 +1021,9 @@ export interface FailureAnalysis {
 export interface BulkUploadResult {
   uploaded: number;
   failed: number;
-  results: Array<{ filename: string; id: number; status: string }>;
-  errors: Array<{ filename: string; error: string }>;
+  /** `index` is the file's position in the request. */
+  results: Array<{ index: number; filename: string; id: number; status: string }>;
+  errors: Array<{ index: number; filename: string; error: string }>;
 }
 
 // Archive Comparison types

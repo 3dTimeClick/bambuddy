@@ -21,6 +21,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { queueItemDisplayName } from '../utils/queueItemName';
+import { queueItemThumbnailUrl } from '../utils/queueItemThumbnail';
 import {
   Clock,
   Trash2,
@@ -704,6 +705,7 @@ function SortableQueueItem({
       : null;
 
   const isMobileSelectable = isPending && onToggleSelect;
+  const thumbnailUrl = queueItemThumbnailUrl(item);
 
   return (
     <div
@@ -803,26 +805,8 @@ function SortableQueueItem({
 
         {/* Thumbnail - use plate-specific thumbnail if plate_id is set */}
         <div className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden">
-          {item.archive_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getArchivePlateThumbnail(item.archive_id!, item.plate_id)
-                  : api.getArchiveThumbnail(item.archive_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : item.library_file_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getLibraryFilePlateThumbnail(item.library_file_id!, item.plate_id)
-                  : api.getLibraryFileThumbnailUrl(item.library_file_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
+          {thumbnailUrl ? (
+            <img src={thumbnailUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-bambu-gray">
               <Layers className="w-5 h-5 sm:w-6 sm:h-6" />

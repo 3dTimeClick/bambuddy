@@ -113,7 +113,6 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'label_weight', label: 'Label', visible: true },
   { id: 'net', label: 'Net', visible: true },
   { id: 'gross', label: 'Gross', visible: false },
-  { id: 'added_full', label: 'Full', visible: false },
   { id: 'used', label: 'Used', visible: false },
   { id: 'printed_total', label: 'Printed Total', visible: false },
   { id: 'printed_since_weight', label: 'Printed Since Weight', visible: false },
@@ -254,7 +253,6 @@ const columnHeaders: Record<string, (t: TFn) => string> = {
   label_weight: (t) => t('inventory.labelWeight'),
   net: (t) => t('inventory.net'),
   gross: () => 'Gross',
-  added_full: () => 'Full',
   used: (t) => t('inventory.weightUsed'),
   printed_total: () => 'Printed Total',
   printed_since_weight: () => 'Printed Since Weight',
@@ -395,9 +393,6 @@ const columnCells: Record<string, (ctx: CellCtx) => ReactNode> = {
   ),
   gross: ({ spool, remaining }) => (
     <span className="text-sm text-bambu-gray">{formatWeight(remaining + spool.core_weight)}</span>
-  ),
-  added_full: ({ spool }) => (
-    <span className="text-sm text-bambu-gray">{spool.added_full == null ? '-' : spool.added_full ? 'Yes' : 'No'}</span>
   ),
   used: ({ spool }) => (
     <span className="text-sm text-bambu-gray">{spool.weight_used > 0 ? formatWeight(spool.weight_used) : '-'}</span>

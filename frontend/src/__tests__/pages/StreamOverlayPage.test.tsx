@@ -486,6 +486,35 @@ describe('StreamOverlayPage', () => {
     });
   });
 
+  describe('live updates', () => {
+    // ws-1: the backend sends a status update as `data`; the overlay read
+    // `data.status`, which is undefined, so every websocket update was
+    // dropped and only the 2 s poll moved it.
+    it('applies a websocket status update, keeping fields it does not carry', async () => {
+      const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+      vi.stubGlobal(
+        'WebSocket',
+        vi.fn().mockImplementation(function (this: { close: () => void; onmessage: null; onerror: null }) {
+          this.close = vi.fn();
+          this.onmessage = null;
+          this.onerror = null;
+          sockets.push(this);
+        }),
+      );
+      server.use(http.get('/api/v1/printers/:id/status', () => HttpResponse.json(mockStatusPrinting)));
+      renderOverlayPage(1);
+      expect(await screen.findByText('45%')).toBeInTheDocument();
+      await waitFor(() => expect(sockets[0]?.onmessage).toBeTypeOf('function'));
+
+      act(() => {
+        sockets[0].onmessage!({ data: JSON.stringify({ type: 'printer_status', printer_id: 1, data: { progress: 46 } }) });
+      });
+
+      expect(await screen.findByText('46%')).toBeInTheDocument();
+      expect(screen.getByText('Benchy')).toBeInTheDocument();
+    });
+  });
+
   describe('invalid printer', () => {
     it('shows invalid printer message for ID 0', async () => {
       renderOverlayPage(0);

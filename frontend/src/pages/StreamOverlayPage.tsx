@@ -296,7 +296,11 @@ export function StreamOverlayPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'printer_status' && data.printer_id === id) {
-          queryClient.setQueryData(['printerStatus', id], data.status);
+          // The update is the status itself, under `data`; merge it, as the
+          // app's own socket does, in case it carries only some fields.
+          queryClient.setQueryData(['printerStatus', id], (old: Record<string, unknown> | undefined) =>
+            old ? { ...old, ...data.data } : data.data,
+          );
         }
       } catch {
         // Ignore parse errors

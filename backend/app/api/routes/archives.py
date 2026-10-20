@@ -4484,12 +4484,14 @@ async def upload_archives_bulk(
     printer_scope.ensure(printer_id)
     from backend.app.api.routes.library import validate_print_file_upload
 
+    # Each outcome carries its file's position in the request: two files of
+    # the same name cannot be told apart by name.
     results = []
     errors = []
 
-    for file in files:
+    for index, file in enumerate(files):
         if not file.filename or not file.filename.endswith(".3mf"):
-            errors.append({"filename": file.filename or "unknown", "error": "Not a .3mf file"})
+            errors.append({"index": index, "filename": file.filename or "unknown", "error": "Not a .3mf file"})
             continue
 
         safe_filename = _safe_filename(file.filename)
@@ -4507,7 +4509,7 @@ async def upload_archives_bulk(
             try:
                 validate_print_file_upload(file.filename, content)
             except HTTPException as exc:
-                errors.append({"filename": file.filename, "error": exc.detail})
+                errors.append({"index": index, "filename": file.filename, "error": exc.detail})
                 continue
             temp_path.write_bytes(content)
 
@@ -4522,16 +4524,17 @@ async def upload_archives_bulk(
             if archive:
                 results.append(
                     {
+                        "index": index,
                         "filename": file.filename,
                         "id": archive.id,
                         "status": "success",
                     }
                 )
             else:
-                errors.append({"filename": file.filename, "error": "Failed to process"})
+                errors.append({"index": index, "filename": file.filename, "error": "Failed to process"})
         except Exception as e:
             logger.exception("Failed to upload archive %s: %s", file.filename, e)
-            errors.append({"filename": file.filename, "error": "Failed to process file"})
+            errors.append({"index": index, "filename": file.filename, "error": "Failed to process file"})
         finally:
             if temp_path.exists():
                 temp_path.unlink()

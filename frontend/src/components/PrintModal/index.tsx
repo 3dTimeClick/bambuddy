@@ -921,18 +921,11 @@ export function PrintModal({
     mutationFn: (data: PrintQueueItemCreate) => api.addToQueue(data),
   });
 
-  // Update queue item mutation
+  // Update queue item mutation. The submit handler reports the outcome and
+  // closes, once for the whole save: an edit can add entries for further
+  // printers after this runs.
   const updateQueueMutation = useMutation({
     mutationFn: (data: PrintQueueItemUpdate) => api.updateQueueItem(queueItem!.id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['queue'] });
-      showToast('Queue item updated');
-      onSuccess?.();
-      onClose();
-    },
-    onError: (error: Error) => {
-      showToast(error.message || 'Failed to update queue item', 'error');
-    },
   });
 
   // Get mapping for a specific printer (per-printer override or default).
