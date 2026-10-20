@@ -7,7 +7,7 @@ import re
 import shutil
 import zipfile
 from collections.abc import Sequence
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from backend.app.models.printer import Printer
 from backend.app.utils.archive_paths import archive_dir as resolve_archive_dir
 from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
 from backend.app.utils.filename import clean_display_name
+from backend.app.utils.local_time import local_date_end, local_date_start
 from backend.app.utils.safe_path import PathTraversalError, assert_under, safe_join_under
 from backend.app.utils.threemf_tools import bed_temperature_from_config, used_filament_indexes
 
@@ -1650,6 +1651,7 @@ class ArchiveService:
         offset: int = 0,
         visible_to_user_id: int | None = None,
         printer_scope: PrinterScope | None = None,
+        day_zone: tzinfo | None = None,
     ) -> list[PrintArchive]:
         """List archives with optional filtering.
 
@@ -1676,11 +1678,11 @@ class ArchiveService:
             query = query.where(PrintArchive.project_id == project_id)
 
         if date_from:
-            dt_from = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+            dt_from = local_date_start(date_from, day_zone)
             query = query.where(PrintArchive.created_at >= dt_from)
 
         if date_to:
-            dt_to = datetime.combine(date_to, time.max, tzinfo=timezone.utc)
+            dt_to = local_date_end(date_to, day_zone)
             query = query.where(PrintArchive.created_at <= dt_to)
 
         if visible_to_user_id is not None:

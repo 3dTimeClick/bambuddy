@@ -1018,6 +1018,21 @@ export interface FailureAnalysis {
   }>;
 }
 
+/**
+ * Send the browser's zone with calendar dates: the server reads a date as a
+ * day in it, else in its own TZ, which shifted every day for a browser away
+ * from the server (DB-C12). Only when a date is set.
+ */
+function addDayZone(params: URLSearchParams): void {
+  if (!params.has('date_from') && !params.has('date_to')) return;
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone) params.set('tz', zone);
+  } catch {
+    // No Intl zone: the server's TZ applies.
+  }
+}
+
 export interface BulkUploadResult {
   uploaded: number;
   failed: number;
@@ -5500,6 +5515,7 @@ export const api = {
     params.set('offset', String(offset));
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     return request<Archive[]>(`/archives/?${params}`);
   },
   // Latest archive of every printer in one request, for the printer cards.
@@ -5508,6 +5524,7 @@ export const api = {
     const params = new URLSearchParams();
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     if (createdById !== undefined) params.set('created_by_id', String(createdById));
     const qs = params.toString();
     return request<ArchiveSlim[]>(`/archives/slim${qs ? `?${qs}` : ''}`);
@@ -5611,6 +5628,7 @@ export const api = {
     const params = new URLSearchParams();
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.createdById !== undefined) params.set('created_by_id', String(options.createdById));
     const qs = params.toString();
     return request<ArchiveStats>(`/archives/stats${qs ? `?${qs}` : ''}`);
@@ -5633,6 +5651,7 @@ export const api = {
     if (options?.days) params.set('days', String(options.days));
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.printerId) params.set('printer_id', String(options.printerId));
     if (options?.projectId) params.set('project_id', String(options.projectId));
     if (options?.createdById !== undefined) params.set('created_by_id', String(options.createdById));
@@ -5661,6 +5680,7 @@ export const api = {
     if (options?.status) params.set('status', options.status);
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.search) params.set('search', options.search);
 
     const headers: Record<string, string> = {};
@@ -7127,6 +7147,7 @@ export const api = {
     const params = new URLSearchParams();
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     const qs = params.toString();
     return request<SupplierStats[]>(`/inventory/stats/suppliers${qs ? `?${qs}` : ''}`);
   },
@@ -7187,6 +7208,7 @@ export const api = {
     const params = new URLSearchParams();
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     const qs = params.toString();
     return request<MaterialNumberStats[]>(`/inventory/stats/material-numbers${qs ? `?${qs}` : ''}`);
   },

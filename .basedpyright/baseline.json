@@ -390,22 +390,6 @@
             {
                 "code": "reportArgumentType",
                 "range": {
-                    "startColumn": 29,
-                    "endColumn": 119,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 29,
-                    "endColumn": 117,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
                     "startColumn": 8,
                     "endColumn": 21,
                     "lineCount": 1

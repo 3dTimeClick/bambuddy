@@ -5,7 +5,7 @@ import logging
 import re as _re
 import zipfile
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from pathlib import Path
 
@@ -60,7 +60,7 @@ from backend.app.services.print_storage import (
 from backend.app.services.printer_media import VIDEO_SUFFIXES, match_ipcam_chunks
 from backend.app.utils.archive_paths import archive_photos_dir, find_archive_photo
 from backend.app.utils.http import build_content_disposition, download_error_response, safe_download_filename
-from backend.app.utils.local_time import to_naive_utc
+from backend.app.utils.local_time import day_zone, local_date_end, local_date_start, to_naive_utc
 from backend.app.utils.threemf_tools import (
     default_plate_gcode_name,
     expand_to_project_slots,
@@ -437,6 +437,9 @@ async def list_archives(
     project_id: int | None = None,
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -461,6 +464,7 @@ async def list_archives(
         offset=offset,
         visible_to_user_id=visible_to_user_id,
         printer_scope=printer_scope,
+        day_zone=day_zone(tz),
     )
 
     # Get sets of duplicate hashes and duplicate (name, hash) pairs (efficient single queries),
@@ -732,6 +736,9 @@ async def no_3mf_warning(
 async def list_archives_slim(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     created_by_id: int | None = Query(None, description="Filter by user who created the print (-1 for no user)"),
     limit: int = Query(default=10000, le=50000),
     offset: int = 0,
@@ -767,10 +774,10 @@ async def list_archives_slim(
         created_by_id = current_user.id
     filters = []
     if date_from:
-        dt_from = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        dt_from = local_date_start(date_from, day_zone(tz))
         filters.append(PrintLogEntry.created_at >= dt_from)
     if date_to:
-        dt_to = datetime.combine(date_to, time.max, tzinfo=timezone.utc)
+        dt_to = local_date_end(date_to, day_zone(tz))
         filters.append(PrintLogEntry.created_at <= dt_to)
     _apply_run_user_filter(filters, created_by_id)
     if (clause := printer_scope.where(PrintLogEntry.printer_id)) is not None:
@@ -1028,6 +1035,9 @@ async def analyze_failures(
     days: int | None = None,
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     printer_id: int | None = None,
     project_id: int | None = None,
     created_by_id: int | None = Query(None, description="Filter by user who created the print (-1 for no user)"),
@@ -1066,6 +1076,7 @@ async def analyze_failures(
         project_id=project_id,
         created_by_id=created_by_id,
         printer_scope=printer_scope,
+        day_zone=day_zone(tz),
     )
 
 
@@ -1140,6 +1151,9 @@ async def export_archives(
     status: str | None = None,
     date_from: str | None = Query(None, description="Start date (ISO format)"),
     date_to: str | None = Query(None, description="End date (ISO format)"),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
     printer_scope: PrinterScope = RequestPrinterScope,
@@ -1176,7 +1190,11 @@ async def export_archives(
     date_to_dt = None
     if date_from:
         try:
-            date_from_dt = to_naive_utc(datetime.fromisoformat(date_from))
+            # A date on its own is a local calendar day (DB-C12).
+            if len(date_from) == 10:
+                date_from_dt = to_naive_utc(local_date_start(date.fromisoformat(date_from), day_zone(tz)))
+            else:
+                date_from_dt = to_naive_utc(datetime.fromisoformat(date_from))
         except (ValueError, OverflowError):
             raise HTTPException(400, "Invalid date_from format")
     if date_to:
@@ -1184,7 +1202,7 @@ async def export_archives(
             # A date on its own ends with that day, as every other date filter
             # here reads it; read as midnight it left out the whole day.
             if len(date_to) == 10:
-                date_to_dt = datetime.combine(date.fromisoformat(date_to), time.max)
+                date_to_dt = to_naive_utc(local_date_end(date.fromisoformat(date_to), day_zone(tz)))
             else:
                 date_to_dt = to_naive_utc(datetime.fromisoformat(date_to))
         except (ValueError, OverflowError):
@@ -1260,6 +1278,9 @@ async def export_stats(
 async def get_archive_stats(
     date_from: date | None = Query(None, description="Start date (inclusive), YYYY-MM-DD"),
     date_to: date | None = Query(None, description="End date (inclusive), YYYY-MM-DD"),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     created_by_id: int | None = Query(None, description="Filter by user who created the print (-1 for no user)"),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.STATS_READ),
@@ -1280,10 +1301,10 @@ async def get_archive_stats(
     # Build date filter conditions scoped to PrintLogEntry (event-time).
     base_conditions = []
     if date_from:
-        dt_from = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        dt_from = local_date_start(date_from, day_zone(tz))
         base_conditions.append(PrintLogEntry.created_at >= dt_from)
     if date_to:
-        dt_to = datetime.combine(date_to, time.max, tzinfo=timezone.utc)
+        dt_to = local_date_end(date_to, day_zone(tz))
         base_conditions.append(PrintLogEntry.created_at <= dt_to)
     _apply_run_user_filter(base_conditions, created_by_id)
     # Only prints on printers the caller may see (#1727)
@@ -1479,8 +1500,8 @@ async def get_archive_stats(
     elif energy_tracking_mode == "total":
         # Total consumption mode with a date filter (#941): use hourly snapshots
         # to compute per-plug (endpoint - baseline) deltas.
-        dt_from = datetime.combine(date_from, time.min, tzinfo=timezone.utc) if date_from else None
-        dt_to = datetime.combine(date_to, time.max, tzinfo=timezone.utc) if date_to else None
+        dt_from = local_date_start(date_from, day_zone(tz)) if date_from else None
+        dt_to = local_date_end(date_to, day_zone(tz)) if date_to else None
         total_energy_kwh, energy_data_warming_up = await _sum_snapshot_deltas(db, dt_from=dt_from, dt_to=dt_to)
         costed = await snapshot_cost(db, fallback_price=energy_cost_per_kwh, dt_from=dt_from, dt_to=dt_to)
         total_energy_cost = cost_at_average_price(total_energy_kwh, costed.kwh, costed.cost, energy_cost_per_kwh)

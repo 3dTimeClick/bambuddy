@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -95,6 +95,7 @@ from backend.app.utils.filament_ids import (
     normalize_slicer_filament,
 )
 from backend.app.utils.filament_types import is_material_name, nozzle_temp_range, printer_filament_type
+from backend.app.utils.local_time import day_zone, local_date_end, local_date_start
 from backend.app.utils.natural_sort import natural_sort_key
 from backend.app.utils.tag_normalization import normalize_tag_uid, normalize_tray_uuid
 
@@ -1427,7 +1428,6 @@ async def export_spools_csv(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
 ):
     """Export the active inventory as CSV (same schema the importer accepts)."""
-    from datetime import datetime, timezone
 
     query = (
         select(Spool)
@@ -1738,7 +1738,6 @@ async def archive_spool(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Soft-delete a spool by setting archived_at."""
-    from datetime import datetime, timezone
 
     result = await db.execute(select(Spool).where(Spool.id == spool_id))
     spool = result.scalar_one_or_none()
@@ -1915,7 +1914,6 @@ async def bulk_archive_spools(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Soft-archive every listed spool (sets archived_at). Already-archived spools are left alone and counted in already_archived."""
-    from datetime import datetime, timezone
 
     result = await db.execute(select(Spool).where(Spool.id.in_(payload.ids)))
     spools = list(result.scalars().all())
@@ -2618,6 +2616,9 @@ async def get_spool_usage_history(
 async def get_supplier_stats(
     date_from: date | None = Query(None, description="Start date (inclusive), YYYY-MM-DD"),
     date_to: date | None = Query(None, description="End date (inclusive), YYYY-MM-DD"),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
 ):
@@ -2638,9 +2639,9 @@ async def get_supplier_stats(
     purchase_link = (SpoolSupplier.spool_id == Spool.id) & SpoolSupplier.is_purchase_source.is_(True)
     usage_window = []
     if date_from:
-        usage_window.append(SpoolUsageHistory.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+        usage_window.append(SpoolUsageHistory.created_at >= local_date_start(date_from, day_zone(tz)))
     if date_to:
-        usage_window.append(SpoolUsageHistory.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
+        usage_window.append(SpoolUsageHistory.created_at <= local_date_end(date_to, day_zone(tz)))
 
     remaining = Spool.label_weight - Spool.weight_used
     inventory_rows = await db.execute(
@@ -2706,6 +2707,9 @@ async def get_supplier_stats(
 async def get_material_number_stats(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    tz: str | None = Query(
+        None, max_length=64, description="IANA zone the dates are calendar days in; the server's when omitted"
+    ),
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
 ):
@@ -2730,11 +2734,13 @@ async def get_material_number_stats(
     # validator, so NULL is the only "unset" state to exclude here.
     has_number = Spool.material_number.is_not(None)
 
-    usage_filters = [has_number]
+    from sqlalchemy import ColumnElement
+
+    usage_filters: list[ColumnElement[bool]] = [has_number]
     if date_from:
-        usage_filters.append(SpoolUsageHistory.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+        usage_filters.append(SpoolUsageHistory.created_at >= local_date_start(date_from, day_zone(tz)))
     if date_to:
-        usage_filters.append(SpoolUsageHistory.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
+        usage_filters.append(SpoolUsageHistory.created_at <= local_date_end(date_to, day_zone(tz)))
 
     # Clamped PER SPOOL, like every other remaining-weight computation in the
     # codebase: a spool whose weight_used overshot its label_weight holds 0 g,
@@ -3142,7 +3148,6 @@ async def update_shopping_list_status(
     ),
 ):
     """Update the purchase status of a shopping list item."""
-    from datetime import datetime, timezone
 
     from backend.app.models.shopping_list import ShoppingListItem
 
