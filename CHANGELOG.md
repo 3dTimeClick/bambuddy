@@ -2,7 +2,7 @@
 
 All notable changes to Bambuddy will be documented in this file.
 
-## [1.2.6b1] - Unreleased
+## [1.3.0b1] - Unreleased
 
 ### Added
 - **USB cameras are picked from a list** — With an external camera set to **USB Camera (V4L2)**, Settings > Camera now lists the video devices the Bambuddy server can see, by name and path (`HD Pro Webcam C920 (/dev/video0)`), instead of asking for the device path. A refresh button looks again after a camera is plugged in, and a saved camera that is unplugged stays selected, marked **not found**. When no device is visible, the list says how to pass a camera to the Docker container. **Enter path manually** still takes a typed path. Looking for devices no longer holds up the server while it runs.
