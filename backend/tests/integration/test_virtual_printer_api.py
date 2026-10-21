@@ -136,7 +136,7 @@ class TestPendingUploadsAPI:
 
             upload = PendingUpload(
                 filename=filename,
-                file_path=f"/tmp/{filename}",
+                file_path=f"/tmp/{filename}",  # nosec B108 -- a stored path, never opened
                 file_size=1024,
                 source_ip="192.168.1.100",
                 status="pending",

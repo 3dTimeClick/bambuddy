@@ -136,7 +136,7 @@ def _client_with(error: Exception) -> bambu_ftp.BambuFTPClient:
 
 
 def test_a_missing_path_is_told_apart_when_asked():
-    import ftplib
+    import ftplib  # nosec B402 -- tests construct real ftplib error types
 
     missing = ftplib.error_perm("550 No such file")
     with pytest.raises(bambu_ftp.FileNotOnPrinterError):
@@ -148,7 +148,7 @@ def test_a_missing_path_is_told_apart_when_asked():
 
 
 def test_other_ftp_errors_are_failures_not_missing():
-    import ftplib
+    import ftplib  # nosec B402 -- tests construct real ftplib error types
 
     assert _client_with(ftplib.error_perm("530 Not logged in")).download_file("/x", report_missing=True) is None
     assert _client_with(OSError("reset")).download_file("/x", report_missing=True) is None
@@ -219,7 +219,7 @@ async def test_a_printer_file_past_its_deadline_is_a_timeout(monkeypatch, tmp_pa
 def test_a_size_refusal_is_left_to_retr():
     """A 550 to SIZE (no such command, a file still being written) does not
     make a file missing that RETR then serves."""
-    import ftplib
+    import ftplib  # nosec B402 -- tests construct real ftplib error types
     from unittest.mock import MagicMock
 
     client = bambu_ftp.BambuFTPClient("10.0.0.5", "code")

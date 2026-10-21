@@ -62,7 +62,7 @@ class TestPrintQueueAPI:
             defaults = {
                 "filename": f"test_print_{counter}.3mf",
                 "print_name": f"Test Print {counter}",
-                "file_path": f"/tmp/test_print_{counter}.3mf",
+                "file_path": f"/tmp/test_print_{counter}.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": f"testhash{counter:08d}",
                 "status": "completed",
@@ -1033,7 +1033,7 @@ class TestQueueStartEndpoint:
             defaults = {
                 "filename": f"test_print_{counter}.3mf",
                 "print_name": f"Test Print {counter}",
-                "file_path": f"/tmp/test_print_{counter}.3mf",
+                "file_path": f"/tmp/test_print_{counter}.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": f"testhash{counter:08d}",
                 "status": "completed",
@@ -1381,7 +1381,7 @@ class TestQueueCancelEndpoint:
             defaults = {
                 "filename": "cancel_test.3mf",
                 "print_name": "Cancel Test Print",
-                "file_path": "/tmp/cancel_test.3mf",
+                "file_path": "/tmp/cancel_test.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": "cancelhash001",
                 "status": "completed",
@@ -1700,7 +1700,7 @@ class TestBulkUpdateEndpoint:
             defaults = {
                 "filename": f"bulk_test_{counter}.3mf",
                 "print_name": f"Bulk Test Print {counter}",
-                "file_path": f"/tmp/bulk_test_{counter}.3mf",
+                "file_path": f"/tmp/bulk_test_{counter}.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": f"bulkhash{counter:04d}",
                 "status": "completed",
@@ -1981,7 +1981,7 @@ class TestTargetLocationFeature:
             defaults = {
                 "filename": f"location_test_{counter}.3mf",
                 "print_name": f"Location Test Print {counter}",
-                "file_path": f"/tmp/location_test_{counter}.3mf",
+                "file_path": f"/tmp/location_test_{counter}.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": f"lochash{counter:08d}",
                 "status": "completed",
@@ -2310,7 +2310,7 @@ class TestAbortedStatusNormalisation:
             defaults = {
                 "filename": f"abort_test_{counter}.3mf",
                 "print_name": f"Abort Test Print {counter}",
-                "file_path": f"/tmp/abort_test_{counter}.3mf",
+                "file_path": f"/tmp/abort_test_{counter}.3mf",  # nosec B108 -- a stored path, never opened
                 "file_size": 1024,
                 "content_hash": f"aborthash{counter:06d}",
                 "status": "completed",

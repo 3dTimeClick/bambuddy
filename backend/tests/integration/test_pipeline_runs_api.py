@@ -1420,7 +1420,7 @@ class TestJobKeepsItsFinalStatus:
         )
         connection = await db_session.connection()
         # Ended before jobs stored it: written past the session hooks.
-        await connection.exec_driver_sql(f"UPDATE print_queue SET status = 'aborted' WHERE id = {int(item_id)}")
+        await connection.exec_driver_sql(f"UPDATE print_queue SET status = 'aborted' WHERE id = {int(item_id)}")  # nosec B608 -- int() id
         await db_session.commit()
 
         await _backfill_pipeline_job_final_status(await db_session.connection())

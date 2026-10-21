@@ -448,9 +448,9 @@ async def _migrate_sqlite_autoincrement(conn) -> None:
             await conn.execute(text(f"DROP TABLE IF EXISTS {copy}"))
             await conn.execute(text(new_sql))
             names = ", ".join(f'"{r[1]}"' for r in await conn.execute(text(f"PRAGMA table_info({table})")))
-            await conn.execute(text(f"INSERT INTO {copy} ({names}) SELECT {names} FROM {table}"))
-            original = (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
-            copied = (await conn.execute(text(f"SELECT count(*) FROM {copy}"))).scalar_one()
+            await conn.execute(text(f"INSERT INTO {copy} ({names}) SELECT {names} FROM {table}"))  # nosec B608 -- table from AUTOINCREMENT_TABLES, columns from its own PRAGMA
+            original = (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()  # nosec B608 -- table from AUTOINCREMENT_TABLES, columns from its own PRAGMA
+            copied = (await conn.execute(text(f"SELECT count(*) FROM {copy}"))).scalar_one()  # nosec B608 -- table from AUTOINCREMENT_TABLES, columns from its own PRAGMA
             if copied != original:
                 raise RuntimeError(f"{table} AUTOINCREMENT rebuild: {original} rows, {copied} copied")
             await conn.execute(text(f"DROP TABLE {table}"))
@@ -5985,7 +5985,7 @@ async def _migrate_pg_columns_to_model(conn) -> None:
         extra = ""
         if (table, column) == ("oidc_providers", "email_claim"):
             extra = ", auto_link_existing_accounts = false"
-        filled = await conn.execute(text(f"UPDATE {table} SET {column} = {fill}{extra} WHERE {column} IS NULL"))
+        filled = await conn.execute(text(f"UPDATE {table} SET {column} = {fill}{extra} WHERE {column} IS NULL"))  # nosec B608 -- table/column from _PG_COLUMNS_SET_FROM_MODEL, fill from the model default
         if filled.rowcount:
             logger.info("Filled %d NULL %s.%s value(s) with %s", filled.rowcount, table, column, fill)
         await _safe_execute(conn, f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL")
@@ -6052,13 +6052,13 @@ async def _migrate_pg_column_types(conn) -> None:
         if current != old_type:
             continue
         if new_type == "JSON":
-            rows = await conn.execute(text(f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL"))
+            rows = await conn.execute(text(f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL"))  # nosec B608 -- table/column from _PG_COLUMN_TYPE_FIXES
             for row_id, value in rows.all():
                 try:
                     json.loads(value, parse_constant=_reject_non_json_constant)
                 except ValueError:
                     logger.warning("Clearing %s.%s of row %s: not valid JSON", table, column, row_id)
-                    await conn.execute(text(f"UPDATE {table} SET {column} = NULL WHERE id = :id"), {"id": row_id})
+                    await conn.execute(text(f"UPDATE {table} SET {column} = NULL WHERE id = :id"), {"id": row_id})  # nosec B608 -- table/column from _PG_COLUMN_TYPE_FIXES; id bound
         # Float to text gives the shortest exact decimal only with
         # extra_float_digits >= 1, PostgreSQL's default since 12, which a server,
         # database or role setting can lower: at 0 text keeps 6 digits.
@@ -6315,7 +6315,7 @@ async def _migrate_add_missing_set_null_fks(conn) -> None:
             continue
         cleared = await conn.execute(
             text(
-                f"UPDATE {table} SET {column} = NULL WHERE {column} IS NOT NULL "
+                f"UPDATE {table} SET {column} = NULL WHERE {column} IS NOT NULL "  # nosec B608 -- table/column/parent from _MISSING_SET_NULL_FKS
                 f"AND NOT EXISTS (SELECT 1 FROM {parent} WHERE {parent}.id = {table}.{column})"
             )
         )
@@ -6975,8 +6975,8 @@ async def _migrate_normalize_printer_locations(conn) -> None:
             )
             await conn.execute(
                 text(
-                    f"UPDATE {table} SET {column} = TRIM({column}) WHERE {column} IS NOT NULL AND {column} <> TRIM({column})"
-                )  # noqa: S608  # nosec B608 — fixed identifiers
+                    f"UPDATE {table} SET {column} = TRIM({column}) WHERE {column} IS NOT NULL AND {column} <> TRIM({column})"  # noqa: S608  # nosec B608 — fixed identifiers
+                )
             )
 
 
