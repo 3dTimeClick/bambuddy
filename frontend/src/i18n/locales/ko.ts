@@ -2730,6 +2730,15 @@ export default {
     cameraWindowDescription: '카메라가 별도의 브라우저 창에서 열립니다',
     externalCamerasDescription: '내장 프린터 카메라를 교체할 외부 카메라를 설정하세요. MJPEG 스트림, RTSP, HTTP 스냅샷, USB 카메라(V4L2)를 지원합니다.',
     cameraPlaceholderUsb: '장치 경로 (/dev/video0)',
+    usbCameraDevice: 'USB 장치',
+    usbCameraSelect: '장치 선택',
+    usbCameraSearching: '장치 검색 중…',
+    usbCameraNotFound: '{{device}} (찾을 수 없음)',
+    usbCameraRefresh: '장치 다시 검색',
+    usbCameraListFailed: '비디오 장치 목록을 가져올 수 없습니다.',
+    usbCameraNoneFound: 'Bambuddy에서 비디오 장치가 보이지 않습니다. Docker에서는 카메라를 컨테이너에 전달하세요:',
+    usbCameraEnterManually: '경로 직접 입력',
+    usbCameraPickFromList: '감지된 장치 선택',
     cameraPlaceholderUrl: '카메라 URL (rtsp://... 또는 http://...)',
     cameraTypeMjpeg: 'MJPEG 스트림',
     cameraTypeRtsp: 'RTSP 스트림',
@@ -5585,6 +5594,13 @@ export default {
     repoIsPrivate: '저장소가 비공개입니다 — 안전하게 백업할 수 있습니다.',
     repoIsPublicWarning: '저장소가 공개입니다. Bambuddy 백업에는 MQTT 자격증명, Home Assistant 토큰, Prometheus 토큰, Bambu Cloud 이메일, K-프로파일을 통한 프린터 액세스 코드가 포함됩니다. 공급자 설정에서 저장소를 비공개로 변경할 때까지 저장이 차단됩니다.',
     repoVisibilityUnknown: '저장소 공개 여부를 확인할 수 없습니다. Bambuddy는 비공개로 확인된 저장소에만 백업하며, 저장이 차단됩니다.'
+  },
+  // Timelapse editor
+  timelapseEditor: {
+    processing: '처리 중…',
+    processingPercent: '처리 중… {{percent}}%',
+    failed: '처리에 실패했습니다',
+    cancelled: '처리가 취소되었습니다',
   },
   tags: {
     title: '태그',

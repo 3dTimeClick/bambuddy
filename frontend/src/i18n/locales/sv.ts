@@ -2886,6 +2886,15 @@ export default {
     cameraWindowDescription: 'Kameran öppnas i ett separat webbläsarfönster',
     externalCamerasDescription: 'Konfigurera externa kameror för att ersätta den inbyggda skrivarkameran. Stöder MJPEG-strömmar, RTSP, HTTP-ögonblicksbilder och USB-kameror (V4L2). När aktiverad används den externa kameran för live-vy och färdigbilder.',
     cameraPlaceholderUsb: 'Enhetssökväg (/dev/video0)',
+    usbCameraDevice: 'USB-enhet',
+    usbCameraSelect: 'Välj en enhet',
+    usbCameraSearching: 'Söker efter enheter…',
+    usbCameraNotFound: '{{device}} (hittades inte)',
+    usbCameraRefresh: 'Sök efter enheter igen',
+    usbCameraListFailed: 'Det gick inte att lista videoenheterna.',
+    usbCameraNoneFound: 'Bambuddy ser inga videoenheter. I Docker skickar du kameran vidare till containern:',
+    usbCameraEnterManually: 'Ange sökvägen manuellt',
+    usbCameraPickFromList: 'Välj en hittad enhet',
     cameraPlaceholderUrl: 'Kamera-URL (rtsp://... eller http://...)',
     cameraTypeMjpeg: 'MJPEG-ström',
     cameraTypeRtsp: 'RTSP-ström',
@@ -5877,6 +5886,13 @@ errors: {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: 'Bearbetar…',
+    processingPercent: 'Bearbetar… {{percent}} %',
+    failed: 'Bearbetningen misslyckades',
+    cancelled: 'Bearbetningen avbröts',
+  },
   // Tags
   tags: {
     title: 'Taggar',

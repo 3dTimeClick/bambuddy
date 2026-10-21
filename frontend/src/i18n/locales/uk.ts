@@ -2884,6 +2884,15 @@ export default {
     cameraWindowDescription: "Камера відкривається в окремому вікні браузера",
     externalCamerasDescription: "Налаштуйте зовнішні камери замість вбудованої камери принтера. Підтримує потоки MJPEG, знімки RTSP, HTTP і камери USB (V4L2). Якщо ввімкнено, зовнішня камера використовується для перегляду в реальному часі та готових фотографій.",
     cameraPlaceholderUsb: "Шлях пристрою (/dev/video0)",
+    usbCameraDevice: "USB-пристрій",
+    usbCameraSelect: "Виберіть пристрій",
+    usbCameraSearching: "Пошук пристроїв…",
+    usbCameraNotFound: "{{device}} (не знайдено)",
+    usbCameraRefresh: "Шукати пристрої знову",
+    usbCameraListFailed: "Не вдалося отримати список відеопристроїв.",
+    usbCameraNoneFound: "Bambuddy не бачить жодного відеопристрою. У Docker передайте камеру в контейнер:",
+    usbCameraEnterManually: "Ввести шлях вручну",
+    usbCameraPickFromList: "Вибрати знайдений пристрій",
     cameraPlaceholderUrl: "Камера URL (rtsp://... або http://...)",
     cameraTypeMjpeg: "Потік MJPEG",
     cameraTypeRtsp: "RTSP Потік",
@@ -5869,6 +5878,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: "Обробка…",
+    processingPercent: "Обробка… {{percent}}%",
+    failed: "Не вдалося обробити",
+    cancelled: "Обробку скасовано",
+  },
   // Tags
   tags: {
     title: "Теги",

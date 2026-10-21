@@ -2819,6 +2819,15 @@ export default {
     cameraWindowDescription: 'La caméra s\'ouvre dans une fenêtre de navigateur séparée',
     externalCamerasDescription: 'Configurer des caméras externes pour remplacer la caméra intégrée. Supporte les flux MJPEG, RTSP, snapshots HTTP et caméras USB (V4L2). Lorsqu\'activée, la caméra externe est utilisée pour la vue en direct et les photos de fin.',
     cameraPlaceholderUsb: 'Chemin du périphérique (/dev/video0)',
+    usbCameraDevice: 'Périphérique USB',
+    usbCameraSelect: 'Choisir un périphérique',
+    usbCameraSearching: 'Recherche des périphériques…',
+    usbCameraNotFound: '{{device}} (introuvable)',
+    usbCameraRefresh: 'Rechercher à nouveau les périphériques',
+    usbCameraListFailed: 'Impossible de lister les périphériques vidéo.',
+    usbCameraNoneFound: 'Bambuddy ne voit aucun périphérique vidéo. Sous Docker, transmettez la caméra au conteneur :',
+    usbCameraEnterManually: 'Saisir le chemin manuellement',
+    usbCameraPickFromList: 'Choisir un périphérique détecté',
     cameraPlaceholderUrl: 'URL caméra (rtsp://... ou http://...)',
     cameraTypeMjpeg: 'Flux MJPEG',
     cameraTypeRtsp: 'Flux RTSP',
@@ -5816,6 +5825,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: 'Traitement…',
+    processingPercent: 'Traitement… {{percent}} %',
+    failed: 'Échec du traitement',
+    cancelled: 'Traitement annulé',
+  },
   // Tags
   tags: {
     title: 'Étiquettes',

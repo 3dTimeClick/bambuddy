@@ -622,6 +622,15 @@ export interface ExtruderSlot {
 // Which FTS inlet an AMS is plumbed into: 'A' | 'B'.
 export type FtsInlet = 'A' | 'B';
 
+// A video device the server can see, for a USB camera (GET /printers/usb-cameras).
+export interface UsbCamera {
+  device: string;
+  name: string;
+  capabilities: string[];
+  driver?: string;
+  formats?: string[];
+}
+
 export interface PrinterStatus {
   id: number;
   name: string;
@@ -838,6 +847,16 @@ export interface ArchivePrinterMedia {
   local_timelapse: { name: string; size: number } | null;
   remote_files: ArchivePrinterMediaFile[];
   warnings: Array<'printer_missing' | 'timelapse_unavailable' | 'ipcam_unavailable' | 'printer_files_forbidden'>;
+}
+
+/** A timelapse editor re-encode, run in the background. */
+export interface TimelapseJob {
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Share done, 0 to 1; null before ffmpeg's first report. */
+  progress: number | null;
+  output_path: string | null;
+  message: string | null;
+  error: string | null;
 }
 
 /** How a post-print outcome verdict reached the archive (#1898). */
@@ -5105,6 +5124,7 @@ export const api = {
     request<{ connected: boolean }>(`/printers/${id}/connect`, {
       method: 'POST',
     }),
+  getUsbCameras: () => request<{ cameras: UsbCamera[] }>('/printers/usb-cameras'),
   testExternalCamera: (printerId: number, url: string, cameraType: string) =>
     // `coalesced` is true when the frame came from a capture that was already
     // running (Obico polling, a snapshot) rather than a connection this test
@@ -5767,17 +5787,22 @@ export const api = {
       trimStart?: number;
       trimEnd?: number;
       speed?: number;
+      /** Music volume, 0 to 1. */
+      audioVolume?: number;
       saveMode: 'replace' | 'new';
       outputFilename?: string;
     },
     audioFile?: File
-  ): Promise<{ status: string; output_path: string | null; message: string }> => {
+  ): Promise<TimelapseJob> => {
     const formData = new FormData();
     formData.append('trim_start', String(params.trimStart ?? 0));
     if (params.trimEnd !== undefined) {
       formData.append('trim_end', String(params.trimEnd));
     }
     formData.append('speed', String(params.speed ?? 1));
+    if (params.audioVolume !== undefined) {
+      formData.append('audio_volume', String(params.audioVolume));
+    }
     formData.append('save_mode', params.saveMode);
     if (params.outputFilename) {
       formData.append('output_filename', params.outputFilename);
@@ -5800,6 +5825,17 @@ export const api = {
     }
     return response.json();
   },
+  // The archive's running or last re-encode; null when there has been none.
+  getTimelapseJob: async (archiveId: number): Promise<TimelapseJob | null> => {
+    try {
+      return await request<TimelapseJob>(`/archives/${archiveId}/timelapse/job`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  },
+  cancelTimelapseJob: (archiveId: number) =>
+    request<TimelapseJob>(`/archives/${archiveId}/timelapse/job`, { method: 'DELETE' }),
   // Photos
   getArchivePhotoUrl: (archiveId: number, filename: string) =>
     withMediaToken(`${API_BASE}/archives/${archiveId}/photos/${encodeURIComponent(filename)}`),

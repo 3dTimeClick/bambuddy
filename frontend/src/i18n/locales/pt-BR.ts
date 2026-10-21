@@ -2818,6 +2818,15 @@ export default {
     cameraWindowDescription: 'A câmera abre em uma janela separada do navegador',
     externalCamerasDescription: 'Configure câmeras externas para substituir a câmera integrada da impressora. Suporta streams MJPEG, RTSP, snapshots HTTP e câmeras USB (V4L2). Quando habilitada, a câmera externa é usada para visualização ao vivo e fotos de conclusão.',
     cameraPlaceholderUsb: 'Caminho do dispositivo (/dev/video0)',
+    usbCameraDevice: 'Dispositivo USB',
+    usbCameraSelect: 'Selecione um dispositivo',
+    usbCameraSearching: 'Procurando dispositivos…',
+    usbCameraNotFound: '{{device}} (não encontrado)',
+    usbCameraRefresh: 'Procurar dispositivos novamente',
+    usbCameraListFailed: 'Não foi possível listar os dispositivos de vídeo.',
+    usbCameraNoneFound: 'O Bambuddy não vê nenhum dispositivo de vídeo. No Docker, passe a câmera para o contêiner:',
+    usbCameraEnterManually: 'Digitar o caminho manualmente',
+    usbCameraPickFromList: 'Escolher um dispositivo detectado',
     cameraPlaceholderUrl: 'URL da câmera (rtsp://... ou http://...)',
     cameraTypeMjpeg: 'Stream MJPEG',
     cameraTypeRtsp: 'Stream RTSP',
@@ -5815,6 +5824,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: 'Processando…',
+    processingPercent: 'Processando… {{percent}}%',
+    failed: 'Falha no processamento',
+    cancelled: 'Processamento cancelado',
+  },
   // Tags
   tags: {
     title: 'Etiquetas',

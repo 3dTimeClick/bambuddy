@@ -171,17 +171,27 @@ def _sanitize_camera_url(url: str, allowed_schemes: tuple[str, ...] = ("http", "
         return None
 
 
-def list_usb_cameras() -> list[dict]:
+# The device names a USB camera can stream from: _safe_usb_device_path
+# accepts /dev/video0 to /dev/video99, written without a leading zero.
+_USB_DEVICE_NAME = re.compile(r"^video([0-9]|[1-9][0-9])$")
+
+
+def list_usb_cameras(dev_dir: Path = Path("/dev")) -> list[dict]:
     """List available USB cameras (V4L2 devices on Linux).
+
+    Blocking: runs v4l2-ctl for each device, so call it from a thread.
 
     Returns:
         List of dicts with {device: str, name: str, capabilities: list}
     """
     cameras = []
-    video_devices = sorted(Path("/dev").glob("video*"))
+    video_devices = sorted(
+        (device for device in dev_dir.glob("video*") if _USB_DEVICE_NAME.match(device.name)),
+        key=lambda device: int(device.name.removeprefix("video")),
+    )
 
     for device in video_devices:
-        device_path = str(device)
+        device_path = f"/dev/{device.name}"
         info = {"device": device_path, "name": device.name, "capabilities": []}
 
         # Try to get device info via v4l2-ctl
@@ -222,13 +232,10 @@ def list_usb_cameras() -> list[dict]:
 
         # Only include devices that look like video capture devices
         # Skip metadata devices (typically odd numbered like video1, video3)
-        try:
-            device_num = int(device.name.replace("video", ""))
-            # Even numbered devices are usually capture, odd are metadata
-            # But also check if we got capabilities
-            if info.get("capabilities") or device_num % 2 == 0:
-                cameras.append(info)
-        except ValueError:
+        device_num = int(device.name.removeprefix("video"))
+        # Even numbered devices are usually capture, odd are metadata
+        # But also check if we got capabilities
+        if info.get("capabilities") or device_num % 2 == 0:
             cameras.append(info)
 
     return cameras

@@ -2863,6 +2863,15 @@ export default {
     cameraWindowDescription: '攝影機在單獨的瀏覽器視窗中開啟',
     externalCamerasDescription: '設定外部攝影機以替換內建印表機攝影機。支援MJPEG流、RTSP、HTTP快照和USB攝影機（V4L2）。啟用後，外部攝影機將用於即時檢視和完成照片。',
     cameraPlaceholderUsb: '裝置路徑 (/dev/video0)',
+    usbCameraDevice: 'USB 裝置',
+    usbCameraSelect: '選擇裝置',
+    usbCameraSearching: '正在尋找裝置…',
+    usbCameraNotFound: '{{device}}（找不到）',
+    usbCameraRefresh: '重新尋找裝置',
+    usbCameraListFailed: '無法列出視訊裝置。',
+    usbCameraNoneFound: 'Bambuddy 看不到任何視訊裝置。在 Docker 中，請將攝影機傳給容器：',
+    usbCameraEnterManually: '手動輸入路徑',
+    usbCameraPickFromList: '選擇偵測到的裝置',
     cameraPlaceholderUrl: '攝影機URL (rtsp://... 或 http://...)',
     cameraTypeMjpeg: 'MJPEG 流',
     cameraTypeRtsp: 'RTSP 流',
@@ -5815,6 +5824,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: '處理中…',
+    processingPercent: '處理中… {{percent}}%',
+    failed: '處理失敗',
+    cancelled: '已取消處理',
+  },
   // Tags
   tags: {
     title: '標籤',

@@ -2863,6 +2863,15 @@ export default {
     cameraWindowDescription: '摄像头在单独的浏览器窗口中打开',
     externalCamerasDescription: '配置外部摄像头以替换内置打印机摄像头。支持MJPEG流、RTSP、HTTP快照和USB摄像头（V4L2）。启用后，外部摄像头将用于实时查看和完成照片。',
     cameraPlaceholderUsb: '设备路径 (/dev/video0)',
+    usbCameraDevice: 'USB 设备',
+    usbCameraSelect: '选择设备',
+    usbCameraSearching: '正在查找设备…',
+    usbCameraNotFound: '{{device}}（未找到）',
+    usbCameraRefresh: '重新查找设备',
+    usbCameraListFailed: '无法列出视频设备。',
+    usbCameraNoneFound: 'Bambuddy 看不到任何视频设备。在 Docker 中，请将摄像头传给容器：',
+    usbCameraEnterManually: '手动输入路径',
+    usbCameraPickFromList: '选择检测到的设备',
     cameraPlaceholderUrl: '摄像头URL (rtsp://... 或 http://...)',
     cameraTypeMjpeg: 'MJPEG 流',
     cameraTypeRtsp: 'RTSP 流',
@@ -5815,6 +5824,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: '处理中…',
+    processingPercent: '处理中… {{percent}}%',
+    failed: '处理失败',
+    cancelled: '已取消处理',
+  },
   // Tags
   tags: {
     title: '标签',

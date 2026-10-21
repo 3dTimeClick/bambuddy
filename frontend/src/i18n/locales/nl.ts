@@ -2887,6 +2887,15 @@ export default {
     cameraWindowDescription: 'Camera opent in een apart browservenster',
     externalCamerasDescription: 'Configureer externe camera\'s ter vervanging van de ingebouwde printercamera. Ondersteunt MJPEG-streams, RTSP, HTTP-momentopnamen en USB-camera\'s (V4L2). Wanneer ingeschakeld wordt de externe camera gebruikt voor liveweergave en eindfoto\'s.',
     cameraPlaceholderUsb: 'Apparaatpad (/dev/video0)',
+    usbCameraDevice: 'USB-apparaat',
+    usbCameraSelect: 'Kies een apparaat',
+    usbCameraSearching: 'Apparaten zoeken…',
+    usbCameraNotFound: '{{device}} (niet gevonden)',
+    usbCameraRefresh: 'Opnieuw naar apparaten zoeken',
+    usbCameraListFailed: 'De videoapparaten konden niet worden opgehaald.',
+    usbCameraNoneFound: 'Bambuddy ziet geen videoapparaten. Geef in Docker de camera door aan de container:',
+    usbCameraEnterManually: 'Pad handmatig invoeren',
+    usbCameraPickFromList: 'Een gevonden apparaat kiezen',
     cameraPlaceholderUrl: 'Camera-URL (rtsp://... of http://...)',
     cameraTypeMjpeg: 'MJPEG-stream',
     cameraTypeRtsp: 'RTSP-stream',
@@ -5879,6 +5888,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: 'Bezig met verwerken…',
+    processingPercent: 'Bezig met verwerken… {{percent}}%',
+    failed: 'Verwerken mislukt',
+    cancelled: 'Verwerken geannuleerd',
+  },
   // Tags
   tags: {
     title: 'Tags',

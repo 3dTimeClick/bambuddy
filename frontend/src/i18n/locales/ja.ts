@@ -2866,6 +2866,15 @@ export default {
     cameraWindowDescription: '別のブラウザウィンドウでカメラを表示',
     externalCamerasDescription: '内蔵プリンターカメラの代わりに外部カメラを設定。MJPEGストリーム、RTSP、HTTPスナップショット、USBカメラ（V4L2）をサポート。有効にすると、ライブビューと完了写真に外部カメラが使用されます。',
     cameraPlaceholderUsb: 'デバイスパス (/dev/video0)',
+    usbCameraDevice: 'USBデバイス',
+    usbCameraSelect: 'デバイスを選択',
+    usbCameraSearching: 'デバイスを検索中…',
+    usbCameraNotFound: '{{device}}（見つかりません）',
+    usbCameraRefresh: 'デバイスを再検索',
+    usbCameraListFailed: 'ビデオデバイスを一覧表示できませんでした。',
+    usbCameraNoneFound: 'Bambuddy からビデオデバイスが見えません。Docker ではカメラをコンテナに渡してください：',
+    usbCameraEnterManually: 'パスを手動で入力',
+    usbCameraPickFromList: '検出されたデバイスを選択',
     cameraPlaceholderUrl: 'カメラURL (rtsp://... または http://...)',
     cameraTypeMjpeg: 'MJPEGストリーム',
     cameraTypeRtsp: 'RTSPストリーム',
@@ -5829,6 +5838,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: '処理中…',
+    processingPercent: '処理中… {{percent}}%',
+    failed: '処理に失敗しました',
+    cancelled: '処理をキャンセルしました',
+  },
   // Tags
   tags: {
     title: 'タグ',

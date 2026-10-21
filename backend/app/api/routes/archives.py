@@ -3366,12 +3366,13 @@ async def get_timelapse_thumbnails(
         raise HTTPException(500, f"Failed to generate thumbnails: {str(e)}")
 
 
-@router.post("/{archive_id}/timelapse/process")
+@router.post("/{archive_id}/timelapse/process", status_code=202)
 async def process_timelapse(
     archive_id: int,
     trim_start: float = Form(0),
     trim_end: float = Form(None),
     speed: float = Form(1.0),
+    audio_volume: float = Form(1.0),
     save_mode: str = Form("new"),
     output_filename: str = Form(None),
     audio: UploadFile = File(None),
@@ -3379,16 +3380,25 @@ async def process_timelapse(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
-    """Process timelapse with trim, speed, and optional audio overlay."""
+    """Start re-encoding the timelapse with trim, speed and optional audio.
+
+    Runs as a background job: poll ``GET .../timelapse/job`` for progress and
+    the result, ``DELETE .../timelapse/job`` cancels it.
+    """
     import shutil
     import tempfile
+    import uuid
 
-    from backend.app.schemas.timelapse import ProcessResponse
+    from backend.app.schemas.timelapse import TimelapseJobResponse
+    from backend.app.services import timelapse_jobs
     from backend.app.services.timelapse_processor import TimelapseProcessor
 
     # Validate speed
     if not 0.25 <= speed <= 4.0:
         raise HTTPException(400, "Speed must be between 0.25 and 4.0")
+
+    if not 0.0 <= audio_volume <= 1.0:
+        raise HTTPException(400, "audio_volume must be between 0 and 1")
 
     if save_mode not in ("replace", "new"):
         raise HTTPException(400, "save_mode must be 'replace' or 'new'")
@@ -3402,7 +3412,37 @@ async def process_timelapse(
     if not timelapse_path.exists():
         raise HTTPException(404, "Timelapse file not found")
 
+    current = timelapse_jobs.get_job(archive_id)
+    if current is not None and current.status == timelapse_jobs.RUNNING:
+        raise HTTPException(409, "This timelapse is already being processed")
+
+    try:
+        processor = TimelapseProcessor(timelapse_path)
+    except RuntimeError as e:
+        raise HTTPException(500, f"Processing failed: {e}") from None
+
     archive_dir = timelapse_path.parent
+    stored_timelapse_path = archive.timelapse_path
+    # What is being edited, so a replace does not overwrite a timelapse removed
+    # or swapped for another one while the job ran.
+    source = timelapse_path.stat()
+    source_signature = (source.st_size, source.st_mtime_ns, source.st_ino)
+
+    # Determine output path. Unique temp names: two archives' jobs run at once.
+    if save_mode == "replace":
+        # Process to temp file first, then replace
+        output_path = Path(tempfile.gettempdir()) / f"processed_{archive_id}_{uuid.uuid4().hex}.mp4"
+    else:
+        # Save as new file alongside original
+        filename = output_filename or f"{archive.print_name or 'timelapse'}_edited.mp4"
+        # Sanitize filename - remove path separators and traversal sequences
+        filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
+        # Prevent path traversal
+        if ".." in filename or not filename or filename.startswith("."):
+            filename = f"timelapse_{archive_id}_edited"
+        if not filename.endswith(".mp4"):
+            filename += ".mp4"
+        output_path = archive_dir / filename  # SEC-PATH-OK: filename alnum-filtered + .. rejected above
 
     # Handle audio file
     audio_temp_path = None
@@ -3416,65 +3456,100 @@ async def process_timelapse(
         suffix = Path(audio.filename).suffix.lower()
         if suffix not in (".mp3", ".wav", ".m4a", ".aac", ".ogg"):
             raise HTTPException(400, "Invalid audio file extension")
-        audio_temp_path = Path(tempfile.gettempdir()) / f"audio_{archive_id}{suffix}"
+        audio_temp_path = Path(tempfile.gettempdir()) / f"audio_{archive_id}_{uuid.uuid4().hex}{suffix}"
         audio_temp_path.write_bytes(audio_content)
 
+    async def run(job: timelapse_jobs.TimelapseJob) -> tuple[str, str]:
+        try:
+            success = await processor.process(
+                output_path=output_path,
+                trim_start=trim_start,
+                trim_end=trim_end,
+                speed=speed,
+                audio_path=audio_temp_path,
+                audio_volume=audio_volume,
+                on_progress=job.set_progress,
+            )
+            if not success:
+                raise RuntimeError("Video processing failed")
+
+            if save_mode == "replace":
+                await _ensure_timelapse_unchanged(archive_id, stored_timelapse_path, timelapse_path, source_signature)
+                shutil.move(str(output_path), str(timelapse_path))
+                return stored_timelapse_path, "Timelapse replaced successfully"
+            return str(output_path.relative_to(settings.base_dir)), f"Saved as {output_path.name}"
+        finally:
+            if save_mode == "replace":
+                output_path.unlink(missing_ok=True)
+            if audio_temp_path:
+                audio_temp_path.unlink(missing_ok=True)
+
     try:
-        processor = TimelapseProcessor(timelapse_path)
+        job = timelapse_jobs.start_job(archive_id, run)
+    except timelapse_jobs.JobAlreadyRunning:
+        # Started by another request while this one read its audio upload.
+        if audio_temp_path:
+            audio_temp_path.unlink(missing_ok=True)
+        raise HTTPException(409, "This timelapse is already being processed") from None
+    return TimelapseJobResponse.from_job(job)
 
-        # Determine output path
-        if save_mode == "replace":
-            # Process to temp file first, then replace
-            temp_output = Path(tempfile.gettempdir()) / f"processed_{archive_id}.mp4"
-            output_path = temp_output
-        else:
-            # Save as new file alongside original
-            filename = output_filename or f"{archive.print_name or 'timelapse'}_edited.mp4"
-            # Sanitize filename - remove path separators and traversal sequences
-            filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
-            # Prevent path traversal
-            if ".." in filename or not filename or filename.startswith("."):
-                filename = f"timelapse_{archive_id}_edited"
-            if not filename.endswith(".mp4"):
-                filename += ".mp4"
-            output_path = archive_dir / filename  # SEC-PATH-OK: filename alnum-filtered + .. rejected above
 
-        success = await processor.process(
-            output_path=output_path,
-            trim_start=trim_start,
-            trim_end=trim_end,
-            speed=speed,
-            audio_path=audio_temp_path,
-        )
+async def _ensure_timelapse_unchanged(
+    archive_id: int, stored_path: str, timelapse_path: Path, signature: tuple[int, int, int]
+) -> None:
+    async with database.async_session() as db:
+        current = (
+            await db.execute(select(PrintArchive.timelapse_path).where(PrintArchive.id == archive_id))
+        ).scalar_one_or_none()
+    try:
+        now = timelapse_path.stat()
+    except FileNotFoundError:
+        now = None
+    if current != stored_path or now is None or (now.st_size, now.st_mtime_ns, now.st_ino) != signature:
+        raise RuntimeError("The timelapse was removed or replaced while it was being edited; the edit was not saved")
 
-        if not success:
-            raise HTTPException(500, "Video processing failed")
 
-        # Handle save mode
-        if save_mode == "replace":
-            # Replace original file
-            shutil.move(str(output_path), str(timelapse_path))
-            final_path = archive.timelapse_path
-            message = "Timelapse replaced successfully"
-        else:
-            final_path = str(output_path.relative_to(settings.base_dir))
-            message = f"Saved as {output_path.name}"
+async def _timelapse_job_archive(archive_id: int, db: AsyncSession, printer_scope: PrinterScope) -> None:
+    archive = await ArchiveService(db).get_archive(archive_id)
+    if not archive or not printer_scope.allows(archive.printer_id):
+        raise HTTPException(404, "Timelapse not found")
 
-        return ProcessResponse(
-            status="completed",
-            output_path=final_path,
-            message=message,
-        )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Timelapse processing failed: %s", e)
-        raise HTTPException(500, f"Processing failed: {str(e)}")
-    finally:
-        # Cleanup temp audio file
-        if audio_temp_path and audio_temp_path.exists():
-            audio_temp_path.unlink()
+@router.get("/{archive_id}/timelapse/job")
+async def get_timelapse_job(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
+):
+    """The archive's running or last timelapse job: status, progress, result."""
+    from backend.app.schemas.timelapse import TimelapseJobResponse
+    from backend.app.services import timelapse_jobs
+
+    await _timelapse_job_archive(archive_id, db, printer_scope)
+    job = timelapse_jobs.get_job(archive_id)
+    if job is None:
+        raise HTTPException(404, "No timelapse job")
+    return TimelapseJobResponse.from_job(job)
+
+
+@router.delete("/{archive_id}/timelapse/job")
+async def cancel_timelapse_job(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
+    printer_scope: PrinterScope = RequestPrinterScope,
+):
+    """Cancel the running timelapse job; stops ffmpeg and drops its output."""
+    from backend.app.schemas.timelapse import TimelapseJobResponse
+    from backend.app.services import timelapse_jobs
+
+    await _timelapse_job_archive(archive_id, db, printer_scope)
+    if not await timelapse_jobs.cancel_job(archive_id):
+        raise HTTPException(404, "No timelapse job is running")
+    job = timelapse_jobs.get_job(archive_id)
+    assert job is not None
+    return TimelapseJobResponse.from_job(job)
 
 
 # ============================================

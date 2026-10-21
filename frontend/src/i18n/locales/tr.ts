@@ -2870,6 +2870,15 @@ export default {
     cameraWindowDescription: 'Kamera ayrı bir tarayıcı penceresinde açılır',
     externalCamerasDescription: 'Yerleşik yazıcı kamerasını değiştirmek için harici kameraları yapılandırın. MJPEG akışlarını, RTSP, HTTP anlık görüntüleri ve USB kameralarını (V4L2) destekler. Etkinleştirildiğinde, harici kamera canlı görüntüleme ve bitiş fotoğrafları için kullanılır.',
     cameraPlaceholderUsb: 'Cihaz yolu (/dev/video0)',
+    usbCameraDevice: 'USB cihazı',
+    usbCameraSelect: 'Bir cihaz seçin',
+    usbCameraSearching: 'Cihazlar aranıyor…',
+    usbCameraNotFound: '{{device}} (bulunamadı)',
+    usbCameraRefresh: 'Cihazları yeniden ara',
+    usbCameraListFailed: 'Video cihazları listelenemedi.',
+    usbCameraNoneFound: 'Bambuddy hiçbir video cihazı göremiyor. Docker\'da kamerayı konteynere aktarın:',
+    usbCameraEnterManually: 'Yolu elle girin',
+    usbCameraPickFromList: 'Algılanan bir cihaz seçin',
     cameraPlaceholderUrl: 'Kamera URL\'si (rtsp://... veya http://...)',
     cameraTypeMjpeg: 'MJPEG Akışı',
     cameraTypeRtsp: 'RTSP Akışı',
@@ -5803,6 +5812,13 @@ export default {
     },
   },
 
+  // Timelapse editor
+  timelapseEditor: {
+    processing: 'İşleniyor…',
+    processingPercent: 'İşleniyor… %{{percent}}',
+    failed: 'İşleme başarısız oldu',
+    cancelled: 'İşleme iptal edildi',
+  },
   // Etiketler
   tags: {
     title: 'Etiketler',

@@ -11222,6 +11222,10 @@ async def lifespan(app: FastAPI):
     from backend.app.services.printer_media import stop_printer_download_cleanup
 
     await stop_printer_download_cleanup()
+    # Stops a timelapse editor's ffmpeg rather than leaving it to the OS.
+    from backend.app.services import timelapse_jobs
+
+    await timelapse_jobs.cancel_all()
     printer_manager.disconnect_all()
     slot_unlink_grace.reset()
     await close_spoolman_client()

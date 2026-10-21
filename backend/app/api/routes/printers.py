@@ -243,9 +243,10 @@ async def list_usb_cameras(
     Returns:
         List of dicts with {device: str, name: str, capabilities: list, formats?: list}
     """
-    from backend.app.services.external_camera import list_usb_cameras
+    from backend.app.services import external_camera
 
-    cameras = list_usb_cameras()
+    # v4l2-ctl runs twice per device, with a 5 s timeout each.
+    cameras = await asyncio.to_thread(external_camera.list_usb_cameras)
     return {"cameras": cameras}
 
 
