@@ -3369,8 +3369,11 @@ function PrinterCard({
     }
   };
 
-  // Close plate check modal on Escape key
-  useEffect(() => {
+  // Close plate check modal on Escape key. A layout effect, so the listener
+  // that knows about the result is in place as soon as the modal is shown: an
+  // Escape pressed before a passive effect ran met the listener from before,
+  // which ignored it.
+  useLayoutEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && plateCheckResult) {
         closePlateCheckModal();

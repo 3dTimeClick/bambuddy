@@ -193,6 +193,30 @@ describe('PrintersPage plate check: chamber light handling', () => {
     await waitFor(() => expect(sent).toEqual([light(true), check, light(false)]));
   });
 
+  it('Escape pressed the moment the result shows still closes it', async () => {
+    const user = userEvent.setup();
+    const sent = setup({ lightOn: false });
+    // Pressed from the DOM change itself: before React's passive effects of
+    // that render could run, as on a busy machine.
+    const pressed = { done: false };
+    const observer = new MutationObserver(() => {
+      if (!pressed.done && screen.queryByText('Build Plate Check')) {
+        pressed.done = true;
+        fireEvent.keyDown(window, { key: 'Escape' });
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    try {
+      await openCheck(user);
+      await waitFor(() => expect(pressed.done).toBe(true), LIGHT_WAIT);
+      await waitFor(() => expect(screen.queryByText('Build Plate Check')).toBeNull());
+      await waitFor(() => expect(sent).toEqual([light(true), check, light(false)]));
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it('light already on: no chamber-light request on open or on close', async () => {
     const user = userEvent.setup();
     const sent = setup({ lightOn: true });
