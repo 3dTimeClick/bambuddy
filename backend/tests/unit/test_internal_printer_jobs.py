@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.utils.print_jobs import is_internal_printer_job
+from backend.tests._fixtures.background_tasks import MAIN_TARGET, discarding_spawn_patch
 
 
 class TestTheCalibrationIsRecognised:
@@ -213,7 +214,7 @@ class TestPrintCompleteStaysQuiet:
             patch("backend.app.main.ws_manager") as mock_ws,
             patch("backend.app.main.printer_manager") as mock_pm,
             patch("backend.app.main.mqtt_relay") as mock_relay,
-            patch("backend.app.main.spawn_background_task") as mock_spawn,
+            discarding_spawn_patch(MAIN_TARGET) as mock_spawn,
             patch("backend.app.main.clear_3mf_cache"),
         ):
             mock_ws.send_print_complete = AsyncMock()
@@ -251,7 +252,7 @@ class TestPrintCompleteStaysQuiet:
             patch("backend.app.main.ws_manager") as mock_ws,
             patch("backend.app.main.printer_manager") as mock_pm,
             patch("backend.app.main.mqtt_relay") as mock_relay,
-            patch("backend.app.main.spawn_background_task") as mock_spawn,
+            discarding_spawn_patch(MAIN_TARGET) as mock_spawn,
             patch("backend.app.main.clear_3mf_cache"),
         ):
             mock_ws.send_print_complete = AsyncMock()
