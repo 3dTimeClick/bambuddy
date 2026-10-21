@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import desc, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.database import async_session
@@ -963,18 +963,6 @@ class GitHubBackupService:
     def progress(self) -> str | None:
         """Get current backup progress message."""
         return self._backup_progress
-
-    async def get_logs(self, config_id: int, limit: int = 50, offset: int = 0) -> list[GitHubBackupLog]:
-        """Get backup logs for a configuration."""
-        async with async_session() as db:
-            result = await db.execute(
-                select(GitHubBackupLog)
-                .where(GitHubBackupLog.config_id == config_id)
-                .order_by(desc(GitHubBackupLog.started_at))
-                .offset(offset)
-                .limit(limit)
-            )
-            return list(result.scalars().all())
 
 
 # Singleton instance

@@ -2085,7 +2085,6 @@ function PrinterCard({
   spoolmanEnabled?: boolean;
   linkedSpools?: Record<string, LinkedSpoolInfo>;
   spoolmanUrl?: string | null;
-  spoolAssignments?: SpoolAssignment[];
   onGetAssignment?: (printerId: number, amsId: number, trayId: number) => SpoolAssignment | undefined;
   onUnassignSpool?: (printerId: number, amsId: number, trayId: number) => void;
   spoolmanSpools?: InventorySpool[];
@@ -7209,7 +7208,7 @@ function PrinterCard({
         <AmsBackupModal
           isOpen={amsBackupModalOpen}
           state={status.ams_filament_backup}
-          amsUnits={status.ams}
+          amsUnits={status.ams ?? undefined}
           amsExtruderMap={status.ams_extruder_map}
           isDualNozzle={printer.nozzle_count === 2 || status?.temperatures?.nozzle_2 !== undefined}
           canToggle={hasPermission('printers:control')}

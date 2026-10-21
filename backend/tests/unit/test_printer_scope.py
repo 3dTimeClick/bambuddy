@@ -22,7 +22,6 @@ class TestPrinterScope:
         scope = PrinterScope(frozenset({1, 2}))
         assert scope.allows(1)
         assert not scope.allows(3)
-        assert scope.filter_ids([3, 2, 1]) == [2, 1]
 
     def test_no_printer_is_always_in_scope(self):
         # Rows not bound to a printer (orphaned archives, model-based jobs)

@@ -153,10 +153,10 @@ export function SpoolBuddyWriteTagPage() {
   // Listen for tag events
   const handleUnknownTag = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail;
-    const sak = detail.sak ?? detail.data?.sak;
+    const sak = detail.sak;
     if (sak === 0x00) {
       setTagOnReader(true);
-      setTagUid(detail.tag_uid ?? detail.data?.tag_uid ?? null);
+      setTagUid(detail.tag_uid ?? null);
     }
   }, []);
 
@@ -164,7 +164,7 @@ export function SpoolBuddyWriteTagPage() {
     const detail = (e as CustomEvent).detail;
     // Tag is on the reader — could be used for replace flow
     setTagOnReader(true);
-    setTagUid(detail.tag_uid ?? detail.data?.tag_uid ?? null);
+    setTagUid(detail.tag_uid ?? null);
   }, []);
 
   const handleTagRemoved = useCallback(() => {
@@ -174,7 +174,7 @@ export function SpoolBuddyWriteTagPage() {
 
   const handleTagWritten = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail;
-    if (detail.spool_id === selectedSpool?.id || detail.data?.spool_id === selectedSpool?.id) {
+    if (detail.spool_id === selectedSpool?.id) {
       setWriteStatus('success');
       setWriteMessage(t('spoolbuddy.writeTag.writeSuccess', 'Tag written successfully!'));
       refetchSpools();
@@ -188,16 +188,16 @@ export function SpoolBuddyWriteTagPage() {
 
   const handleWriteFailed = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail;
-    if (detail.spool_id === selectedSpool?.id || detail.data?.spool_id === selectedSpool?.id) {
+    if (detail.spool_id === selectedSpool?.id) {
       setWriteStatus('error');
-      setWriteMessage(detail.message ?? detail.data?.message ?? t('spoolbuddy.writeTag.writeFailed', 'Write failed'));
+      setWriteMessage(detail.message ?? t('spoolbuddy.writeTag.writeFailed', 'Write failed'));
     }
   }, [selectedSpool, t]);
 
   const handleLinkFailed = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail;
-    if (detail.spool_id === selectedSpool?.id || detail.data?.spool_id === selectedSpool?.id) {
-      const reason = detail.reason ?? detail.data?.reason;
+    if (detail.spool_id === selectedSpool?.id) {
+      const reason = detail.reason;
       setWriteStatus('error');
       setWriteMessage(
         reason === 'spoolman_not_configured'
@@ -1036,7 +1036,6 @@ function NewSpoolTouchForm({ currencySymbol, onCreated, selectedSpool, spoolmanM
         ) : (
           <PAProfileSection
             formData={formData}
-            updateField={updateField}
             printersWithCalibrations={printersWithCalibrations}
             selectedProfiles={selectedProfiles}
             setSelectedProfiles={setSelectedProfiles}

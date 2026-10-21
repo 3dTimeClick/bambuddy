@@ -710,23 +710,6 @@ async def _collect_github_backup_info(db: AsyncSession) -> dict:
     }
 
 
-async def _check_url_reachable(url: str, timeout: float = 2.0) -> bool | None:
-    """Single HEAD/GET ping with a short timeout. Returns None if URL is empty."""
-    if not url or not url.strip():
-        return None
-    try:
-        import httpx
-
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:  # nosec B501 — local sidecars often use self-signed; this is a reachability/health probe only, no secrets are sent
-            r = await client.get(url, follow_redirects=False)
-            # Anything that returned a status code counts as reachable, even 404
-            # (the API server is up, just the path was wrong) — separates network
-            # failure from configuration mistakes for the user.
-            return r.status_code is not None
-    except Exception:
-        return False
-
-
 async def _fetch_slicer_health(url: str, timeout: float = 2.0) -> dict | None:
     """Fetch ``/health`` from a slicer sidecar and extract the CLI version.
 

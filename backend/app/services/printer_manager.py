@@ -1036,51 +1036,6 @@ class PrinterManager:
             return self._clients[printer_id].stop_print()
         return False
 
-    async def wait_for_cooldown(
-        self,
-        printer_id: int,
-        target_temp: float = 50.0,
-        timeout: int = 600,
-        check_interval: int = 10,
-    ) -> bool:
-        """Wait for the nozzle to cool down to a safe temperature.
-
-        Args:
-            printer_id: The printer to monitor
-            target_temp: Target temperature to wait for (default 50°C)
-            timeout: Maximum seconds to wait (default 600s = 10 min)
-            check_interval: Seconds between temperature checks (default 10s)
-
-        Returns:
-            True if cooled down, False if timeout or not connected
-        """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        elapsed = 0
-        while elapsed < timeout:
-            state = self.get_status(printer_id)
-            if not state or not state.connected:
-                logger.warning("Printer %s disconnected during cooldown wait", printer_id)
-                return False
-
-            # Check nozzle temperature (and nozzle_2 for dual extruders)
-            nozzle_temp = state.temperatures.get("nozzle", 0)
-            nozzle_2_temp = state.temperatures.get("nozzle_2", 0)
-            max_temp = max(nozzle_temp, nozzle_2_temp)
-
-            if max_temp <= target_temp:
-                logger.info("Printer %s cooled down to %s°C", printer_id, max_temp)
-                return True
-
-            logger.debug("Printer %s nozzle at %s°C, waiting for %s°C...", printer_id, max_temp, target_temp)
-            await asyncio.sleep(check_interval)
-            elapsed += check_interval
-
-        logger.warning("Printer %s cooldown timeout after %ss", printer_id, timeout)
-        return False
-
     def enable_logging(self, printer_id: int, enabled: bool = True) -> bool:
         """Enable or disable MQTT logging for a printer."""
         if printer_id in self._clients:
@@ -1861,10 +1816,10 @@ def printer_state_to_dict(
         result["cover_url"] = f"/api/v1/printers/{printer_id}/cover"
     else:
         result["cover_url"] = None
-    # Surface the display name + model so WS consumers (gcode viewer printer
-    # selector) can render proper labels on the initial snapshot without racing
-    # a separate /api/v1/printers fetch (#963 follow-up). PrinterInfo only
-    # carries name/serial_number; the model comes through via the `model` arg.
+    # The display name + model, so a WS consumer can label the printer from the
+    # snapshot alone (#963 follow-up; the SPA itself takes them from
+    # /api/v1/printers). PrinterInfo only carries name/serial_number; the model
+    # comes through via the `model` arg.
     if printer_id:
         _printer_info = printer_manager.get_printer(printer_id)
         if _printer_info is not None:

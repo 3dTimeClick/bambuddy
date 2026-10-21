@@ -28,7 +28,6 @@ SETTINGS_SECRETS = {
     "ha_token": "ha-tok",
     "prometheus_token": "prom-tok",
     "obico_ml_token": "obico-tok",
-    "virtual_printer_access_code": "12345678",
 }
 
 

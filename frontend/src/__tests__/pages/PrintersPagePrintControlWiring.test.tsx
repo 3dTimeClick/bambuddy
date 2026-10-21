@@ -16,17 +16,14 @@ const permissions = { denied: new Set<string>() };
 const mockUseAuth = {
   user: { id: 1, username: 'operator', permissions: [] as string[] },
   authEnabled: true,
-  requiresSetup: false,
   loading: false,
   isAdmin: false,
   login: vi.fn(),
   loginWithToken: vi.fn(),
   logout: vi.fn(),
-  refreshUser: vi.fn(),
   refreshAuth: vi.fn(),
   hasPermission: vi.fn((permission: string) => !permissions.denied.has(permission)),
   hasAnyPermission: vi.fn(() => true),
-  hasAllPermissions: vi.fn(() => true),
   canModify: vi.fn(() => true),
 };
 

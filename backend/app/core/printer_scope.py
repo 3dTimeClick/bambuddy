@@ -60,10 +60,6 @@ class PrinterScope:
             return self
         return PrinterScope(self.printer_ids & other.printer_ids)
 
-    def filter_ids(self, printer_ids: Iterable[int]) -> list[int]:
-        """``printer_ids`` minus the ones out of scope, order kept."""
-        return [pid for pid in printer_ids if self.allows(pid)]
-
     def where(self, column):
         """A WHERE clause limiting ``column`` (a printer id column) to the scope.
 

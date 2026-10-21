@@ -605,12 +605,6 @@ class BambuFTPClient:
         # can say how long the session was held (#3009).
         self._connected_at: float | None = None
 
-    def _is_a1_model(self) -> bool:
-        """Check if this is an A1 series printer."""
-        if not self.printer_model:
-            return False
-        return self.printer_model in self.A1_MODELS
-
     def _get_cached_mode(self) -> str | None:
         """Get cached FTP mode for this printer."""
         return self._mode_cache.get(self.ip_address)
@@ -1093,62 +1087,6 @@ class BambuFTPClient:
             logger.info("FTP download failed for %s: %s", remote_path, e)
             return False
 
-    def diagnose_storage(self) -> dict:
-        """Run storage diagnostics and return results. For debugging upload issues."""
-        results = {
-            "connected": self._ftp is not None,
-            "can_list_root": False,
-            "root_files": [],
-            "can_list_cache": False,
-            "storage_info": None,
-            "pwd": None,
-            "errors": [],
-        }
-
-        if not self._ftp:
-            results["errors"].append("FTP not connected")
-            return results
-
-        # Try to get current directory
-        try:
-            results["pwd"] = self._ftp.pwd()
-            logger.debug("FTP current directory: %s", results["pwd"])
-        except (OSError, ftplib.Error) as e:
-            results["errors"].append(f"PWD failed: {e}")
-            logger.debug("FTP PWD failed: %s", e)
-
-        # Try to list root directory
-        try:
-            self._ftp.cwd("/")
-            items = []
-            self._ftp.retrlines("LIST", items.append)
-            results["can_list_root"] = True
-            results["root_files"] = items[:10]  # First 10 entries
-            logger.debug("FTP root listing (%s items): %s", len(items), items[:5])
-        except (OSError, ftplib.Error) as e:
-            results["errors"].append(f"LIST / failed: {e}")
-            logger.debug("FTP LIST / failed: %s", e)
-
-        # Try to list /cache (should exist on all printers)
-        try:
-            self._ftp.cwd("/cache")
-            items = []
-            self._ftp.retrlines("LIST", items.append)
-            results["can_list_cache"] = True
-            logger.debug("FTP /cache listing: %s items", len(items))
-        except (OSError, ftplib.Error) as e:
-            results["errors"].append(f"LIST /cache failed: {e}")
-            logger.debug("FTP LIST /cache failed: %s", e)
-
-        # Try to get storage info
-        try:
-            results["storage_info"] = self.get_storage_info()
-            logger.debug("FTP storage info: %s", results["storage_info"])
-        except (OSError, ftplib.Error) as e:
-            results["errors"].append(f"Storage info failed: {e}")
-
-        return results
-
     def upload_file(
         self,
         local_path: Path,
@@ -1351,79 +1289,6 @@ class BambuFTPClient:
             is_storage = isinstance(e, ftplib.Error) and code == "452"
             kind = FtpFailureKind.STORAGE if is_storage else FtpFailureKind.NETWORK
             self.last_failure = FtpFailure(kind, str(e), code)
-            return False
-
-    def upload_bytes(self, data: bytes, remote_path: str) -> bool:
-        """Upload bytes to the printer."""
-        if not self._ftp:
-            return False
-
-        try:
-            # Use manual transfer instead of storbinary() for A1 compatibility
-            conn = self._ftp.transfercmd(f"STOR {remote_path}")
-            conn.setblocking(True)
-            conn.settimeout(self.timeout)
-
-            try:
-                # Send data in chunks
-                offset = 0
-                while offset < len(data):
-                    chunk = data[offset : offset + self.CHUNK_SIZE]
-                    conn.sendall(chunk)
-                    offset += len(chunk)
-            except OSError as e:
-                logger.error("FTP connection lost during upload_bytes: %s", e)
-                raise
-            finally:
-                try:
-                    conn.close()
-                except OSError:
-                    pass
-            # Wait for 226 confirmation (see upload_file for rationale).
-            # ftplib.Error subclasses (e.g. 426 error_temp) mean the server
-            # rejected the transfer and the file is partial — fail. Other
-            # exceptions (timeout, socket-level) are tolerated as in upload_file.
-            try:
-                old_timeout = self._ftp.sock.gettimeout()
-                self._ftp.sock.settimeout(max(self.timeout, 60))
-                try:
-                    self._ftp.voidresp()
-                finally:
-                    self._ftp.sock.settimeout(old_timeout)
-            except ftplib.Error as e:
-                # Same SIZE-verify path as upload_file (#1417 follow-up):
-                # tolerate a transient 426 if the bytes are actually on the
-                # printer, fail loudly if they aren't.
-                try:
-                    server_size = self._ftp.size(remote_path)
-                except (OSError, ftplib.Error) as size_err:
-                    logger.debug("Post-error SIZE check failed: %s", size_err)
-                    server_size = None
-                if server_size is not None and server_size == len(data):
-                    # INFO for the same reason as upload_file above (#2987).
-                    logger.info(
-                        "FTP STOR returned %s for %s but file is intact on the "
-                        "printer (%s bytes match) — proceeding: %s",
-                        type(e).__name__,
-                        remote_path,
-                        len(data),
-                        e,
-                    )
-                else:
-                    logger.error(
-                        "FTP STOR rejected by printer for %s: %s (%s); server size=%s expected=%s",
-                        remote_path,
-                        e,
-                        type(e).__name__,
-                        server_size,
-                        len(data),
-                    )
-                    return False
-            except Exception:
-                # Timeout / socket-level — proceed, data was sent.
-                self._check_unconfirmed_upload(remote_path, len(data))
-            return True
-        except (OSError, ftplib.Error):
             return False
 
     def _check_unconfirmed_upload(self, remote_path: str, expected_size: int) -> None:

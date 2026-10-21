@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.printer_location import normalize_location_name
-from backend.app.utils.printer_models import supports_nozzle_flow_type
 
 
 def _mask_url_login(url: str | None) -> str | None:
@@ -135,49 +134,6 @@ class PrinterResponse(PrinterBase):
 
     class Config:
         from_attributes = True
-
-    @classmethod
-    def from_orm_with_roi(cls, printer) -> "PrinterResponse":
-        """Create response from ORM model, converting ROI fields to nested object."""
-        data = {
-            "id": printer.id,
-            "name": printer.name,
-            "serial_number": printer.serial_number,
-            "ip_address": printer.ip_address,
-            "model": printer.model,
-            "location": printer.location,
-            "auto_archive": printer.auto_archive,
-            "external_camera_url": printer.external_camera_url,
-            "external_camera_type": printer.external_camera_type,
-            "external_camera_enabled": printer.external_camera_enabled,
-            "external_camera_snapshot_url": printer.external_camera_snapshot_url,
-            "camera_rotation": printer.camera_rotation,
-            "camera_light_auto": bool(printer.camera_light_auto),
-            "is_active": printer.is_active,
-            "nozzle_count": printer.nozzle_count,
-            "supports_nozzle_flow_type": supports_nozzle_flow_type(printer.model),
-            "print_hours_offset": printer.print_hours_offset,
-            "wear_cost_per_hour": printer.wear_cost_per_hour,
-            "plate_detection_enabled": printer.plate_detection_enabled,
-            "created_at": printer.created_at,
-            "updated_at": printer.updated_at,
-        }
-        # Build ROI object if any ROI field is set
-        if any(
-            [
-                printer.plate_detection_roi_x is not None,
-                printer.plate_detection_roi_y is not None,
-                printer.plate_detection_roi_w is not None,
-                printer.plate_detection_roi_h is not None,
-            ]
-        ):
-            data["plate_detection_roi"] = PlateDetectionROI(
-                x=printer.plate_detection_roi_x or 0.15,
-                y=printer.plate_detection_roi_y or 0.35,
-                w=printer.plate_detection_roi_w or 0.70,
-                h=printer.plate_detection_roi_h or 0.55,
-            )
-        return cls(**data)
 
     @field_validator("external_camera_url", "external_camera_snapshot_url", mode="after")
     @classmethod

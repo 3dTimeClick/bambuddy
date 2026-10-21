@@ -10976,10 +10976,6 @@ async def lifespan(app: FastAPI):
                     # but the K-profile (cali_idx) did not — the reporter's exact
                     # "loaded but no flow profile" symptom.
                     "kprofile_applied": detail.get("kprofile_applied", True),
-                    # Present on failure: whether any tray telemetry was seen in
-                    # the window (distinguishes "printer silent" from "printer
-                    # stored something else").
-                    "saw_tray": detail.get("saw_tray", False),
                 }
             )
         except Exception as e:

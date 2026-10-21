@@ -594,11 +594,10 @@ class TestCompanionCredentials:
         rather than judged on availability. See
         ``test_the_whole_ldap_family_is_protected``.
         """
-        await self._restore(db_session, mqtt_enabled="true", virtual_printer_enabled="true")
+        await self._restore(db_session, mqtt_enabled="true")
 
         rows = await self._rows(db_session)
         assert rows["mqtt_enabled"] == "true"
-        assert rows["virtual_printer_enabled"] == "true"
 
     def test_every_exposure_toggle_is_a_companion_toggle(self):
         assert _COMPANION_EXPOSURE_TOGGLES.issubset(_COMPANION_CREDENTIALS)

@@ -1036,17 +1036,6 @@ async def verify_websocket_token_principal(token: str) -> tuple[str, int | None]
         return row.username or "", row.api_key_id
 
 
-async def verify_websocket_token(token: str) -> str | None:
-    """Verify a WebSocket connect token.
-
-    Returns the recorded ``username`` (possibly ``""`` for API-key
-    callers, never ``None`` on success) when the token is valid, or
-    ``None`` when it is missing / expired / unknown.
-    """
-    principal = await verify_websocket_token_principal(token)
-    return None if principal is None else principal[0]
-
-
 _NO_PRINTERS = PrinterScope(frozenset())
 
 

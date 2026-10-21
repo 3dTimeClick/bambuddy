@@ -640,7 +640,6 @@ def mock_mqtt_smart_plug_service():
         # Create a mock smart_plug_service
         mock_service = MagicMock()
         mock_service.is_configured = MagicMock(return_value=True)
-        mock_service.has_broker_settings = MagicMock(return_value=True)
         mock_service.configure = AsyncMock(return_value=True)
         mock_service.subscribe = MagicMock()
         mock_service.unsubscribe = MagicMock()

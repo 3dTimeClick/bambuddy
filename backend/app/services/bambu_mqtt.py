@@ -2090,8 +2090,8 @@ class BambuMQTTClient:
                 # never show -- which is why "what does Studio put in the drying
                 # command?" had no answer from a user's log (#2774). Filed as
                 # "out" so the direction filter groups it with our own commands
-                # rather than with printer telemetry; anything sent through
-                # send_command lands twice, once on publish and once on the
+                # rather than with printer telemetry; anything we send
+                # lands twice, once on publish and once on the
                 # broker's echo, and the pair is itself evidence the command
                 # reached the broker.
                 if self._logging_enabled:
@@ -6819,21 +6819,6 @@ class BambuMQTTClient:
             # The callers drop the client from the manager anyway, so the next
             # status read already shows it gone.
 
-    def send_command(self, command: dict):
-        """Send a command to the printer."""
-        if self._client and self.state.connected:
-            # Log outgoing message if logging is enabled
-            if self._logging_enabled:
-                self._message_log.append(
-                    MQTTLogEntry(
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        topic=self.topic_publish,
-                        direction="out",
-                        payload=command,
-                    )
-                )
-            self._client.publish(self.topic_publish, json.dumps(command), qos=1)
-
     def enable_logging(self, enabled: bool = True):
         """Enable or disable MQTT message logging."""
         self._logging_enabled = enabled
@@ -6873,7 +6858,7 @@ class BambuMQTTClient:
         """Publish a pre-formed payload directly to the printer's MQTT broker.
 
         Used by the VP MQTT bridge to forward slicer-originated commands without
-        going through send_command's sequence-id mangling. Returns False if the
+        giving it one of our own sequence ids. Returns False if the
         underlying paho client isn't ready.
         """
         if self._client is None:

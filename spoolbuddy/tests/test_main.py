@@ -24,7 +24,6 @@ def _make_config(**overrides):
 
 def _make_api():
     api = AsyncMock()
-    api.report_update_status = AsyncMock(return_value={"ok": True})
     api.heartbeat = AsyncMock(return_value=None)
     api.update_tare = AsyncMock(return_value={"ok": True})
     return api

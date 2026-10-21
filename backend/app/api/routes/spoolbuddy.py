@@ -38,7 +38,6 @@ from backend.app.schemas.spoolbuddy import (
     TagRemovedRequest,
     TagScannedRequest,
     UpdateSpoolWeightRequest,
-    UpdateStatusRequest,
     WriteTagRequest,
     WriteTagResultRequest,
 )
@@ -1583,41 +1582,6 @@ async def get_ssh_public_key(
     except Exception as e:
         logger.error("Failed to get SSH public key: %s", e)
         raise HTTPException(status_code=500, detail="Failed to retrieve SSH public key") from e
-
-
-@router.post("/devices/{device_id}/update-status")
-async def report_update_status(
-    device_id: str,
-    req: UpdateStatusRequest,
-    db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
-):
-    """Daemon reports update progress back to the backend."""
-    result = await db.execute(select(SpoolBuddyDevice).where(SpoolBuddyDevice.device_id == device_id))
-    device = result.scalar_one_or_none()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not registered")
-
-    device.update_status = req.status
-    device.update_message = req.message
-    # Only "complete" clears pending_command here. "error" leaves it set so the user can retry
-    # via the UI. The SSH service's own _update_progress clears on both "complete" and "error"
-    # because it owns the full update lifecycle end-to-end.
-    if req.status == "complete":
-        device.pending_command = None
-    await db.commit()
-
-    logger.info("SpoolBuddy %s: update status=%s msg=%s", device_id, req.status, req.message)
-    await ws_manager.broadcast(
-        {
-            "type": "spoolbuddy_update",
-            "device_id": device_id,
-            "update_status": req.status,
-            "update_message": req.message,
-        }
-    )
-
-    return {"status": "ok"}
 
 
 # --- Background watchdog ---

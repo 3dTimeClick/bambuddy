@@ -121,7 +121,6 @@ SETTINGS_SECRETS: dict[str, tuple[str, ...]] = {
     "ha_token": ("ha_url",),
     "obico_ml_token": ("obico_ml_url",),
     "prometheus_token": (),
-    "virtual_printer_access_code": (),
     "ldap_bind_password": ("ldap_server_url", "ldap_security"),
 }
 

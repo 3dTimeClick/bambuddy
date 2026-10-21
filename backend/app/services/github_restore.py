@@ -348,10 +348,6 @@ def _checked_setting(key: str, value: object) -> tuple[bool | None, str]:
 #   * the other four switch an integration on with no way to authenticate to it,
 #     which breaks the login path (LDAP) or the connection (MQTT, HA).
 #
-# virtual_printer_enabled is largely vestigial post-migration — core/database.py
-# copies the rows into the virtual_printers table — but it is the same shape, and
-# refusing a vestigial toggle is a harmless no-op.
-#
 # ldap_enabled is deliberately NOT here. It was, paired with
 # ldap_bind_password — but this rule judges availability ("will the integration
 # work?"), and that is the wrong question for an authentication source. An
@@ -363,7 +359,6 @@ _COMPANION_CREDENTIALS = {
     "prometheus_enabled": "prometheus_token",
     "mqtt_enabled": "mqtt_password",
     "ha_enabled": "ha_token",
-    "virtual_printer_enabled": "virtual_printer_access_code",
 }
 
 # Companion credentials a reader takes from the environment rather than from a

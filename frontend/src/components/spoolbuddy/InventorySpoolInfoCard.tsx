@@ -7,21 +7,7 @@ import { spoolbuddyApi, api } from '../../api/client';
 import { SpoolIcon } from './SpoolIcon';
 import { resolveSpoolColorName, spoolColorString } from '../../utils/colors';
 import { shownCostPerKg } from '../../utils/spoolCost';
-
-const DEFAULT_CORE_WEIGHT_KEY = 'spoolbuddy-default-core-weight';
-
-function getDefaultCoreWeight(): number {
-  try {
-    const stored = localStorage.getItem(DEFAULT_CORE_WEIGHT_KEY);
-    if (stored) {
-      const weight = parseInt(stored, 10);
-      if (weight >= 0 && weight <= 500) return weight;
-    }
-  } catch {
-    // Ignore errors
-  }
-  return 250;
-}
+import { DEFAULT_CORE_WEIGHT_G } from '../../utils/weight';
 
 interface InventorySpoolInfoCardProps {
   spool: InventorySpool;
@@ -71,7 +57,7 @@ export function InventorySpoolInfoCard({
 
   const coreWeight = (spool.core_weight && spool.core_weight > 0)
     ? spool.core_weight
-    : getDefaultCoreWeight();
+    : DEFAULT_CORE_WEIGHT_G;
 
   const grossWeightFromScale = liveScaleWeight !== null
     ? Math.round(Math.max(0, liveScaleWeight))

@@ -26,16 +26,13 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
     ...actual,
     useAuth: () => ({
       ...mockAuth,
-      requiresSetup: false,
       loading: false,
       hasPermission: () => true,
       hasAnyPermission: () => true,
-      hasAllPermissions: () => true,
       canModify: () => true,
       login: vi.fn(),
       loginWithToken: vi.fn(),
       logout: vi.fn(),
-      refreshUser: vi.fn(),
       refreshAuth: vi.fn(),
     }),
   };

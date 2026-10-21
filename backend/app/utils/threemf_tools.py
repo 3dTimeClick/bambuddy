@@ -1004,27 +1004,6 @@ def extract_print_time_from_3mf(file_path: Path, plate_id: int | None = None) ->
     return extract_plate_metadata_from_3mf(file_path, plate_id).print_time_seconds
 
 
-def extract_bed_type_from_3mf(file_path: Path, plate_id: int | None = None) -> str | None:
-    """Extract the build plate type (`curr_bed_type`) for a specific plate (#1281).
-
-    ``archive.bed_type`` is captured at ingest time but is one value per archive
-    (the first plate's `curr_bed_type` — see services/archive.py:235). For a
-    multi-plate 3MF where different plates target different beds (e.g. a 40-plate
-    file mixing PEI + Engineering), the archive-level value lies. When a queue
-    item or print modal targets a specific plate, this re-reads the 3MF and
-    returns that plate's actual bed type.
-
-    Args:
-        file_path: Path to the 3MF file
-        plate_id: Plate index to filter for; if None, returns the first plate's
-            ``curr_bed_type`` (matches the archive-level capture).
-
-    Returns:
-        Bed type string (e.g. "Textured PEI Plate"), or None if not found.
-    """
-    return extract_plate_metadata_from_3mf(file_path, plate_id).bed_type
-
-
 # Bed temperature is not one key in a BambuStudio project. Every plate type has
 # its own per-filament array, and the plate actually fitted is named separately
 # in ``curr_bed_type`` -- so reading a bed temperature means picking the array

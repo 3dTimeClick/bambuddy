@@ -49,10 +49,6 @@ class PrinterMaintenanceBase(BaseModel):
     enabled: bool = True
 
 
-class PrinterMaintenanceCreate(PrinterMaintenanceBase):
-    pass
-
-
 class PrinterMaintenanceUpdate(IgnoresNullForRequiredColumns):
     __orm_table__ = "printer_maintenance"
     custom_interval_hours: float | None = None
@@ -79,10 +75,6 @@ class PrinterMaintenanceResponse(BaseModel):
 # Maintenance History schemas
 class MaintenanceHistoryBase(BaseModel):
     notes: str | None = None
-
-
-class MaintenanceHistoryCreate(MaintenanceHistoryBase):
-    pass
 
 
 class MaintenanceHistoryResponse(MaintenanceHistoryBase):

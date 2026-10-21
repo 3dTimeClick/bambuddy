@@ -23,7 +23,6 @@ vi.mock('../../api/client', () => ({
     updateSpoolmanSettings: vi.fn(),
     getSpoolmanStatus: vi.fn(),
     connectSpoolman: vi.fn(),
-    disconnectSpoolman: vi.fn(),
     syncAllPrintersAms: vi.fn(),
     syncPrinterAms: vi.fn(),
     syncSpoolmanAmsWeights: vi.fn(),
@@ -62,7 +61,6 @@ describe('SpoolmanSettings', () => {
     });
     vi.mocked(api.getPrinters).mockResolvedValue([]);
     vi.mocked(api.connectSpoolman).mockResolvedValue({ success: true, message: 'Connected' });
-    vi.mocked(api.disconnectSpoolman).mockResolvedValue({ success: true, message: 'Disconnected' });
     vi.mocked(api.syncAllPrintersAms).mockResolvedValue({
       success: true,
       synced_count: 3,

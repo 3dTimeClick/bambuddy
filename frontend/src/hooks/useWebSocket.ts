@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useToast } from '../contexts/ToastContext';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
@@ -36,7 +36,6 @@ interface WebSocketMessage {
   slot?: string;
   verified?: boolean;
   kprofile_applied?: boolean;
-  saw_tray?: boolean;
   // Slicer Pipeline run events (#1425 PR C). ``run`` carries the full
   // PipelineRunResponse payload — typed loosely here so the WebSocket hook
   // doesn't pull the full client.ts types in.
@@ -58,7 +57,6 @@ export function useWebSocket() {
   // socket never opened); 0 once one opens.
   const handshakeDelayRef = useRef(0);
   const queryClient = useQueryClient();
-  const [isConnected, setIsConnected] = useState(false);
   const lastMissingSpoolWarningRef = useRef<Map<number, string>>(new Map());
   const { showToast } = useToast();
   const { t } = useTranslation();
@@ -167,7 +165,6 @@ export function useWebSocket() {
       opened = true;
       handshakeDelayRef.current = 0;
       if (import.meta.env.MODE !== 'test') console.log('[WebSocket] Connected');
-      setIsConnected(true);
       // Start ping interval
       pingInterval = window.setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -200,7 +197,6 @@ export function useWebSocket() {
         clearInterval(pingInterval);
         pingInterval = null;
       }
-      setIsConnected(false);
       wsRef.current = null;
 
       // Don't reconnect once the provider has unmounted. After an auth
@@ -694,12 +690,4 @@ export function useWebSocket() {
       }
     };
   }, [connect]);
-
-  const sendMessage = useCallback((message: Record<string, unknown>) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    }
-  }, []);
-
-  return { isConnected, sendMessage };
 }

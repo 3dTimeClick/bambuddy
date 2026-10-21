@@ -244,15 +244,6 @@ def _validate_user_filter_permission(current_user: User | ApiKeyActor | None, cr
         raise HTTPException(status_code=403, detail="Permission stats:filter_by_user required")
 
 
-def _apply_user_filter(conditions: list, created_by_id: int | None):
-    """Append created_by_id filter to conditions list if specified."""
-    if created_by_id is not None:
-        if created_by_id == -1:
-            conditions.append(PrintArchive.created_by_id.is_(None))
-        else:
-            conditions.append(PrintArchive.created_by_id == created_by_id)
-
-
 def _apply_run_user_filter(conditions: list, created_by_id: int | None):
     """Append created_by_id filter scoped to PrintLogEntry rows."""
     from backend.app.models.print_log import PrintLogEntry

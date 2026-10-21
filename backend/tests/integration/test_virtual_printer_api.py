@@ -24,10 +24,7 @@ class TestVirtualPrinterSettingsAPI:
 
         assert response.status_code == 200
         result = response.json()
-        assert "enabled" in result
-        assert "access_code_set" in result
-        assert "mode" in result
-        assert "status" in result
+        assert set(result) == {"tailscale_disabled", "archive_name_source", "status"}
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -102,6 +99,27 @@ class TestVirtualPrinterSettingsAPI:
 
         assert response.status_code == 200
         assert response.json()["archive_name_source"] == "filename"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_the_tailscale_switch_reaches_the_first_virtual_printer(self, async_client: AsyncClient, db_session):
+        """It only changes what that printer's card shows; nothing is restarted."""
+        from sqlalchemy import select
+
+        from backend.app.models.virtual_printer import VirtualPrinter
+
+        with patch("backend.app.services.virtual_printer.virtual_printer_manager.sync_from_db", AsyncMock()) as sync:
+            created = await async_client.post("/api/v1/virtual-printers", json={"name": "first", "mode": "archive"})
+            assert created.status_code in (200, 201), created.text
+            sync.reset_mock()
+            response = await async_client.put("/api/v1/settings/virtual-printer?tailscale_disabled=false")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["tailscale_disabled"] is False
+        db_session.expire_all()
+        first = (await db_session.execute(select(VirtualPrinter))).scalar_one()
+        assert first.tailscale_disabled is False
+        sync.assert_not_called()
 
 
 class TestPendingUploadsAPI:

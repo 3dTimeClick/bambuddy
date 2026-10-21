@@ -17,8 +17,6 @@ from backend.app.utils.color_utils import color_match_key, spoolman_color_hex
 
 logger = logging.getLogger(__name__)
 
-BAMBU_RFID_TAG_LENGTH = 32
-
 # How long a Spoolman without native tags is believed before it is asked again,
 # so upgrading Spoolman to 0.27 needs no Bambuddy restart.
 TAG_API_RECHECK_SECONDS = 600
@@ -1093,63 +1091,6 @@ class SpoolmanClient:
                         return spool
         return None
 
-    async def find_spools_by_location_prefix(
-        self, location_prefix: str, cached_spools: list[dict] | None = None
-    ) -> list[dict]:
-        """Return all spools whose location starts with location_prefix."""
-        # Use cached spools if provided, otherwise fetch from API
-        spools = cached_spools if cached_spools is not None else await self.get_spools()
-        matching = []
-        for spool in spools:
-            location = spool.get("location", "")
-            if location and location.startswith(location_prefix):
-                matching.append(spool)
-        return matching
-
-    async def clear_location_for_removed_spools(
-        self,
-        printer_name: str,
-        current_tray_uuids: set[str],
-        cached_spools: list[dict] | None = None,
-        synced_spool_ids: set[int] | None = None,
-    ) -> int:
-        """Clear location for Bambu Lab spools at this printer whose tray_uuid is no longer in the AMS."""
-        location_prefix = f"{printer_name} - "
-        spools_at_printer = await self.find_spools_by_location_prefix(location_prefix, cached_spools=cached_spools)
-        cleared_count = 0
-
-        for spool in spools_at_printer:
-            spool_id = spool.get("id")
-
-            # Skip spools that were just synced (matched by location or tag)
-            if synced_spool_ids and spool_id in synced_spool_ids:
-                continue
-
-            # Get the tray_uuid (stored as "tag" in extra field)
-            extra = spool.get("extra", {}) or {}
-            stored_tag = extra.get("tag", "")
-            if stored_tag:
-                # Normalize: strip quotes and uppercase
-                spool_uuid = stored_tag.strip('"').upper()
-            else:
-                spool_uuid = ""
-
-            # Only clear location for Bambu Lab spools (those with a stored 32-character RFID tag).
-            if len(spool_uuid) != BAMBU_RFID_TAG_LENGTH:
-                continue
-
-            # If this spool's UUID is not in the current AMS, clear its location
-            if spool_uuid not in current_tray_uuids:
-                logger.info(
-                    f"Clearing location for spool {spool_id} "
-                    f"(was: {spool.get('location')}, uuid: {spool_uuid[:16] if spool_uuid else 'none'}...)"
-                )
-                result = await self.update_spool(spool_id=spool_id, clear_location=True)
-                if result:
-                    cleared_count += 1
-
-        return cleared_count
-
     async def ensure_bambu_vendor(self) -> int | None:
         """Return the Bambu Lab vendor ID in Spoolman, creating the vendor if absent."""
         vendors = await self.get_vendors()
@@ -1348,19 +1289,6 @@ class SpoolmanClient:
             tray_info_idx=tray_info_idx.strip(),
             tray_weight=int(tray_data.get("tray_weight", 1000)),
         )
-
-    def convert_ams_slot_to_location(self, ams_id: int, tray_id: int) -> str:
-        """Return a human-readable location string (e.g. "AMS A1") for the given AMS slot."""
-        if ams_id >= 254:
-            return "External Spool"
-
-        if 128 <= ams_id <= 135:
-            # AMS-HT units use IDs 128-135
-            ht_letter = chr(ord("A") + (ams_id - 128))
-            return f"AMS-HT {ht_letter}{tray_id + 1}"
-
-        ams_letter = chr(ord("A") + ams_id)
-        return f"AMS {ams_letter}{tray_id + 1}"
 
     def is_bambu_lab_spool(self, tray_uuid: str, tag_uid: str = "", tray_info_idx: str = "") -> bool:
         """Return True if tray_uuid or tag_uid identifies a Bambu Lab spool; tray_info_idx is ignored."""

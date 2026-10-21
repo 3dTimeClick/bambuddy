@@ -166,10 +166,8 @@ async def test_the_legacy_virtual_printer_settings_keep_to_the_caller_printers(
     db_session.add(Settings(key="virtual_printer_target_printer_id", value=str(b_id)))
     await db_session.commit()
 
-    shown = await async_client.get("/api/v1/settings/virtual-printer", headers=member)
     changed = await async_client.put("/api/v1/settings/virtual-printer?archive_name_source=filename", headers=member)
 
-    assert shown.json()["target_printer_id"] is None
     assert changed.status_code == 404
 
     # The settings also reach the first virtual printer: with the stored target

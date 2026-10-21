@@ -1497,7 +1497,6 @@ type HistoryRow =
 
 interface HistorySectionProps {
   items: PrintQueueItem[];
-  collapsed: boolean;
   visibleCount: number;
   onShowMore: () => void;
   sortBy: 'date' | 'name' | 'printer';
@@ -2942,7 +2941,6 @@ export function QueuePage() {
       ) : activeTab === 'history' ? (
         <HistorySection
           items={historyItems}
-          collapsed={false}
           visibleCount={historyVisibleCount}
           onShowMore={() => setHistoryVisibleCount((c) => c + HISTORY_PAGE_SIZE)}
           sortBy={historySortBy}

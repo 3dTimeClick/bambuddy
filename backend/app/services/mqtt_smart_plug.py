@@ -69,10 +69,6 @@ class MQTTSmartPlugService:
         """Check if the MQTT service is configured and connected."""
         return self._configured and self.connected
 
-    def has_broker_settings(self) -> bool:
-        """Check if broker settings are available (even if not connected yet)."""
-        return bool(self._broker)
-
     async def configure(self, settings: dict) -> bool:
         """Configure MQTT connection from settings.
 

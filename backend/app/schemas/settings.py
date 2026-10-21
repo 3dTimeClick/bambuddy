@@ -233,12 +233,6 @@ class AppSettings(BaseModel):
     )
 
     # Virtual Printer
-    virtual_printer_enabled: bool = Field(default=False, description="Enable virtual printer for slicer uploads")
-    virtual_printer_access_code: str = Field(default="", description="Access code for virtual printer authentication")
-    virtual_printer_mode: str = Field(
-        default="archive",
-        description="Mode: 'archive' (archive now), 'review' (pending review), 'queue' (add to print queue), or 'proxy' (relay to real printer)",
-    )
     virtual_printer_archive_name_source: str = Field(
         default="metadata",
         description="Source for the archive's display name on virtual-printer uploads: 'metadata' uses the 3MF's embedded print_name (default, matches Bambu's behavior), 'filename' uses the filename Bambu Studio sent over FTP (lets users rename via the slicer's 'send to printer' dialog).",
@@ -773,9 +767,6 @@ class AppSettingsUpdate(BaseModel):
     time_format: str | None = None
     default_printer_id: int | None = None
     pipeline_max_copies: int | None = None
-    virtual_printer_enabled: bool | None = None
-    virtual_printer_access_code: str | None = None
-    virtual_printer_mode: str | None = None
     virtual_printer_archive_name_source: str | None = None
     dark_style: str | None = None
     dark_background: str | None = None

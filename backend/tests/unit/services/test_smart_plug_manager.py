@@ -367,21 +367,6 @@ class TestSmartPlugManager:
         with patch.object(manager, "_mark_auto_off_pending", new_callable=AsyncMock):
             manager._cancel_pending_off(999)  # Non-existent plug ID
 
-    @pytest.mark.asyncio
-    async def test_cancel_all_pending(self, manager, mock_plug):
-        """Verify all pending tasks can be cancelled."""
-        mock_task1 = MagicMock()
-        mock_task2 = MagicMock()
-        manager._pending_off[1] = mock_task1
-        manager._pending_off[2] = mock_task2
-
-        with patch("asyncio.create_task"):
-            manager.cancel_all_pending()
-
-        assert len(manager._pending_off) == 0
-        mock_task1.cancel.assert_called_once()
-        mock_task2.cancel.assert_called_once()
-
     # ========================================================================
     # Tests for scheduler
     # ========================================================================

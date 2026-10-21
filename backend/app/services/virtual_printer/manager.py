@@ -257,7 +257,6 @@ class VirtualPrinterInstance:
         gcode_injection: bool = False,
         bind_ip: str = "",
         remote_interface_ip: str = "",
-        tailscale_disabled: bool = True,
         base_dir: Path,
         session_factory: Callable | None = None,
         printer_manager: "PrinterManager | None" = None,
@@ -281,7 +280,6 @@ class VirtualPrinterInstance:
         self.gcode_injection = gcode_injection
         self.bind_ip = bind_ip
         self.remote_interface_ip = remote_interface_ip
-        self.tailscale_disabled = tailscale_disabled
         self._session_factory = session_factory
         self._printer_manager = printer_manager
 
@@ -302,7 +300,8 @@ class VirtualPrinterInstance:
             shared_ca_dir=shared_ca_dir,
         )
 
-        # Pending files for MQTT correlation
+        # Uploads received and not yet archived or queued; only counted, for
+        # the status's pending_files.
         self._pending_files: dict[str, Path] = {}
 
         # Slicer-side print options captured from the MQTT `project_file`
@@ -762,6 +761,7 @@ class VirtualPrinterInstance:
         """Archive file immediately."""
         if not self._session_factory:
             logger.error("Cannot archive: no database session factory configured")
+            self._pending_files.pop(file_path.name, None)
             return
 
         if file_path.suffix.lower() != ".3mf":
@@ -801,11 +801,10 @@ class VirtualPrinterInstance:
         except Exception as e:
             logger.error("Error archiving file: %s", e)
         finally:
-            # Always release the in-flight marker and delete the temp file —
-            # previously the failure paths only logged and the next upload of
-            # the same name was silently rejected with "already uploading",
-            # the upload_dir filled up indefinitely, and the slicer received
-            # a clean 226 even though no archive existed (#audit-R2-1).
+            # Always drop it from the pending count and delete the temp file —
+            # previously the failure paths only logged, the upload_dir filled
+            # up indefinitely, and the slicer received a clean 226 even though
+            # no archive existed (#audit-R2-1).
             self._pending_files.pop(file_path.name, None)
             if archived:
                 try:
@@ -823,6 +822,7 @@ class VirtualPrinterInstance:
         """Queue file for user review."""
         if not self._session_factory:
             logger.error("Cannot queue: no database session factory configured")
+            self._pending_files.pop(file_path.name, None)
             return
 
         if file_path.suffix.lower() != ".3mf":
@@ -874,15 +874,15 @@ class VirtualPrinterInstance:
             except OSError:
                 pass
         finally:
-            # Always release the in-flight marker so concurrent uploads
-            # with the same filename aren't spuriously rejected after
-            # a queue failure.
+            # Always drop it from the pending count, also after a queue
+            # failure.
             self._pending_files.pop(file_path.name, None)
 
     async def _add_to_print_queue(self, file_path: Path, source_ip: str) -> None:
         """Archive file and add to print queue, assigned to target printer or model."""
         if not self._session_factory:
             logger.error("Cannot add to print queue: no database session factory configured")
+            self._pending_files.pop(file_path.name, None)
             return
 
         if file_path.suffix.lower() != ".3mf":
@@ -1906,7 +1906,6 @@ class VirtualPrinterManager:
                     gcode_injection=vp.gcode_injection,
                     bind_ip=vp.bind_ip or "",
                     remote_interface_ip=vp.remote_interface_ip or "",
-                    tailscale_disabled=vp.tailscale_disabled,
                     base_dir=self._base_dir,
                     session_factory=self._session_factory,
                 )
@@ -1928,7 +1927,6 @@ class VirtualPrinterManager:
                     gcode_injection=vp.gcode_injection,
                     bind_ip=vp.bind_ip or "",
                     remote_interface_ip=vp.remote_interface_ip or "",
-                    tailscale_disabled=vp.tailscale_disabled,
                     base_dir=self._base_dir,
                     session_factory=self._session_factory,
                     printer_manager=self._printer_manager,
@@ -1959,18 +1957,6 @@ class VirtualPrinterManager:
     def get_instance(self, vp_id: int) -> VirtualPrinterInstance | None:
         """Get a running instance by ID."""
         return self._instances.get(vp_id)
-
-    def get_all_status(self) -> list[dict]:
-        """Get status for all running instances."""
-        return [
-            {
-                "id": inst.id,
-                "name": inst.name,
-                "mode": inst.mode,
-                **inst.get_status(),
-            }
-            for inst in self._instances.values()
-        ]
 
     # -- Legacy single-printer compat --
 

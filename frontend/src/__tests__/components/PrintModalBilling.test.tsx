@@ -17,17 +17,14 @@ const mockShowToast = vi.fn();
 const mockUseAuth = {
   user: { id: 1, username: 'finance-user', permissions: ['cost_centers:read_own', 'printers:control'] },
   authEnabled: true,
-  requiresSetup: false,
   loading: false,
   isAdmin: false,
   login: vi.fn(),
   loginWithToken: vi.fn(),
   logout: vi.fn(),
-  refreshUser: vi.fn(),
   refreshAuth: vi.fn(),
   hasPermission: vi.fn((permission: string) => permission === 'cost_centers:read_own' || permission === 'printers:control'),
   hasAnyPermission: vi.fn(() => true),
-  hasAllPermissions: vi.fn(() => true),
   canModify: vi.fn(() => true),
 };
 

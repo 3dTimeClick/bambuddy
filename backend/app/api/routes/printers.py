@@ -1036,22 +1036,6 @@ async def disconnect_printer(
     return {"connected": False}
 
 
-@router.post("/test")
-async def test_printer_connection(
-    ip_address: str,
-    serial_number: str,
-    access_code: str,
-    _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_CREATE),
-):
-    """Test connection to a printer without saving."""
-    result = await printer_manager.test_connection(
-        ip_address=ip_address,
-        serial_number=serial_number,
-        access_code=access_code,
-    )
-    return result
-
-
 @router.post("/diagnostic", response_model=PrinterDiagnosticResult)
 async def diagnose_connection(
     req: DiagnosticRequest,
@@ -3549,54 +3533,6 @@ async def delete_ams_label(
     return {"success": True}
 
 
-@router.post("/{printer_id}/debug/simulate-print-complete")
-async def debug_simulate_print_complete(
-    printer_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-):
-    """DEBUG: Simulate print completion to test freeze behavior.
-
-    This triggers the same code path as a real print completion,
-    without needing to wait for an actual print to finish.
-    """
-    from backend.app.main import _active_prints, on_print_complete
-    from backend.app.models.archive import PrintArchive
-
-    # Get the most recent archive for this printer
-    result = await db.execute(
-        select(PrintArchive)
-        .where(PrintArchive.printer_id == printer_id)
-        .order_by(PrintArchive.created_at.desc())
-        .limit(1)
-    )
-    archive = result.scalar_one_or_none()
-
-    if not archive:
-        raise HTTPException(status_code=404, detail="No archives found for this printer")
-
-    # Register this archive as "active" so on_print_complete can find it
-    filename = archive.file_path.split("/")[-1] if archive.file_path else "test.3mf"
-    subtask_name = archive.print_name or "Test Print"
-    _active_prints[(printer_id, filename)] = archive.id
-    _active_prints[(printer_id, subtask_name)] = archive.id
-
-    # Simulate print completion data
-    data = {
-        "status": "completed",
-        "filename": filename,
-        "subtask_name": subtask_name,
-        "timelapse_was_active": False,
-    }
-
-    logger.info("Simulating print complete for printer %s, archive %s", printer_id, archive.id)
-
-    # Call the actual on_print_complete handler
-    await on_print_complete(printer_id, data)
-
-    return {"success": True, "archive_id": archive.id, "message": "Print completion simulated"}
-
-
 # =============================================================================
 # Print Control Endpoints
 # =============================================================================
@@ -4778,40 +4714,6 @@ async def ams_unload(
         raise HTTPException(500, "Failed to send unload command")
 
     return {"success": True, "message": "Unloading filament"}
-
-
-@router.get("/{printer_id}/runtime-debug")
-async def get_runtime_debug(
-    printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
-):
-    """Debug endpoint: Get runtime tracking status for a printer."""
-    result = await db.execute(select(Printer).where(Printer.id == printer_id))
-    printer = result.scalar_one_or_none()
-    if not printer:
-        raise HTTPException(404, "Printer not found")
-
-    state = printer_manager.get_status(printer_id)
-
-    return {
-        "printer_name": printer.name,
-        "runtime_seconds": printer.runtime_seconds,
-        "runtime_hours": printer.runtime_seconds / 3600.0 if printer.runtime_seconds else 0,
-        "print_hours_offset": printer.print_hours_offset,
-        "total_hours": (printer.runtime_seconds / 3600.0 if printer.runtime_seconds else 0)
-        + (printer.print_hours_offset or 0),
-        "last_runtime_update": printer.last_runtime_update.isoformat() if printer.last_runtime_update else None,
-        "mqtt_state": {
-            "connected": state.connected if state else False,
-            "state": state.state if state else None,
-            "progress": state.progress if state else None,
-            "gcode_file": state.gcode_file if state else None,
-        }
-        if state
-        else None,
-        "is_active": printer.is_active,
-    }
 
 
 @router.post("/{printer_id}/hms/execute-action")

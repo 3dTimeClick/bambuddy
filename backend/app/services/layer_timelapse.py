@@ -401,11 +401,6 @@ def cancel_session(printer_id: int):
         logger.info("Cancelled timelapse session for printer %s", printer_id)
 
 
-def get_active_sessions() -> dict[int, TimelapseSession]:
-    """Get all active timelapse sessions."""
-    return _active_sessions.copy()
-
-
 def cleanup_orphaned_timelapse_sessions(min_age_seconds: float = 300) -> int:
     """Remove timelapse_frames/<printer_id>/* left behind by a crash or
     restart that happened while a session was active.

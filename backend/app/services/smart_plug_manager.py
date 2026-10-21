@@ -132,7 +132,6 @@ class SmartPlugManager:
 
     def __init__(self):
         self._pending_off: dict[int, asyncio.Task] = {}  # plug_id -> task
-        self._loop: asyncio.AbstractEventLoop | None = None
         self._scheduler_task: asyncio.Task | None = None
         self._snapshot_task: asyncio.Task | None = None
         self._power_alert_task: asyncio.Task | None = None
@@ -170,10 +169,6 @@ class SmartPlugManager:
             homeassistant_service.configure(ha_settings["ha_url"], ha_settings["ha_token"])
         except Exception as e:
             logger.warning("Failed to configure HA service: %s", e)
-
-    def set_event_loop(self, loop: asyncio.AbstractEventLoop):
-        """Set the event loop for async operations."""
-        self._loop = loop
 
     def start_scheduler(self):
         """Start the background scheduler for time-based plug control."""
@@ -530,8 +525,8 @@ class SmartPlugManager:
         so unlike :meth:`on_print_complete` this does NOT gate on ``plug.auto_off``.
         It still honours ``enabled`` and skips HA-script entities (which can only
         be triggered, not turned off), and uses each plug's configured off
-        strategy via :meth:`_schedule_off_per_mode`. Replaces the three inline
-        ``wait_for_cooldown(50°C, 600s)`` blocks that ignored plug settings,
+        strategy via :meth:`_schedule_off_per_mode`. Replaces three inline
+        cooldown waits (50°C, 600s) that ignored plug settings,
         fired on the cooldown *timeout* regardless of print state, and could not
         be cancelled by a re-print (#1890).
         """
@@ -901,11 +896,6 @@ class SmartPlugManager:
         task = self._pending_off.pop(plug_id, None)
         if task is not None:
             task.cancel()
-
-    def cancel_all_pending(self):
-        """Cancel all pending turn-off tasks."""
-        for plug_id in list(self._pending_off.keys()):
-            self._cancel_pending_off(plug_id)
 
     async def resume_pending_auto_offs(self):
         """Resume any pending auto-offs that were interrupted by a restart.

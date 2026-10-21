@@ -381,39 +381,6 @@ class TestOnLayerChange:
         await on_layer_change(999, 10)
 
 
-class TestGetActiveSessions:
-    """Tests for get_active_sessions."""
-
-    def test_get_active_sessions_returns_copy(self):
-        """Verify get_active_sessions returns a copy, not the original dict."""
-        from backend.app.services.layer_timelapse import (
-            _active_sessions,
-            cancel_session,
-            get_active_sessions,
-            start_session,
-        )
-
-        _active_sessions.clear()
-
-        with patch("backend.app.services.layer_timelapse.settings") as mock_settings:
-            mock_settings.base_dir = Path("/tmp/test")
-
-            with patch.object(Path, "mkdir"):
-                start_session(1, 100, "http://test/", "mjpeg")
-
-                sessions = get_active_sessions()
-
-                # Should be a copy
-                assert sessions is not _active_sessions
-                assert 1 in sessions
-
-                # Modifying copy shouldn't affect original
-                sessions.clear()
-                assert 1 in _active_sessions
-
-                cancel_session(1)
-
-
 class TestCleanupOrphanedTimelapseSessions:
     """_active_sessions is in-memory only, so a process restart mid-print
     loses track of an active session without ever cleaning up its frames

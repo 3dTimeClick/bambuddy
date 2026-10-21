@@ -679,7 +679,7 @@ async def get_profile(
     current_user: User | None = cloud_caller(Permission.ORCA_CLOUD_AUTH),
 ):
     """Fetch a single profile's full content, shaped like
-    ``SlicerSettingDetail`` so the Bambu Cloud detail modal can render it
+    the frontend's ``SlicerSettingDetail`` so the Bambu Cloud detail modal can render it
     unchanged. The inner ``setting`` field is the raw slicer-format JSON
     Orca stores — same shape Bambu Cloud uses since OrcaSlicer is a
     BambuStudio fork."""

@@ -147,42 +147,42 @@ describe('AuthContext', () => {
         result.current.hasAnyPermission('printers:read' as Permission, 'settings:update' as Permission)
       ).toBe(true);
     });
-
-    it('hasAllPermissions returns true for any permissions when auth disabled', async () => {
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: createWrapper(),
-      });
-
-      await waitFor(() => {
-        expect(result.current.authEnabled).toBe(false);
-      });
-
-      expect(
-        result.current.hasAllPermissions('printers:read' as Permission, 'settings:update' as Permission)
-      ).toBe(true);
-    });
   });
 
-  describe('when auth requires setup', () => {
+  describe('first-run setup', () => {
+    const realLocation = window.location;
+
+    function stubLocation(pathname: string) {
+      const { origin, protocol, host, hostname, port } = realLocation;
+      const location = { origin, protocol, host, hostname, port, pathname, href: origin + pathname, search: '', hash: '' };
+      Object.defineProperty(window, 'location', { configurable: true, value: location });
+      return location;
+    }
+
     beforeEach(() => {
       server.use(
-        http.get('/api/v1/auth/status', () => {
-          return HttpResponse.json({
-            auth_enabled: false,
-            requires_setup: true,
-          });
-        })
+        http.get('/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: false, requires_setup: true }))
       );
     });
 
-    it('requiresSetup is true', async () => {
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: createWrapper(),
-      });
+    afterEach(() => {
+      Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
+    });
 
-      await waitFor(() => {
-        expect(result.current.requiresSetup).toBe(true);
-      });
+    it('sends a new install to the setup page', async () => {
+      const location = stubLocation('/');
+
+      renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+      await waitFor(() => expect(location.href).toBe('/setup'));
+    });
+
+    it('leaves a camera page where it is', async () => {
+      const location = stubLocation('/camera/1');
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(location.href).toBe(`${realLocation.origin}/camera/1`);
     });
   });
 
@@ -298,24 +298,6 @@ describe('AuthContext', () => {
 
       expect(
         result.current.hasAnyPermission(
-          'api_keys:create' as Permission,
-          'groups:delete' as Permission
-        )
-      ).toBe(true);
-    });
-
-    it('hasAllPermissions returns true for any combination', async () => {
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: createWrapper(),
-      });
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(
-        result.current.hasAllPermissions(
-          'settings:update' as Permission,
           'api_keys:create' as Permission,
           'groups:delete' as Permission
         )

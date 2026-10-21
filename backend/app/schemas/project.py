@@ -304,25 +304,6 @@ class LinkedFolderExport(BaseModel):
     name: str
 
 
-class ProjectExport(BaseModel):
-    """Schema for exporting a project."""
-
-    name: str
-    description: str | None
-    color: str | None
-    status: str
-    target_count: int | None
-    target_parts_count: int | None
-    target_sets: int | None = None
-    notes: str | None
-    tags: str | None
-    due_date: datetime | None
-    priority: str
-    budget: float | None
-    bom_items: list[BOMItemExport] = []
-    linked_folders: list[LinkedFolderExport] = []
-
-
 class ProjectImport(BaseModel):
     """Schema for importing a project."""
 

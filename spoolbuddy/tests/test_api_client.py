@@ -197,32 +197,6 @@ class TestRegisterDevice:
         assert payload["calibration_factor"] == 1.05
 
 
-class TestReportUpdateStatus:
-    @pytest.mark.asyncio
-    async def test_report_update_status(self, api):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"ok": True}
-        mock_resp.raise_for_status = MagicMock()
-        api._client.post = AsyncMock(return_value=mock_resp)
-
-        result = await api.report_update_status("dev-1", "updating", "Fetching...")
-
-        assert result == {"ok": True}
-        call_args = api._client.post.call_args
-        assert "/devices/dev-1/update-status" in call_args[0][0]
-        payload = call_args[1]["json"]
-        assert payload["status"] == "updating"
-        assert payload["message"] == "Fetching..."
-
-    @pytest.mark.asyncio
-    async def test_report_update_status_failure_returns_none(self, api):
-        api._client.post = AsyncMock(side_effect=httpx.ConnectError("fail"))
-
-        result = await api.report_update_status("dev-1", "error", "oops")
-
-        assert result is None
-
-
 def _status_error(code: int, detail: str | None = None) -> httpx.HTTPStatusError:
     request = httpx.Request("POST", "http://localhost:5000/x")
     body = {"json": {"detail": detail}} if detail is not None else {}

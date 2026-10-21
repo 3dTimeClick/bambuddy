@@ -5547,45 +5547,6 @@ export default {
     processing: '처리 중...',
     doNotClosePage: '이 페이지를 닫거나 다른 곳으로 이동하지 마세요. 대용량 백업의 경우 몇 분이 걸릴 수 있습니다.',
     restoring: '복원 중...',
-    restoreComplete: '복원 완료',
-    restoreFailed2: '복원 실패',
-    importSettings: '백업 파일에서 설정 가져오기',
-    pleaseWaitRestoring: '데이터가 복원되는 동안 기다려 주세요',
-    selectBackupFile: '백업 파일 클릭하여 선택 (.json 또는 .zip)',
-    duplicateHandling: '중복 처리 방법:',
-    matchPrinters: '프린터',
-    matchPrintersBy: '일련번호로 일치',
-    matchSmartPlugs: '스마트 플러그',
-    matchSmartPlugsBy: 'IP 주소로 일치',
-    matchNotificationProviders: '알림 제공자',
-    matchNotificationProvidersBy: '이름으로 일치',
-    matchFilaments: '필라멘트',
-    matchFilamentsBy: '이름 + 유형 + 브랜드로 일치',
-    matchArchives: '아카이브',
-    matchArchivesBy: '콘텐츠 해시로 일치 (항상 건너뜀)',
-    matchPendingUploads: '대기 중인 업로드',
-    matchPendingUploadsBy: '파일 이름으로 일치',
-    matchSettingsTemplates: '설정 및 템플릿',
-    matchSettingsTemplatesBy: '항상 덮어씀',
-    replaceExisting: '기존 데이터 교체',
-    keepExisting: '기존 데이터 유지',
-    overwriteDescription: '백업 데이터로 이미 존재하는 항목 덮어쓰기',
-    keepDescription: '아직 존재하지 않는 항목만 복원',
-    overwriteCaution: '주의:',
-    overwriteWarning: '덮어쓰기는 현재 구성을 백업 데이터로 교체합니다. 보안상 프린터 액세스 코드는 절대 덮어쓰지 않습니다.',
-    cancel: '취소',
-    processingBackup: '백업 파일 처리 중...',
-    itemsRestored: '복원된 항목',
-    itemsSkipped: '건너뛴 항목',
-    restored: '복원됨',
-    skippedAlreadyExist: '건너뜀 (이미 존재)',
-    filesCategory: '파일 (3MF, 썸네일 등)',
-    andMore: '...및 {{count}}개 더',
-    newApiKeysGenerated: '새 API 키 생성됨',
-    keysShownOnce: '이 키는 한 번만 표시됩니다. 지금 복사하세요!',
-    copy: '복사',
-    noDataFound: '백업 파일에서 복원할 데이터를 찾을 수 없습니다.',
-    close: '닫기',
     scheduledBackup: '예약 백업',
     scheduledBackupDescription: '일정에 따라 백업 스냅샷을 자동으로 생성합니다. 출력 디렉토리를 NAS 또는 외부 저장소에 마운트할 수 있습니다.',
     frequency: '주기',
@@ -5620,20 +5581,6 @@ export default {
       error: 'Bambuddy가 {{path}}에 쓸 수 없습니다.',
       ephemeralTitle: '이 백업은 컨테이너를 다시 만들면 사라집니다',
       container_ephemeral: '{{path}}은(는) 호스트가 아니라 Bambuddy 컨테이너 내부에 있습니다. 여기에 기록된 백업은 컨테이너를 재생성하면 사라집니다. 호스트의 디렉터리를 마운트하세요:',
-    },
-    categories: {
-      settings: '설정',
-      notification_providers: '알림 제공자',
-      notification_templates: '알림 템플릿',
-      smart_plugs: '스마트 플러그',
-      printers: '프린터',
-      filaments: '필라멘트',
-      maintenance_types: '유지 관리 유형',
-      archives: '아카이브',
-      projects: '프로젝트',
-      pending_uploads: '대기 중인 업로드',
-      external_links: '외부 링크',
-      api_keys: 'API 키'
     },
     repoIsPrivate: '저장소가 비공개입니다 — 안전하게 백업할 수 있습니다.',
     repoIsPublicWarning: '저장소가 공개입니다. Bambuddy 백업에는 MQTT 자격증명, Home Assistant 토큰, Prometheus 토큰, Bambu Cloud 이메일, K-프로파일을 통한 프린터 액세스 코드가 포함됩니다. 공급자 설정에서 저장소를 비공개로 변경할 때까지 저장이 차단됩니다.',
@@ -5858,23 +5805,9 @@ export default {
     }
   },
   virtualPrinter: {
-    title: '가상 프린터',
-    running: '실행 중',
-    stopped: '중지됨',
-    description: {
-      default: 'Bambu Studio 및 OrcaSlicer에 표시되는 가상 프린터를 활성화합니다. 이 프린터로 전송된 파일은 인쇄 없이 바로 아카이브됩니다.',
-      proxy: '실제 프린터로 슬라이서 트래픽을 릴레이하는 프록시를 활성화하여 모든 네트워크에서 원격 인쇄가 가능합니다.'
-    },
-    enable: {
-      title: '가상 프린터 활성화',
-      visibleInSlicer: '슬라이서 검색에서 "Bambuddy"로 표시됨',
-      proxyingTo: '{{name}}으로 프록시 중',
-      notActive: '활성화되지 않음'
-    },
     model: {
       title: '프린터 모델',
       description: '에뮬레이션할 프린터 모델을 선택하세요.',
-      restartWarning: '모델 변경 시 가상 프린터가 재시작됩니다'
     },
     accessCode: {
       title: '액세스 코드',
@@ -5882,7 +5815,6 @@ export default {
       notSet: '액세스 코드가 설정되지 않음 - 활성화하려면 필요',
       placeholder: '8자리 코드 입력',
       placeholderChange: '변경하려면 새 코드 입력',
-      hint: '정확히 8자여야 합니다. 슬라이서가 인증하는 데 사용됩니다.',
       charCount: '({{count}}/8)',
       inheritedFromTarget: '대상 프린터에서 상속됨',
       derivedFromTargetHint: '대상 프린터의 액세스 코드를 사용합니다. 브리지는 슬라이서 인증을 실제 프린터로 전달하므로 코드가 일치해야 합니다 — 변경하려면 프린터 설정에서 액세스 코드를 편집하세요.',
@@ -5891,18 +5823,12 @@ export default {
     },
     targetPrinter: {
       title: '대상 프린터',
-      configured: '프록시 대상 구성됨',
-      notConfigured: '대상 프린터가 선택되지 않음 - 프록시 모드에 필요',
       placeholder: '프린터 선택...',
-      hint: '슬라이서 트래픽을 프록시할 프린터를 선택하세요. 프린터는 LAN 모드여야 합니다.',
-      noPrinters: '구성된 프린터 없음. 프록시 모드를 사용하려면 먼저 프린터를 추가하세요.'
     },
     remoteInterface: {
       title: '네트워크 인터페이스 재정의',
-      configured: '인터페이스 재정의 활성',
       optional: '선택사항 - 자동 감지된 IP가 잘못된 경우 사용 (예: 여러 NIC, Docker, VPN)',
       placeholder: '자동 감지 (기본값)...',
-      hint: 'SSDP를 통해 광고되고 TLS 인증서에 사용되는 IP 주소를 재정의합니다. Bambuddy에 여러 네트워크 인터페이스가 있을 때 유용합니다.'
     },
     mode: {
       title: '모드',
@@ -5951,19 +5877,6 @@ export default {
       step1: '같은 LAN에서 가상 프린터는 검색을 통해 슬라이서(Bambu Studio / OrcaSlicer)에 자동으로 나타납니다. 다른 네트워크에서는 IP 주소와 액세스 코드로 수동으로 추가하세요.',
       step2: '아카이브, 검토, 대기열 모드에서 슬라이서의 "전송" 버튼을 사용하여 3MF 파일을 Bambuddy에 업로드하세요. 슬라이서는 "인쇄 성공"을 표시하지만 파일은 저장되고 인쇄되지 않습니다.',
       step3: '프록시 모드에서 가상 프린터는 모든 트래픽을 실제 프린터로 릴레이합니다 — 직접 연결된 것처럼 즉시 인쇄가 시작됩니다.'
-    },
-    status: {
-      title: '상태 세부 정보',
-      printerName: '프린터 이름',
-      model: '모델',
-      serialNumber: '일련 번호',
-      mode: '모드',
-      pendingFiles: '대기 중인 파일',
-      targetPrinter: '대상 프린터',
-      ftpPort: 'FTP 포트',
-      mqttPort: 'MQTT 포트',
-      ftpConnections: 'FTP 연결',
-      mqttConnections: 'MQTT 연결'
     },
     toast: {
       updated: '가상 프린터 설정 업데이트됨',
@@ -7033,12 +6946,8 @@ export default {
       plateClearFailed: '플레이트를 초기화됨으로 표시할 수 없음'
     },
     modal: {
-      spoolDetected: '스풀 감지됨',
       assignToAms: 'AMS에 할당',
       syncWeight: '무게 동기화',
-      weightSynced: '동기화됨!',
-      syncing: '동기화 중...',
-      newTagDetected: '새 태그 감지됨',
       addToInventory: '재고에 추가',
       assignToAmsTitle: 'AMS에 할당',
       selectSlot: '슬롯 선택',
@@ -7052,9 +6961,6 @@ export default {
       slot: '슬롯'
     },
     weight: {
-      noReading: '읽기 없음',
-      stable: '안정됨',
-      measuring: '측정 중...',
       tare: '영점 조정',
       calibrate: '보정'
     },

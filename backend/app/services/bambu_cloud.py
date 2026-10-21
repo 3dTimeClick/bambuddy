@@ -778,12 +778,6 @@ class BambuCloudService:
         self.access_token = access_token
         self.token_expiry = None
 
-    def logout(self):
-        """Clear authentication state."""
-        self.access_token = None
-        self.refresh_token = None
-        self.token_expiry = None
-
     async def get_user_profile(self) -> dict:
         """Get user profile information."""
         if not self.is_authenticated:

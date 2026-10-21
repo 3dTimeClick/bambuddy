@@ -190,7 +190,6 @@ _BOOL_SETTING_KEYS = frozenset(
         "include_beta_updates",
         "announcements_enabled",
         "announcements_all_users",
-        "virtual_printer_enabled",
         "ftp_retry_enabled",
         "mqtt_enabled",
         "mqtt_use_tls",
@@ -1835,35 +1834,17 @@ async def get_virtual_printer_settings(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
-    """Get virtual printer settings and status."""
-    from backend.app.services.virtual_printer import (
-        DEFAULT_VIRTUAL_PRINTER_MODEL,
-        virtual_printer_manager,
-    )
+    """Get the settings this route still sets, and the virtual printers' status.
 
-    enabled = await get_setting(db, "virtual_printer_enabled")
-    access_code = await get_setting(db, "virtual_printer_access_code")
-    mode = await get_setting(db, "virtual_printer_mode")
-    model = await get_setting(db, "virtual_printer_model")
-    target_printer_id = await get_setting(db, "virtual_printer_target_printer_id")
-    remote_interface_ip = await get_setting(db, "virtual_printer_remote_interface_ip")
+    Every other virtual printer setting lives on its own row
+    (``GET /virtual-printers``).
+    """
+    from backend.app.services.virtual_printer import virtual_printer_manager
+
     tailscale_disabled_raw = await get_setting(db, "virtual_printer_tailscale_disabled")
     archive_name_source = await get_setting(db, "virtual_printer_archive_name_source")
 
-    from backend.app.models.virtual_printer import VP_MODE_ARCHIVE, normalize_vp_mode
-
     return {
-        "enabled": enabled == "true" if enabled else False,
-        "access_code_set": bool(access_code),
-        # Normalize on read so older settings rows (with `immediate` /
-        # `print_queue`) come out as `archive` / `queue` for the frontend.
-        "mode": normalize_vp_mode(mode) or VP_MODE_ARCHIVE,
-        "model": model or DEFAULT_VIRTUAL_PRINTER_MODEL,
-        # A target the caller can't see is not named.
-        "target_printer_id": int(target_printer_id)
-        if target_printer_id and printer_scope.allows(int(target_printer_id))
-        else None,
-        "remote_interface_ip": remote_interface_ip or "",
         "tailscale_disabled": tailscale_disabled_raw == "true" if tailscale_disabled_raw else True,
         "archive_name_source": archive_name_source if archive_name_source in ("metadata", "filename") else "metadata",
         "status": _legacy_vp_status(virtual_printer_manager.get_status(), printer_scope),
@@ -1894,7 +1875,6 @@ async def update_virtual_printer_settings(
     from sqlalchemy import select
 
     from backend.app.models.virtual_printer import VirtualPrinter as FirstVP
-    from backend.app.services.virtual_printer import virtual_printer_manager
 
     current_target_id_str = await get_setting(db, "virtual_printer_target_printer_id")
     current_target_id = int(current_target_id_str) if current_target_id_str else None
@@ -1941,7 +1921,7 @@ async def update_virtual_printer_settings(
 
     if tailscale_disabled is not None:
         await set_setting(db, "virtual_printer_tailscale_disabled", "true" if tailscale_disabled else "false")
-        # The running virtual printers read it from the first row.
+        # The first virtual printer's card shows its Tailscale address by it.
         if first_vp is not None:
             first_vp.tailscale_disabled = tailscale_disabled
     if archive_name_source is not None:
@@ -1949,16 +1929,6 @@ async def update_virtual_printer_settings(
 
     await db.commit()
     db.expire_all()
-
-    if tailscale_disabled is not None:
-        try:
-            await virtual_printer_manager.sync_from_db()
-        except Exception as e:
-            logger.error("Failed to configure virtual printer: %s", e, exc_info=True)
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Failed to configure virtual printer. Check server logs for details."},
-            )
 
     return await get_virtual_printer_settings(db, printer_scope=printer_scope)
 
