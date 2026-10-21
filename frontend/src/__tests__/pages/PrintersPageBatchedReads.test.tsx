@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
+import { batchesSettled } from '../../api/batch';
 import { render } from '../utils';
 import { PrintersPage } from '../../pages/PrintersPage';
 
@@ -82,6 +83,9 @@ describe('PrintersPage — batched per-printer reads', () => {
         expect(paths.some((p) => p.startsWith(`/api/v1/bulk/${route}?ids=1,2,3`))).toBe(true);
       }
     });
+    // A bulk request that fails falls back to one request per printer, sent
+    // after it: wait for those too, or they land after the check.
+    await batchesSettled();
     const perPrinter = paths.filter((p) =>
       /^\/api\/v1\/(printers\/\d+\/(slot-presets|ams-labels)|smart-plugs\/by-printer\/\d+|ha-sensors\/by-printer\/\d+)/.test(p),
     );

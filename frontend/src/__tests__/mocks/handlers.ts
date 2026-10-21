@@ -541,6 +541,10 @@ export const handlers = [
   http.get('/api/v1/printers/:id/slot-presets', () => HttpResponse.json([])),
   http.get('/api/v1/smart-plugs/by-printer/:id', () => HttpResponse.json([])),
   http.get('/api/v1/smart-plugs/by-printer/:id/scripts', () => HttpResponse.json([])),
+  // Asked by the bulk mocks above for each id: without them the fan-out fails
+  // and the client falls back to one request per printer.
+  http.get('/api/v1/ha-sensors/by-printer/:id/readings', () => HttpResponse.json([])),
+  http.get('/api/v1/queue/', () => HttpResponse.json([])),
   http.get('/api/v1/spoolbuddy/devices', () => HttpResponse.json([])),
   http.get('/api/v1/spoolman/inventory/filaments', () => HttpResponse.json([])),
   http.get('/api/v1/spoolman/spools/linked', () => HttpResponse.json([])),
