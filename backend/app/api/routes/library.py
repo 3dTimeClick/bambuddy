@@ -1220,18 +1220,28 @@ async def get_folders_by_archive(
 ):
     """Get all folders linked to a specific archive, those the user may see (#3201)."""
     user, _ = auth_result
-    archives = await _linkable_archives(db, [archive_id], printer_scope)
-    if archive_id not in archives:
-        return []
+    return (await _folders_by_archive(db, user, [archive_id], printer_scope))[archive_id]
+
+
+async def _folders_by_archive(
+    db: AsyncSession, user: User | ApiKeyActor | None, archive_ids: list[int], printer_scope: PrinterScope
+) -> dict[int, list]:
+    """The folders linked to each archive that *user* may see (#3201), by archive id.
+
+    An archive on a printer outside *printer_scope* has none.
+    """
+    folders: dict[int, list] = {archive_id: [] for archive_id in archive_ids}
+    archives = await _linkable_archives(db, archive_ids, printer_scope)
+    if not archives:
+        return folders
     index = await _load_index(db, user)
     visible = visible_folder_ids(index, user)
     own_files = _own_files_filter(user)
     result = await db.execute(
-        select(LibraryFolder).where(LibraryFolder.archive_id == archive_id).order_by(LibraryFolder.name)
+        select(LibraryFolder).where(LibraryFolder.archive_id.in_(list(archives))).order_by(LibraryFolder.name)
     )
     rows = [folder for folder in result.scalars().all() if visible is None or folder.id in visible]
 
-    folders = []
     for folder in rows:
         # Get file count + latest file activity (#1770/#2680) in one trip. Prefer
         # the real on-disk mtime (external scans), fall back to the DB updated_at.
@@ -1250,7 +1260,8 @@ async def get_folders_by_archive(
         own_activity = folder.fs_modified_at or folder.updated_at
         latest_activity_at = max(own_activity, latest_file) if latest_file is not None else own_activity
 
-        folders.append(
+        assert folder.archive_id is not None  # selected by archive_id
+        folders[folder.archive_id].append(
             FolderResponse(
                 id=folder.id,
                 name=folder.name,

@@ -1,5 +1,6 @@
 import type { KProfileWriteResult } from '../utils/kprofileWrite';
 import type { ArchivePlatesResponse, LibraryFilePlatesResponse } from '../types/plates';
+import { batched, byField, byId } from './batch';
 
 const API_BASE = '/api/v1';
 
@@ -4812,6 +4813,108 @@ export interface AuthStatus {
 }
 
 // API functions
+export interface QueueHistoryFilters {
+  printerId?: number | null;
+  status?: string;
+  location?: string;
+}
+
+export interface QueueHistoryParams extends QueueHistoryFilters {
+  sortBy?: 'date' | 'name' | 'printer';
+  // Flips the default order: newest first by date, A to Z by name or printer.
+  reverse?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface QueueHistoryPage {
+  // The page in display order, then any other runs of the batches on it.
+  items: PrintQueueItem[];
+  total: number;
+  locations: string[];
+}
+
+function queueHistorySearch(params: QueueHistoryParams): URLSearchParams {
+  const search = new URLSearchParams();
+  if (params.printerId) search.set('printer_id', String(params.printerId));
+  if (params.status) search.set('status', params.status);
+  if (params.location) search.set('location', params.location);
+  if (params.sortBy) search.set('sort_by', params.sortBy);
+  if (params.reverse) search.set('reverse', 'true');
+  if (params.limit !== undefined) search.set('limit', String(params.limit));
+  if (params.offset) search.set('offset', String(params.offset));
+  return search;
+}
+
+// Per-printer reads that a page showing every printer makes once per printer,
+// coalesced into one bulk request per few milliseconds (see ./batch). Each
+// keeps its single-printer request for a lone id.
+const idsParam = (ids: number[]) => `ids=${ids.join(',')}`;
+
+const printerStatusBatch = batched(
+  (id) => request<PrinterStatus>(`/printers/${id}/status`),
+  async (ids) => byField(await request<PrinterStatus[]>(`/bulk/printer-statuses?${idsParam(ids)}`), (s) => s.id),
+);
+
+const slotPresetsBatch = batched(
+  (id) => request<Record<number, SlotPresetMapping>>(`/printers/${id}/slot-presets`),
+  async (ids) => byId(await request<Record<string, Record<number, SlotPresetMapping>>>(`/bulk/slot-presets?${idsParam(ids)}`)),
+);
+
+const amsLabelsBatch = batched(
+  (id) => request<Record<number, string>>(`/printers/${id}/ams-labels`),
+  async (ids) => byId(await request<Record<string, Record<number, string>>>(`/bulk/ams-labels?${idsParam(ids)}`)),
+);
+
+type PrinterCardPlugs = { plug: SmartPlug | null; scripts: SmartPlug[] };
+const cardPlugs = async (ids: number[]) =>
+  byId(await request<Record<string, PrinterCardPlugs>>(`/bulk/card-plugs?${idsParam(ids)}`));
+
+const smartPlugBatch = batched(
+  (id) => request<SmartPlug | null>(`/smart-plugs/by-printer/${id}`),
+  async (ids) => new Map([...(await cardPlugs(ids))].map(([id, plugs]) => [id, plugs.plug])),
+);
+
+const scriptPlugsBatch = batched(
+  (id) => request<SmartPlug[]>(`/smart-plugs/by-printer/${id}/scripts`),
+  async (ids) => new Map([...(await cardPlugs(ids))].map(([id, plugs]) => [id, plugs.scripts])),
+);
+
+const haSensorReadingsBatch = batched(
+  (id) => request<PrinterHASensorReading[]>(`/ha-sensors/by-printer/${id}/readings`),
+  async (ids) => byId(await request<Record<string, PrinterHASensorReading[]>>(`/bulk/ha-sensor-readings?${idsParam(ids)}`)),
+);
+
+const firmwareUpdateBatch = batched(
+  (id) => request<FirmwareUpdateInfo>(`/firmware/updates/${id}`),
+  async (ids) =>
+    byField(await request<FirmwareUpdateInfo[]>(`/bulk/firmware-updates?${idsParam(ids)}`), (u) => u.printer_id),
+);
+
+// One batcher per status asked for: the bulk route takes a single status list.
+const printerQueueBatches = new Map<string, (id: number) => Promise<PrintQueueItem[]>>();
+const printerQueueBatch = (status: string) => {
+  let batch = printerQueueBatches.get(status);
+  if (!batch) {
+    batch = batched(
+      (id) => request<PrintQueueItem[]>(`/queue/?printer_id=${id}&status=${encodeURIComponent(status)}`),
+      async (ids) =>
+        byId(
+          await request<Record<string, PrintQueueItem[]>>(
+            `/bulk/printer-queues?${idsParam(ids)}&status=${encodeURIComponent(status)}`,
+          ),
+        ),
+    );
+    printerQueueBatches.set(status, batch);
+  }
+  return batch;
+};
+
+const foldersByArchiveBatch = batched(
+  (id) => request<LibraryFolder[]>(`/library/folders/by-archive/${id}`),
+  async (ids) => byId(await request<Record<string, LibraryFolder[]>>(`/bulk/archive-folders?${idsParam(ids)}`)),
+);
+
 export const api = {
   // Overlay branding
   getOverlayLogo: async (token: string | null, signal?: AbortSignal): Promise<Blob | null> => {
@@ -5114,8 +5217,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ printer_ids: printerIds, location }),
     }),
-  getPrinterStatus: (id: number) =>
-    request<PrinterStatus>(`/printers/${id}/status`),
+  getPrinterStatus: (id: number) => printerStatusBatch(id),
   refreshPrinterStatus: (id: number) =>
     request<{ status: string }>(`/printers/${id}/refresh-status`, {
       method: 'POST',
@@ -6373,8 +6475,8 @@ export const api = {
 
   // Smart Plugs
   getSmartPlugs: () => request<SmartPlug[]>('/smart-plugs/'),
-  getSmartPlugByPrinter: (printerId: number) => request<SmartPlug | null>(`/smart-plugs/by-printer/${printerId}`),
-  getScriptPlugsByPrinter: (printerId: number) => request<SmartPlug[]>(`/smart-plugs/by-printer/${printerId}/scripts`),
+  getSmartPlugByPrinter: (printerId: number) => smartPlugBatch(printerId),
+  getScriptPlugsByPrinter: (printerId: number) => scriptPlugsBatch(printerId),
   createSmartPlug: (data: SmartPlugCreate) =>
     request<SmartPlug>('/smart-plugs/', {
       method: 'POST',
@@ -6427,8 +6529,7 @@ export const api = {
   // Home Assistant sensors bound to a printer (#1148, #448)
   getHASensors: (printerId?: number) =>
     request<PrinterHASensor[]>(`/ha-sensors/${printerId ? `?printer_id=${printerId}` : ''}`),
-  getHASensorReadings: (printerId: number) =>
-    request<PrinterHASensorReading[]>(`/ha-sensors/by-printer/${printerId}/readings`),
+  getHASensorReadings: (printerId: number) => haSensorReadingsBatch(printerId),
   getBindableHAEntities: (search?: string) => {
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
     return request<HADisplayEntity[]>(`/ha-sensors/entities${params}`);
@@ -6473,6 +6574,17 @@ export const api = {
     if (targetModel) params.set('target_model', targetModel);
     return request<PrintQueueItem[]>(`/queue/?${params}`);
   },
+  // History (completed / failed / skipped / cancelled), one page at a time.
+  getQueueHistory: (params: QueueHistoryParams) =>
+    request<QueueHistoryPage>(`/queue/history?${queueHistorySearch(params)}`),
+  // Removes the history matching the same filters, server-side.
+  clearQueueHistory: (params: QueueHistoryFilters) =>
+    request<{ cleared: number; kept: number }>(`/queue/history/clear?${queueHistorySearch(params)}`, {
+      method: 'POST',
+    }),
+  // One printer's queue as GET /queue/?printer_id= returns it: its own jobs
+  // plus the "Any <model>" jobs for its model. Batched across printer cards.
+  getPrinterQueue: (printerId: number, status: string) => printerQueueBatch(status)(printerId),
   addToQueue: (data: PrintQueueItemCreate) =>
     request<PrintQueueItem>('/queue/', {
       method: 'POST',
@@ -6654,16 +6766,14 @@ export const api = {
     }),
 
   // Slot Preset Mappings
-  getSlotPresets: (printerId: number) =>
-    request<Record<number, SlotPresetMapping>>(`/printers/${printerId}/slot-presets`),
+  getSlotPresets: (printerId: number) => slotPresetsBatch(printerId),
   saveSlotPreset: (printerId: number, amsId: number, trayId: number, presetId: string, presetName: string, presetSource = 'cloud', trayInfoIdx?: string) =>
     request<SlotPresetMapping>(`/printers/${printerId}/slot-presets/${amsId}/${trayId}?preset_id=${encodeURIComponent(presetId)}&preset_name=${encodeURIComponent(presetName)}&preset_source=${encodeURIComponent(presetSource)}${trayInfoIdx ? `&tray_info_idx=${encodeURIComponent(trayInfoIdx)}` : ''}`, {
       method: 'PUT',
     }),
 
   // AMS Labels (user-defined friendly names)
-  getAmsLabels: (printerId: number) =>
-    request<Record<number, string>>(`/printers/${printerId}/ams-labels`),
+  getAmsLabels: (printerId: number) => amsLabelsBatch(printerId),
   saveAmsLabel: (printerId: number, amsId: number, label: string, amsSerial = '') =>
     request<{ ams_id: number; label: string }>(
       `/printers/${printerId}/ams-labels/${amsId}`,
@@ -7670,8 +7780,7 @@ export const api = {
     }),
   getLibraryFoldersByProject: (projectId: number) =>
     request<LibraryFolder[]>(`/library/folders/by-project/${projectId}`),
-  getLibraryFoldersByArchive: (archiveId: number) =>
-    request<LibraryFolder[]>(`/library/folders/by-archive/${archiveId}`),
+  getLibraryFoldersByArchive: (archiveId: number) => foldersByArchiveBatch(archiveId),
 
   getLibraryFiles: (
     folderId?: number | null,
@@ -9009,8 +9118,7 @@ export const firmwareApi = {
   checkUpdates: () =>
     request<{ updates: FirmwareUpdateInfo[]; updates_available: number }>('/firmware/updates'),
 
-  checkPrinterUpdate: (printerId: number) =>
-    request<FirmwareUpdateInfo>(`/firmware/updates/${printerId}`),
+  checkPrinterUpdate: (printerId: number) => firmwareUpdateBatch(printerId),
 
   prepareUpload: (printerId: number, version?: string) =>
     request<FirmwareUploadPrepare>(

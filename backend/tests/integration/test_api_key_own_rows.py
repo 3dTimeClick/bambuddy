@@ -381,3 +381,24 @@ class TestKeysThatReachEveryRow:
         )
 
         assert patched.status_code == 403
+
+
+class TestQueueHistoryClear:
+    async def test_a_key_that_reads_own_runs_clears_only_those(self, async_client, db_session, rows):
+        """Its owner may delete every run but read only their own: the History tab
+        it clears is theirs, as for the owner signed in."""
+        group = await db_session.scalar(select(Group).where(Group.name == "own-queuers"))
+        group.permissions = [*group.permissions, "queue:delete_all"]
+        for item in (rows["own_item"], rows["other_item"]):
+            item.status = "completed"
+        await db_session.commit()
+        own_id, other_id = rows["own_item"].id, rows["other_item"].id
+        key = await _key(db_session, rows["owner"].id)
+
+        response = await async_client.post("/api/v1/queue/history/clear", headers=key)
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"cleared": 1, "kept": 0}
+        db_session.expire_all()
+        assert await db_session.get(PrintQueueItem, own_id) is None
+        assert await db_session.get(PrintQueueItem, other_id) is not None

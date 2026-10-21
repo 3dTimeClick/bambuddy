@@ -6,13 +6,14 @@ import re
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Literal
 
 import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, inspect, or_, select, update
+from sqlalchemy import ColumnElement, UnaryExpression, and_, case, func, inspect, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from backend.app.api.routes.library_variants import normalize_model_name, resolve_variant_model
 from backend.app.core.auth import (
@@ -47,6 +48,8 @@ from backend.app.schemas.print_queue import (
     PrintBatchUpdate,
     PrintQueueBulkUpdate,
     PrintQueueBulkUpdateResponse,
+    PrintQueueHistoryClearResponse,
+    PrintQueueHistoryResponse,
     PrintQueueItemCreate,
     PrintQueueItemResponse,
     PrintQueueItemUpdate,
@@ -676,10 +679,22 @@ async def _active_printer_model(db: AsyncSession, model: str) -> str | None:
     ).scalar_one_or_none()
 
 
+# What _enrich_response reads, loaded up front for a list of items.
+_QUEUE_ITEM_LOADS = (
+    selectinload(PrintQueueItem.archive),
+    selectinload(PrintQueueItem.printer),
+    selectinload(PrintQueueItem.library_file),
+    selectinload(PrintQueueItem.created_by),
+    selectinload(PrintQueueItem.batch),
+    # Cross-model candidates (#671) and their files, for the card label.
+    selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
+)
+
+
 @router.get("/", response_model=list[PrintQueueItemResponse])
 async def list_queue(
     printer_id: int | None = Query(None, description="Filter by printer (-1 for unassigned)"),
-    status: str | None = Query(None, description="Filter by status"),
+    status: str | None = Query(None, description="Filter by status; several may be given comma-separated"),
     target_model: str | None = Query(
         None, description="Filter by target model (also includes model-based items when combined with printer_id)"
     ),
@@ -696,15 +711,7 @@ async def list_queue(
     user, can_read_all = auth_result
     query = (
         select(PrintQueueItem)
-        .options(
-            selectinload(PrintQueueItem.archive),
-            selectinload(PrintQueueItem.printer),
-            selectinload(PrintQueueItem.library_file),
-            selectinload(PrintQueueItem.created_by),
-            selectinload(PrintQueueItem.batch),
-            # Cross-model candidates (#671) and their files, for the card label.
-            selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
-        )
+        .options(*_QUEUE_ITEM_LOADS)
         # The order the scheduler dispatches in (#3200), so the first pending
         # item for a printer is the one it will start next -- which is what the
         # printer card's "Next in queue" shows. Sorting by printer first put
@@ -756,6 +763,244 @@ async def list_queue(
     result = await db.execute(query)
     items = result.scalars().all()
     return [_enrich_response(item) for item in items]
+
+
+HISTORY_STATUSES = ("completed", "failed", "skipped", "cancelled")
+
+
+def _history_conditions(
+    user: User | ApiKeyActor | None,
+    can_read_all: bool,
+    printer_scope: PrinterScope,
+    printer_id: int | None,
+    status: str | None,
+    location: str | None,
+) -> list:
+    """WHERE clauses for the history the caller sees under the page's filters.
+
+    Mirrors what the Queue page used to filter in the browser: the printer and
+    status selectors, and the location selector, which matches a model-based
+    run by its target location and any other run by its printer's location.
+    """
+    statuses = [status] if status in HISTORY_STATUSES else list(HISTORY_STATUSES) if not status else []
+    conditions: list[ColumnElement[bool]] = [PrintQueueItem.status.in_(statuses)]
+    if user is not None and not can_read_all:
+        conditions.append(PrintQueueItem.created_by_id == user.id)
+    # Items bound to printers the caller can't see stay out (#1727)
+    if (clause := printer_scope.where(PrintQueueItem.printer_id)) is not None:
+        conditions.append(clause)
+    if printer_id is not None:
+        if printer_id == -1:
+            conditions.append(PrintQueueItem.printer_id.is_(None))
+        else:
+            conditions.append(PrintQueueItem.printer_id == printer_id)
+    if location:
+        # Aliased so it can't correlate with a Printer joined by the caller
+        located = aliased(Printer)
+        no_target_location = or_(PrintQueueItem.target_location.is_(None), PrintQueueItem.target_location == "")
+        conditions.append(
+            or_(
+                PrintQueueItem.target_location == location,
+                and_(
+                    no_target_location,
+                    PrintQueueItem.printer_id.in_(select(located.id).where(located.location == location)),
+                ),
+            )
+        )
+    return conditions
+
+
+@router.get("/history", response_model=PrintQueueHistoryResponse)
+async def list_queue_history(
+    printer_id: int | None = Query(None, description="Filter by printer (-1 for unassigned)"),
+    status: str | None = Query(None, description="One of completed, failed, skipped, cancelled"),
+    location: str | None = Query(None, description="Filter by location"),
+    sort_by: Literal["date", "name", "printer"] = Query("date"),
+    reverse: bool = Query(False, description="Flip the default order (newest first, A to Z)"),
+    # No practical cap: "Show more" can grow the page to the whole history,
+    # as the page always could.
+    limit: int = Query(50, ge=1, le=1_000_000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
+        require_ownership_permission(
+            Permission.QUEUE_READ_ALL,
+            Permission.QUEUE_READ_OWN,
+        )
+    ),
+    printer_scope: PrinterScope = RequestPrinterScope,
+):
+    """Finished, failed, skipped and cancelled runs, one page at a time.
+
+    The Queue page used to load the whole queue, history included, every five
+    seconds and page through it in the browser. On a farm that is thousands of
+    rows, each enriched from its 3MF, and the request held up every other one
+    for over a minute.
+    """
+    user, can_read_all = auth_result
+    conditions = _history_conditions(user, can_read_all, printer_scope, printer_id, status, location)
+
+    total = (await db.execute(select(func.count(PrintQueueItem.id)).where(*conditions))).scalar_one()
+
+    order: list[UnaryExpression[Any]]
+    if sort_by == "name":
+        # The name the row shows: a live archive's print name or file name,
+        # else the library file's (its metadata print name is not sortable in
+        # SQL, so the file name stands in for it).
+        archive_name = case(
+            (
+                PrintArchive.deleted_at.is_(None),
+                func.coalesce(func.nullif(PrintArchive.print_name, ""), PrintArchive.filename),
+            ),
+            else_=None,
+        )
+        name = func.lower(func.coalesce(func.nullif(archive_name, ""), LibraryFile.filename, ""))
+        order = [name.desc() if reverse else name.asc()]
+    elif sort_by == "printer":
+        name = func.lower(func.coalesce(Printer.name, ""))
+        order = [name.desc() if reverse else name.asc()]
+    else:
+        when = func.coalesce(PrintQueueItem.completed_at, PrintQueueItem.created_at)
+        order = [when.asc() if reverse else when.desc()]
+    order.append(PrintQueueItem.id.asc() if reverse else PrintQueueItem.id.desc())
+
+    page_ids = list(
+        (
+            await db.execute(
+                select(PrintQueueItem.id)
+                .outerjoin(PrintArchive, PrintArchive.id == PrintQueueItem.archive_id)
+                .outerjoin(LibraryFile, LibraryFile.id == PrintQueueItem.library_file_id)
+                .outerjoin(Printer, Printer.id == PrintQueueItem.printer_id)
+                .where(*conditions)
+                .order_by(*order)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).scalars()
+    )
+
+    # The other runs of the batches on this page, so a batch row counts them all
+    batch_ids = (
+        (
+            await db.execute(
+                select(PrintQueueItem.batch_id)
+                .where(PrintQueueItem.id.in_(page_ids), PrintQueueItem.batch_id.isnot(None))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+        if page_ids
+        else []
+    )
+    sibling_ids: list[int] = []
+    if batch_ids:
+        sibling_ids = list(
+            (
+                await db.execute(
+                    select(PrintQueueItem.id)
+                    .where(*conditions, PrintQueueItem.batch_id.in_(batch_ids), PrintQueueItem.id.notin_(page_ids))
+                    .order_by(PrintQueueItem.id)
+                )
+            ).scalars()
+        )
+
+    ids = page_ids + sibling_ids
+    rows = {}
+    if ids:
+        result = await db.execute(select(PrintQueueItem).options(*_QUEUE_ITEM_LOADS).where(PrintQueueItem.id.in_(ids)))
+        rows = {item.id: item for item in result.scalars().all()}
+
+    locations = (
+        (
+            await db.execute(
+                select(PrintQueueItem.target_location)
+                .where(
+                    *_history_conditions(user, can_read_all, printer_scope, None, None, None),
+                    PrintQueueItem.target_location.isnot(None),
+                    PrintQueueItem.target_location != "",
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    return {
+        "items": [_enrich_response(rows[i]) for i in ids if i in rows],
+        "total": total,
+        "locations": sorted(location for location in locations if location),
+    }
+
+
+@router.post("/history/clear", response_model=PrintQueueHistoryClearResponse)
+async def clear_queue_history(
+    printer_id: int | None = Query(None, description="Filter by printer (-1 for unassigned)"),
+    status: str | None = Query(None, description="One of completed, failed, skipped, cancelled"),
+    location: str | None = Query(None, description="Filter by location"),
+    db: AsyncSession = Depends(get_db),
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
+        require_ownership_permission(
+            Permission.QUEUE_DELETE_ALL,
+            Permission.QUEUE_DELETE_OWN,
+        )
+    ),
+    read_result: tuple[User | ApiKeyActor | None, bool] = Depends(
+        require_ownership_permission(
+            Permission.QUEUE_READ_ALL,
+            Permission.QUEUE_READ_OWN,
+        )
+    ),
+    printer_scope: PrinterScope = RequestPrinterScope,
+):
+    """Remove the history the Queue page shows under its current filters.
+
+    The page used to send one DELETE per history row. Each row goes through
+    the same rule as that DELETE: an order's last run for a plate is kept as
+    cancelled rather than deleted (#2960). Rows are handled one at a time, in
+    one transaction, so each check sees the rows removed before it.
+
+    Reaches only rows the caller could both see and delete, as the page's
+    one-by-one DELETEs did: someone who may delete every run but read only
+    their own clears only their own.
+    """
+    user, can_modify_all = auth_result
+    read_user, can_read_all = read_result
+    # An API key's owner comes from the check that limits it: a key whose
+    # owner may delete every run but read only their own gets no actor from
+    # the delete check, and would otherwise clear everyone's history.
+    user = user if user is not None else read_user
+    conditions = _history_conditions(user, can_modify_all and can_read_all, printer_scope, printer_id, status, location)
+    # The order the page listed them in when it deleted them one by one, which
+    # decides which of an order's runs is the last one left to keep.
+    items = (
+        (
+            await db.execute(
+                select(PrintQueueItem).where(*conditions).order_by(PrintQueueItem.position, PrintQueueItem.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    cleared = kept = 0
+    item_ids = [item.id for item in items]
+    deleted_batch_ids: list[int | None] = []
+    for item in items:
+        batch_id = item.batch_id
+        if await _remove_queue_item(db, item):
+            cleared += 1
+            deleted_batch_ids.append(batch_id)
+        else:
+            kept += 1
+        await db.flush()
+    await db.commit()
+    await _refresh_batches_after_delete(db, deleted_batch_ids)
+    _notify_dispatch_cancelled(item_ids)
+
+    logger.info("Cleared queue history: %s deleted, %s kept as cancelled for their order", cleared, kept)
+    return {"cleared": cleared, "kept": kept}
 
 
 async def _resolve_queue_variants(
@@ -2321,6 +2566,57 @@ async def update_queue_item(
     return _enrich_response(item)
 
 
+async def _remove_queue_item(db: AsyncSession, item: PrintQueueItem) -> bool:
+    """Delete *item*, or cancel it when its order still needs it (#2960).
+
+    Returns True when the row was deleted. The caller commits. A completed run
+    is always deleted: it is the record of something that was actually made,
+    and rewriting it as cancelled would falsify the order's progress.
+    """
+    item_id = item.id
+    keep_as_cancelled = item.status != "completed" and await _is_orders_last_source(db, item)
+
+    await release_budget_reservation(
+        db,
+        source_type="print_queue",
+        source_id=item_id,
+        status="released",
+    )
+    if keep_as_cancelled:
+        item.status = "cancelled"
+        item.completed_at = datetime.now(timezone.utc)
+        await db.flush()
+        # The order may have been sitting on "completed" if this run's target
+        # was met by it; cancelling reopens it.
+        await refresh_batch_status_for_item(db, item_id)
+    else:
+        await db.delete(item)
+    return not keep_as_cancelled
+
+
+async def _refresh_batches_after_delete(db: AsyncSession, batch_ids: list[int | None]) -> None:
+    """A grouping whose last open job was deleted may be finished now. After the commit."""
+    for batch_id in dict.fromkeys(i for i in batch_ids if i is not None):
+        try:
+            batch = await db.get(PrintBatch, batch_id)
+            if batch is not None and await refresh_batch_status(db, batch):
+                await db.commit()
+        except Exception as e:
+            logger.warning("Failed to refresh batch %s after a delete: %s", batch_id, e)
+
+
+def _notify_dispatch_cancelled(item_ids: list[int]) -> None:
+    """Stop an in-flight preheat for these items, once their change is committed.
+
+    The dispatch coroutine is parked in a sleep and cannot see the status we
+    just wrote (#2727); woken before the commit, it would read the old one.
+    """
+    from backend.app.services.print_scheduler import scheduler as _scheduler
+
+    for item_id in item_ids:
+        _scheduler.notify_dispatch_cancelled(item_id)
+
+
 @router.delete("/{item_id}")
 async def delete_queue_item(
     item_id: int,
@@ -2357,39 +2653,12 @@ async def delete_queue_item(
     if item.status == "printing":
         raise HTTPException(400, "Cannot delete item that is currently printing")
 
-    keep_as_cancelled = item.status != "completed" and await _is_orders_last_source(db, item)
-
-    await release_budget_reservation(
-        db,
-        source_type="print_queue",
-        source_id=item.id,
-        status="released",
-    )
-    deleted_batch_id = item.batch_id
-    if keep_as_cancelled:
-        item.status = "cancelled"
-        item.completed_at = datetime.now(timezone.utc)
-        await db.flush()
-        # The order may have been sitting on "completed" if this run's target
-        # was met by it; cancelling reopens it.
-        await refresh_batch_status_for_item(db, item.id)
-    else:
-        await db.delete(item)
+    batch_id = item.batch_id
+    keep_as_cancelled = not await _remove_queue_item(db, item)
     await db.commit()
-    if not keep_as_cancelled and deleted_batch_id is not None:
-        # A grouping whose last open job was deleted may be finished now.
-        try:
-            batch = await db.get(PrintBatch, deleted_batch_id)
-            if batch is not None and await refresh_batch_status(db, batch):
-                await db.commit()
-        except Exception as e:
-            logger.warning("Failed to refresh batch %s after a delete: %s", deleted_batch_id, e)
-
-    # Stop an in-flight preheat for this item: the dispatch coroutine is
-    # parked in a sleep and cannot see the status we just wrote (#2727).
-    from backend.app.services.print_scheduler import scheduler as _scheduler
-
-    _scheduler.notify_dispatch_cancelled(item_id)
+    if not keep_as_cancelled:
+        await _refresh_batches_after_delete(db, [batch_id])
+    _notify_dispatch_cancelled([item_id])
 
     if keep_as_cancelled:
         logger.info("Kept queue item %s as cancelled — last source for its batch order plate", item_id)

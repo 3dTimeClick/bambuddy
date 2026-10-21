@@ -99,8 +99,18 @@ const capture = async (request: Request) => {
 
 const mutationCalls = () => calls.filter((c) => c.method !== 'GET');
 
-function useQueue(items: unknown[]) {
-  server.use(http.get('*/api/v1/queue/', () => HttpResponse.json(items)));
+// As the server splits them: skipped jobs are in both, the queue keeps them
+// for the "blocked by a previous failure" banner.
+const QUEUE_STATUSES = ['pending', 'printing', 'skipped'];
+const HISTORY_STATUSES = ['completed', 'failed', 'skipped', 'cancelled'];
+
+/** The queue as the page loads it: active jobs from /queue/, finished ones as one history page. */
+function useQueue(items: { status: string }[]) {
+  const history = items.filter((item) => HISTORY_STATUSES.includes(item.status));
+  server.use(
+    http.get('*/api/v1/queue/', () => HttpResponse.json(items.filter((item) => QUEUE_STATUSES.includes(item.status)))),
+    http.get('*/api/v1/queue/history', () => HttpResponse.json({ items: history, total: history.length, locations: [] })),
+  );
 }
 
 beforeEach(() => {
@@ -110,9 +120,13 @@ beforeEach(() => {
     if (key === 'queue.viewMode') return 'list';
     return null;
   });
+  useQueue([pendingA, printing, completedA]);
   server.use(
-    http.get('*/api/v1/queue/', () => HttpResponse.json([pendingA, printing, completedA])),
     http.get('*/api/v1/printers/', () => HttpResponse.json(printers)),
+    http.post('*/api/v1/queue/history/clear', async ({ request }) => {
+      await capture(request);
+      return HttpResponse.json({ cleared: 2, kept: 0 });
+    }),
     http.delete('*/api/v1/queue/:id', async ({ request }) => {
       await capture(request);
       return HttpResponse.json({ message: 'ok', deleted: true });
@@ -246,7 +260,7 @@ describe('QueuePage wiring: row actions', () => {
     expect(mutationCalls()).toHaveLength(0);
   });
 
-  it('Clear History -> confirm deletes every history item, nothing else', async () => {
+  it('Clear History -> confirm sends one clear for the history, nothing else', async () => {
     useQueue([pendingA, completedA, completedB]);
     const user = userEvent.setup();
     render(<QueuePage />);
@@ -257,11 +271,8 @@ describe('QueuePage wiring: row actions', () => {
     const dialog = dialogOf(await screen.findByText(/remove all 2 item\(s\) from the history/));
     await user.click(within(dialog).getByRole('button', { name: 'Clear History' }));
 
-    await waitFor(() => expect(mutationCalls()).toHaveLength(2));
-    expect(mutationCalls().map((c) => `${c.method} ${c.path}`).sort()).toEqual([
-      'DELETE /api/v1/queue/31',
-      'DELETE /api/v1/queue/32',
-    ]);
+    await waitFor(() => expect(mutationCalls()).toHaveLength(1));
+    expect(mutationCalls()[0]).toMatchObject({ method: 'POST', path: '/api/v1/queue/history/clear' });
   });
 
   it('Start Print on a staged item -> POST /queue/{id}/start without skipping the filament check', async () => {
