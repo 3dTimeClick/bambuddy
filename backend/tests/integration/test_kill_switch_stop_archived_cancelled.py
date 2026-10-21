@@ -35,7 +35,11 @@ async def _complete(printer_id, status, update):
     session = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
-    session.execute = AsyncMock(return_value=MagicMock())
+    # Plain mocks for what the reads return: an AsyncMock's results are
+    # AsyncMocks too, so a plain call on one (completed_at.astimezone(),
+    # .first()) leaves an unawaited coroutine, reported in a later test.
+    for read in ("execute", "get", "scalar", "scalars"):
+        setattr(session, read, AsyncMock(return_value=MagicMock()))
     tasks_before = set(asyncio.all_tasks())
     with (
         patch("backend.app.main.async_session", return_value=session),

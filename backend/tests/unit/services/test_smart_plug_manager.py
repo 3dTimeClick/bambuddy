@@ -375,15 +375,20 @@ class TestSmartPlugManager:
         """Verify scheduler can be started."""
         assert manager._scheduler_task is None
 
-        # Mock _schedule_loop to return a mock coroutine to avoid unawaited coroutine warning
+        # The patched loops are AsyncMocks, so each call still builds a
+        # coroutine: the stand-in create_task closes it, or it is reported
+        # unawaited in a later test.
+        def _close_and_stand_in(coro, **_):
+            coro.close()
+            return MagicMock()
+
         with (
             patch.object(manager, "_schedule_loop") as mock_loop,
             patch.object(manager, "_snapshot_loop"),
             patch.object(manager, "_power_alert_loop") as mock_power_alert,
             patch.object(manager, "_relay_energy_loop") as mock_relay_energy,
-            patch("asyncio.create_task") as mock_create,
+            patch("asyncio.create_task", side_effect=_close_and_stand_in),
         ):
-            mock_create.return_value = MagicMock()
             manager.start_scheduler()
 
             assert manager._scheduler_task is not None

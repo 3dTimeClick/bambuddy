@@ -422,10 +422,21 @@ class TestPrinterManager:
         mock_loop.is_running.return_value = True
         manager._loop = mock_loop
 
-        manager.mark_printer_offline(1)
+        # The stand-in loop never runs the callback, so the scheduled
+        # coroutine is closed here instead of being reported in a later test.
+        def _close_and_stand_in(coro, loop):
+            coro.close()
+            return MagicMock()
+
+        with patch(
+            "backend.app.services.printer_manager.asyncio.run_coroutine_threadsafe",
+            side_effect=_close_and_stand_in,
+        ) as scheduled:
+            manager.mark_printer_offline(1)
 
         # Callback should be scheduled via run_coroutine_threadsafe
         mock_loop.is_running.assert_called()
+        scheduled.assert_called_once()
         # State should be updated
         assert mock_client.state.connected is False
 
