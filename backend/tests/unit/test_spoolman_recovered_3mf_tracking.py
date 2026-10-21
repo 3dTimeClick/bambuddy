@@ -59,9 +59,15 @@ async def _row(maker, archive_id: int) -> ActivePrintSpoolman | None:
 
 
 @pytest.fixture
-async def seeded(test_engine, tmp_path):
+async def seeded(test_engine, tmp_path, monkeypatch):
     from backend.app import main as main_module
+    from backend.app.core.config import settings as app_config
 
+    # Archived under this test's own directory: in the shared archive/, a test
+    # on another worker recovering the same archive id in the same second
+    # writes the same 3MF path and this one reads it half-written.
+    monkeypatch.setattr(app_config, "base_dir", tmp_path)
+    monkeypatch.setattr(app_config, "archive_dir", tmp_path / "archive")
     maker, printer_id, archive_id = await _seed(test_engine, tmp_path)
     # Empty, not whatever a test before on this worker left: the recovery reads
     # the printed plate from it, and a plate the 3MF has no usage for tracks
