@@ -2426,7 +2426,7 @@ export default {
     updateEnergyCostDescription: "Bu anahtarın /settings/electricity-price üzerine yeni bir kWh başına elektrik fiyatı POST etmesine izin ver. Home Assistant dinamik tarife otomasyonları (Tibber, Octopus, vb.) için kullanışlıdır. Bu, API anahtarıyla yazılabilen tek ayar alanıdır.",
     energyCostBadge: 'Enerji',
     sendNotifications: 'Bildirim gönder',
-    sendNotificationsDescription: 'Bu anahtarın, bağlı uygulamalardan gelen mesajları kabul eden bildirim kanalları üzerinden mesaj göndermesine izin verir (POST /notifications/app-message). Bambuddy Orders gibi uygulamalar için. Başka bir şey değil: anahtar kanalları okuyamaz veya değiştiremez.',
+    sendNotificationsDescription: 'Bu anahtarın, bağlı uygulamalardan gelen mesajları kabul eden bildirim kanalları üzerinden mesaj göndermesine (POST /notifications/app-message) ve uygulamayı gösteren kenar çubuğu bağlantısında bir sayı göstermesine (PUT /external-links/badge) izin verir. Bambuddy Orders gibi uygulamalar için. Başka bir şey değil: anahtar kanalları veya bağlantıları okuyamaz ya da değiştiremez.',
     sendNotificationsBadge: 'Bildirim',
     legacyKey: 'Eski',
     legacyKeyTooltip: 'Kullanıcı başına sahiplikten önce oluşturuldu; bulut erişimini kullanmak için yeniden oluşturun',

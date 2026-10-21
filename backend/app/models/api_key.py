@@ -56,8 +56,9 @@ class APIKey(Base):
     # could rewrite SMTP/LDAP/MQTT credentials).
     can_update_energy_cost: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Send a message through the notification channels that accept app
-    # messages (POST /notifications/app-message). Nothing else: no reading or
-    # changing the channels themselves.
+    # messages (POST /notifications/app-message), and set the count on the
+    # sidebar link pointing at the app (PUT /external-links/badge). Nothing
+    # else: no reading or changing the channels or the links themselves.
     can_send_notifications: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     # Optional scope limits

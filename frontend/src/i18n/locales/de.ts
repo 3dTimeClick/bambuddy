@@ -2422,7 +2422,7 @@ export default {
     updateEnergyCostDescription: 'Erlaubt diesem Schlüssel, einen neuen Strompreis pro kWh an /settings/electricity-price zu senden. Nützlich für Home-Assistant-Automatisierungen mit dynamischen Tarifen (Tibber, Octopus usw.). Dies ist das einzige Einstellungsfeld, das per API-Schlüssel schreibbar ist.',
     energyCostBadge: 'Energie',
     sendNotifications: 'Benachrichtigungen senden',
-    sendNotificationsDescription: 'Erlaubt diesem Schlüssel, Nachrichten über die Benachrichtigungskanäle zu senden, die Nachrichten verbundener Apps annehmen (POST /notifications/app-message). Für Apps wie Bambuddy Orders. Sonst nichts: Der Schlüssel kann die Kanäle weder lesen noch ändern.',
+    sendNotificationsDescription: 'Erlaubt diesem Schlüssel, Nachrichten über die Benachrichtigungskanäle zu senden, die Nachrichten verbundener Apps annehmen (POST /notifications/app-message), und eine Zahl am Seitenleisten-Link anzuzeigen, der auf die App zeigt (PUT /external-links/badge). Für Apps wie Bambuddy Orders. Sonst nichts: Der Schlüssel kann die Kanäle und Links weder lesen noch ändern.',
     sendNotificationsBadge: 'Benachr.',
     legacyKey: 'Alt',
     legacyKeyTooltip: 'Wurde vor der nutzerbezogenen Eigentümerschaft erstellt; neu erstellen, um Cloud-Zugriff zu nutzen',

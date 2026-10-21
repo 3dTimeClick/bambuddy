@@ -2441,7 +2441,7 @@ export default {
     updateEnergyCostDescription: 'Tillåt denna nyckel att POST:a ett nytt pris per kWh till /settings/electricity-price. Användbart för Home Assistants dynamiska tariffautomatiseringar (Tibber, Octopus, etc.). Detta är det enda inställningsfält som kan skrivas via API-nyckel.',
     energyCostBadge: 'Energi',
     sendNotifications: 'Skicka aviseringar',
-    sendNotificationsDescription: 'Tillåter nyckeln att skicka meddelanden via de aviseringskanaler som tar emot meddelanden från anslutna appar (POST /notifications/app-message). För appar som Bambuddy Orders. Inget annat: nyckeln kan inte läsa eller ändra kanalerna.',
+    sendNotificationsDescription: 'Tillåter nyckeln att skicka meddelanden via de aviseringskanaler som tar emot meddelanden från anslutna appar (POST /notifications/app-message) och att visa ett antal på sidofältslänken som pekar på appen (PUT /external-links/badge). För appar som Bambuddy Orders. Inget annat: nyckeln kan inte läsa eller ändra kanalerna eller länkarna.',
     sendNotificationsBadge: 'Avis.',
     legacyKey: 'Äldre nyckel',
     legacyKeyTooltip: 'Skapad före användarägande; skapa igen för att använda molnåtkomst',

@@ -2421,7 +2421,7 @@ export default {
     updateEnergyCostDescription: 'このキーが /settings/electricity-price に新しいkWhごとの電気料金をPOSTすることを許可。Home Assistantの動的料金自動化（Tibber、Octopusなど）に便利。これはAPIキーで書き込み可能な唯一の設定フィールドです。',
     energyCostBadge: '電力',
     sendNotifications: '通知の送信',
-    sendNotificationsDescription: 'このキーで、連携アプリからのメッセージを受け付ける通知チャネル経由でメッセージを送信できるようにします（POST /notifications/app-message）。Bambuddy Orders などのアプリ向けです。それ以外の権限はなく、チャネルの読み取りや変更はできません。',
+    sendNotificationsDescription: 'このキーで、連携アプリからのメッセージを受け付ける通知チャネル経由でメッセージを送信し（POST /notifications/app-message）、そのアプリを指すサイドバーのリンクに件数を表示できるようにします（PUT /external-links/badge）。Bambuddy Orders などのアプリ向けです。それ以外の権限はなく、チャネルやリンクの読み取りや変更はできません。',
     sendNotificationsBadge: '通知',
     legacyKey: 'レガシー',
     legacyKeyTooltip: 'ユーザー所有以前に作成 - クラウドアクセスには再作成が必要',

@@ -23,6 +23,7 @@ NOT_A_ROW_UPDATE = {
     "LinkTagRequest": "links a tag through its own rules",
     "ShoppingListItemStatusUpdate": "one required field",
     "ExternalLinkReorder": "a list of ids",
+    "ExternalLinkBadgeSet": "an app's count for its links, every field required",
     "SlicerSettingUpdate": "a Bambu Cloud setting, not a database row",
     "SpoolmanInventoryUpdate": "a Spoolman spool, not a database row",
     "SpoolWeightUpdate": "a Spoolman spool, not a database row",

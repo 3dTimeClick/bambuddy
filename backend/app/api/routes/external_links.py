@@ -2,25 +2,37 @@
 
 import logging
 import uuid
+from datetime import timedelta
 from pathlib import Path
+from typing import cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, require_media_token_permission
+from backend.app.core.auth import (
+    RequirePermissionIfAuthEnabled,
+    ScopedCaller,
+    require_media_token_permission,
+    require_notification_send,
+)
 from backend.app.core.config import settings as app_settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
-from backend.app.models.external_link import ExternalLink
+from backend.app.models.external_link import ExternalLink, ExternalLinkBadge
 from backend.app.models.user import User
 from backend.app.schemas.external_link import (
+    ExternalLinkBadgeSet,
     ExternalLinkCreate,
     ExternalLinkReorder,
     ExternalLinkResponse,
     ExternalLinkUpdate,
 )
+from backend.app.utils.local_time import utcnow_naive
 
 # Directory for storing custom icons
 ICONS_DIR = app_settings.base_dir / "icons"
@@ -29,6 +41,24 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"}
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/external-links", tags=["external-links"])
+
+# An app that stopped reporting (stopped, crashed) leaves no old number behind.
+BADGE_FRESH_FOR = timedelta(minutes=10)
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _same_place(url: str) -> tuple[str, str, int | None, str]:
+    """Scheme, host, port and path of an address. A login in it, the default
+    port written out and a trailing slash don't count."""
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port or _DEFAULT_PORTS.get(scheme)
+    except ValueError:
+        port = None
+    return scheme, (parts.hostname or "").lower(), port, parts.path.rstrip("/")
 
 
 @router.get("/", response_model=list[ExternalLinkResponse])
@@ -39,7 +69,52 @@ async def list_external_links(
     """List all external links ordered by sort_order."""
     result = await db.execute(select(ExternalLink).order_by(ExternalLink.sort_order, ExternalLink.id))
     links = result.scalars().all()
-    return links
+    fresh_since = utcnow_naive() - BADGE_FRESH_FOR
+    badges = {
+        b.link_id: b.count
+        for b in (await db.execute(select(ExternalLinkBadge).where(ExternalLinkBadge.updated_at >= fresh_since)))
+        .scalars()
+        .all()
+    }
+    return [
+        ExternalLinkResponse.model_validate(link).model_copy(update={"badge_count": badges.get(link.id)})
+        for link in links
+    ]
+
+
+@router.put("/badge")
+async def set_badge(
+    data: ExternalLinkBadgeSet,
+    db: AsyncSession = Depends(get_db),
+    _: ScopedCaller = Depends(require_notification_send()),
+):
+    """Set the count on the sidebar links pointing at an app, e.g. Bambuddy
+    Orders' To do. For the app itself: an API key needs the "Send
+    notifications" permission, like for its messages. The count shows while
+    the app keeps reporting it."""
+    wanted = _same_place(data.url)
+    links = [
+        link for link in (await db.execute(select(ExternalLink))).scalars().all() if _same_place(link.url) == wanted
+    ]
+    if not links:
+        raise HTTPException(status_code=404, detail="No sidebar link points at this address")
+    now = utcnow_naive()
+    for link in links:
+        values = {"count": data.count, "updated_at": now}
+        changed = cast(
+            CursorResult,
+            await db.execute(update(ExternalLinkBadge).where(ExternalLinkBadge.link_id == link.id).values(**values)),
+        )
+        if changed.rowcount:
+            continue
+        try:
+            async with db.begin_nested():
+                db.add(ExternalLinkBadge(link_id=link.id, **values))
+        except IntegrityError:
+            # Another report made the row in the meantime: update that one.
+            await db.execute(update(ExternalLinkBadge).where(ExternalLinkBadge.link_id == link.id).values(**values))
+    await db.commit()
+    return {"links": len(links)}
 
 
 @router.post("/", response_model=ExternalLinkResponse)

@@ -2377,7 +2377,7 @@ export default {
     updateEnergyCostDescription: 'Autoriser cette clé à POSTer un nouveau tarif électrique par kWh sur /settings/electricity-price. Utile pour les automatisations Home Assistant à tarif dynamique (Tibber, Octopus, etc.). Il s\'agit du seul champ de paramètres modifiable via clé API.',
     energyCostBadge: 'Énergie',
     sendNotifications: 'Envoyer des notifications',
-    sendNotificationsDescription: 'Autorise cette clé à envoyer des messages via les canaux de notification qui acceptent les messages des applications connectées (POST /notifications/app-message). Pour des applications comme Bambuddy Orders. Rien d\'autre : la clé ne peut ni lire ni modifier les canaux.',
+    sendNotificationsDescription: 'Autorise cette clé à envoyer des messages via les canaux de notification qui acceptent les messages des applications connectées (POST /notifications/app-message), et à afficher un nombre sur le lien de la barre latérale qui pointe vers l\'application (PUT /external-links/badge). Pour des applications comme Bambuddy Orders. Rien d\'autre : la clé ne peut ni lire ni modifier les canaux ou les liens.',
     sendNotificationsBadge: 'Notif.',
     legacyKey: 'Hérité',
     legacyKeyTooltip: 'Créé avant la propriété par utilisateur ; recréez pour l\'accès cloud',

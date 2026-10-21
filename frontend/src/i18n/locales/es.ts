@@ -2425,7 +2425,7 @@ export default {
     updateEnergyCostDescription: 'Permite que esta clave envíe por POST un nuevo precio de electricidad por kWh a /settings/electricity-price. Útil para las automatizaciones de tarifa dinámica de Home Assistant (Tibber, Octopus, etc.). Este es el único campo de ajustes que se puede escribir mediante una clave API.',
     energyCostBadge: 'Energía',
     sendNotifications: 'Enviar notificaciones',
-    sendNotificationsDescription: 'Permite a esta clave enviar mensajes a través de los canales de notificación que aceptan mensajes de aplicaciones conectadas (POST /notifications/app-message). Para aplicaciones como Bambuddy Orders. Nada más: la clave no puede leer ni cambiar los canales.',
+    sendNotificationsDescription: 'Permite a esta clave enviar mensajes a través de los canales de notificación que aceptan mensajes de aplicaciones conectadas (POST /notifications/app-message) y mostrar un número en el enlace de la barra lateral que apunta a la aplicación (PUT /external-links/badge). Para aplicaciones como Bambuddy Orders. Nada más: la clave no puede leer ni cambiar los canales ni los enlaces.',
     sendNotificationsBadge: 'Notif.',
     legacyKey: 'Heredada',
     legacyKeyTooltip: 'Creada antes de la propiedad por usuario; vuelva a crearla para usar el acceso a la nube',

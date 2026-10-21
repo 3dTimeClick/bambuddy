@@ -21,7 +21,7 @@ class APIKeyCreate(BaseModel):
     can_manage_projects: bool = True  # Create/update/delete projects + membership (add archives) (#1893)
     can_access_cloud: bool = False  # Read /cloud/* on the creator's behalf — default off (#1182)
     can_update_energy_cost: bool = False  # POST /settings/electricity-price only (#1356)
-    can_send_notifications: bool = False  # POST /notifications/app-message only
+    can_send_notifications: bool = False  # POST /notifications/app-message, PUT /external-links/badge only
     printer_ids: list[int] | None = None  # null = all printers
     expires_at: datetime | None = None
 

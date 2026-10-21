@@ -2422,7 +2422,7 @@ export default {
     updateEnergyCostDescription: '允许此密钥向 /settings/electricity-price POST 新的每千瓦时电价。适用于 Home Assistant 动态电价自动化（Tibber、Octopus 等）。这是唯一可通过 API 密钥写入的设置字段。',
     energyCostBadge: '能耗',
     sendNotifications: '发送通知',
-    sendNotificationsDescription: '允许此密钥通过接受已连接应用消息的通知渠道发送消息（POST /notifications/app-message）。适用于 Bambuddy Orders 等应用。仅此而已：该密钥无法读取或更改渠道。',
+    sendNotificationsDescription: '允许此密钥通过接受已连接应用消息的通知渠道发送消息（POST /notifications/app-message），并在指向该应用的侧边栏链接上显示数字（PUT /external-links/badge）。适用于 Bambuddy Orders 等应用。仅此而已：该密钥无法读取或更改渠道和链接。',
     sendNotificationsBadge: '通知',
     legacyKey: '传统',
     legacyKeyTooltip: '在按用户所有权之前创建；需重建以使用云端访问',

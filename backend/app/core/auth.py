@@ -642,9 +642,11 @@ def require_energy_cost_update():
 
 
 def require_notification_send():
-    """Dependency for ``POST /notifications/app-message``: another application
-    sending a message through the channels that accept app messages. API keys
-    need ``can_send_notifications``; users need ``NOTIFICATIONS_UPDATE``."""
+    """Dependency for ``POST /notifications/app-message`` and ``PUT
+    /external-links/badge``: another application sending a message through the
+    channels that accept app messages, or setting the count on its sidebar
+    link. API keys need ``can_send_notifications``; users need
+    ``NOTIFICATIONS_UPDATE``."""
     return require_api_key_scope(
         "can_send_notifications", "send_notifications", Permission.NOTIFICATIONS_UPDATE, owner_needs_permission=True
     )

@@ -2442,7 +2442,7 @@ export default {
     updateEnergyCostDescription: 'Sta toe dat deze sleutel via POST een nieuwe elektriciteitsprijs per kWh naar /settings/electricity-price stuurt. Handig voor Home Assistant-automatiseringen met dynamische tarieven (Tibber, Octopus, enz.). Dit is het enige instellingenveld dat via een API-sleutel schrijfbaar is.',
     energyCostBadge: 'Energie',
     sendNotifications: 'Meldingen versturen',
-    sendNotificationsDescription: 'Staat deze sleutel toe berichten te versturen via de meldingskanalen die berichten van gekoppelde apps accepteren (POST /notifications/app-message). Voor apps zoals Bambuddy Orders. Verder niets: de sleutel kan de kanalen niet lezen of wijzigen.',
+    sendNotificationsDescription: 'Staat deze sleutel toe berichten te versturen via de meldingskanalen die berichten van gekoppelde apps accepteren (POST /notifications/app-message) en een aantal te tonen op de zijbalklink die naar de app wijst (PUT /external-links/badge). Voor apps zoals Bambuddy Orders. Verder niets: de sleutel kan de kanalen en links niet lezen of wijzigen.',
     sendNotificationsBadge: 'Meldingen',
     legacyKey: 'Verouderd',
     legacyKeyTooltip: 'Aangemaakt vóór eigendom per gebruiker; maak opnieuw om cloudtoegang te gebruiken',

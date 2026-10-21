@@ -2444,7 +2444,7 @@ export default {
     updateEnergyCostDescription: 'Allow this key to POST a new per-kWh electricity price to /settings/electricity-price. Useful for Home Assistant dynamic-tariff automations (Tibber, Octopus, etc.). This is the only settings field writable via API key.',
     energyCostBadge: 'Energy',
     sendNotifications: 'Send notifications',
-    sendNotificationsDescription: 'Allow this key to send messages through the notification channels that accept messages from connected apps (POST /notifications/app-message). For apps like Bambuddy Orders. Nothing else: the key can\'t read or change the channels.',
+    sendNotificationsDescription: 'Allow this key to send messages through the notification channels that accept messages from connected apps (POST /notifications/app-message), and to show a count on the sidebar link that points at the app (PUT /external-links/badge). For apps like Bambuddy Orders. Nothing else: the key can\'t read or change the channels or the links.',
     sendNotificationsBadge: 'Notify',
     legacyKey: 'Legacy',
     legacyKeyTooltip: 'Created before per-user ownership; recreate to use cloud access',

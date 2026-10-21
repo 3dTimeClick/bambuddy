@@ -99,6 +99,43 @@ describe('Layout', () => {
     });
   });
 
+  describe('external link count', () => {
+    // A connected app (Bambuddy Orders) reports its To do count for the link
+    // pointing at it; the sidebar shows it like the queue's badge.
+    const link = (id: number, name: string, badge_count: number | null, open_in_new_tab = false) => ({
+      id,
+      name,
+      url: `http://app${id}.local:8090`,
+      icon: 'Package',
+      open_in_new_tab,
+      custom_icon: null,
+      sort_order: id,
+      created_at: '2026-10-21T00:00:00Z',
+      updated_at: '2026-10-21T00:00:00Z',
+      badge_count,
+    });
+
+    it('shows the count an app reports, capped at 99+', async () => {
+      server.use(
+        http.get('/api/v1/external-links/', () =>
+          HttpResponse.json([
+            link(1, 'Orders', 7),
+            link(2, 'Shop', 150, true),
+            link(3, 'Wiki', 0),
+            link(4, 'Docs', null),
+          ]),
+        ),
+      );
+      render(<Layout />);
+
+      const orders = await screen.findByTestId('external-link-badge-1');
+      expect(orders).toHaveTextContent('7');
+      expect(screen.getByTestId('external-link-badge-2')).toHaveTextContent('99+');
+      expect(screen.queryByTestId('external-link-badge-3')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('external-link-badge-4')).not.toBeInTheDocument();
+    });
+  });
+
   describe('navigation', () => {
     it('has navigation items', async () => {
       render(<Layout />);

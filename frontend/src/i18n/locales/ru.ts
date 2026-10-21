@@ -2303,7 +2303,7 @@ export default {
     updateEnergyCostDescription: "Разрешить этому ключу отправлять новую цену за кВт⋅ч методом POST в /settings/electricity-price. Полезно для автоматизаций динамического тарифа Home Assistant (Tibber, Octopus и т. п.). Это единственный параметр настроек, доступный для записи через ключ API.",
     energyCostBadge: "Энергия",
     sendNotifications: 'Отправка уведомлений',
-    sendNotificationsDescription: 'Разрешает этому ключу отправлять сообщения через каналы уведомлений, принимающие сообщения подключённых приложений (POST /notifications/app-message). Для приложений вроде Bambuddy Orders. Больше ничего: ключ не может читать или изменять каналы.',
+    sendNotificationsDescription: 'Разрешает этому ключу отправлять сообщения через каналы уведомлений, принимающие сообщения подключённых приложений (POST /notifications/app-message), и показывать число на ссылке боковой панели, ведущей на приложение (PUT /external-links/badge). Для приложений вроде Bambuddy Orders. Больше ничего: ключ не может читать или изменять каналы и ссылки.',
     sendNotificationsBadge: 'Уведомл.',
     legacyKey: "Устаревший",
     legacyKeyTooltip: "Создан до появления привязки к пользователям; пересоздайте для доступа к облаку",

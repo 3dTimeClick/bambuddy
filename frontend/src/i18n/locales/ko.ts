@@ -2998,7 +2998,7 @@ export default {
     updateEnergyCostDescription: '이 키가 /settings/electricity-price에 새 kWh당 전기 요금을 POST할 수 있도록 허용합니다. Home Assistant 동적 요금 자동화(Tibber, Octopus 등)에 유용합니다. API 키로 쓸 수 있는 유일한 설정 필드입니다.',
     energyCostBadge: '에너지',
     sendNotifications: '알림 보내기',
-    sendNotificationsDescription: '이 키가 연결된 앱의 메시지를 받는 알림 채널을 통해 메시지를 보낼 수 있도록 허용합니다(POST /notifications/app-message). Bambuddy Orders 같은 앱용입니다. 그 외에는 없으며, 키로 채널을 읽거나 변경할 수 없습니다.',
+    sendNotificationsDescription: '이 키가 연결된 앱의 메시지를 받는 알림 채널을 통해 메시지를 보내고(POST /notifications/app-message), 해당 앱을 가리키는 사이드바 링크에 숫자를 표시할 수 있도록 허용합니다(PUT /external-links/badge). Bambuddy Orders 같은 앱용입니다. 그 외에는 없으며, 키로 채널이나 링크를 읽거나 변경할 수 없습니다.',
     sendNotificationsBadge: '알림',
     passwordRequirements: '최소 8자, 대문자, 소문자, 숫자, 특수문자 각 1개 이상 포함',
 
