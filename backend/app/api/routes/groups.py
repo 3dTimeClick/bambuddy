@@ -331,7 +331,9 @@ async def update_group(
 
     await db.commit()
     await db.refresh(group)
-    if scope_changed:
+    if scope_changed or group_data.permissions is not None:
+        # Printers, or websocket:connect itself (a socket of a user who lost it
+        # is closed)
         await ws_manager.refresh_printer_scopes()
 
     return _group_response(
@@ -361,14 +363,13 @@ async def delete_group(
             detail="Cannot delete system groups",
         )
 
-    restricted = bool(group.restrict_printers)
     # SQLite doesn't enforce the FK cascade
     await db.execute(delete(group_printers).where(group_printers.c.group_id == group_id))
     await db.execute(delete(group_locations).where(group_locations.c.group_id == group_id))
     await db.delete(group)
     await db.commit()
-    if restricted:
-        await ws_manager.refresh_printer_scopes()
+    # Its members may lose printers, or websocket:connect itself
+    await ws_manager.refresh_printer_scopes()
 
 
 @router.post("/{group_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -407,8 +408,7 @@ async def add_user_to_group(
 
     group.users.append(user)
     await db.commit()
-    if group.restrict_printers:
-        await ws_manager.refresh_printer_scopes()
+    await ws_manager.refresh_printer_scopes()
 
 
 @router.delete("/{group_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -447,5 +447,5 @@ async def remove_user_from_group(
 
     group.users.remove(user)
     await db.commit()
-    if group.restrict_printers:
-        await ws_manager.refresh_printer_scopes()
+    # They may lose printers, or websocket:connect itself
+    await ws_manager.refresh_printer_scopes()

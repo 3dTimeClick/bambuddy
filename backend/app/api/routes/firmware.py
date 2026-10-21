@@ -305,8 +305,7 @@ async def start_firmware_upload(
     1. Downloads the firmware from Bambu Lab
     2. Uploads it to the printer's SD card via FTP
 
-    Progress is broadcast via WebSocket with type "firmware_upload_progress".
-    Use GET /firmware/updates/{printer_id}/upload/status for polling fallback.
+    Poll GET /firmware/updates/{printer_id}/upload/status for progress.
 
     After upload completes, the user must trigger the update from the
     printer's screen (Settings > Firmware).
@@ -339,7 +338,7 @@ async def start_firmware_upload(
 
     return FirmwareUploadStartResponse(
         started=True,
-        message="Firmware upload started. Progress will be broadcast via WebSocket.",
+        message="Firmware upload started. Poll the upload status for progress.",
     )
 
 
@@ -349,11 +348,7 @@ async def get_firmware_upload_status(
     _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.FIRMWARE_READ),
 ):
     """
-    Get the current status of a firmware upload operation.
-
-    This is a polling fallback for clients that don't use WebSocket.
-    For real-time updates, connect to WebSocket and listen for
-    "firmware_upload_progress" messages.
+    Get the current status of a firmware upload operation (poll for progress).
     """
     state = get_upload_state(printer_id)
     return FirmwareUploadStatusResponse(

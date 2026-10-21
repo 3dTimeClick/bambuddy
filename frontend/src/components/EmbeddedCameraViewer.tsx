@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { ChamberLight } from './icons/ChamberLight';
 import { SkipObjectsModal, SkipObjectsIcon } from './SkipObjectsModal';
 import { CameraDiagnoseModal } from './CameraDiagnoseModal';
+import { useStreamImgRef } from '../hooks/useStreamImgRef';
+import { useCameraViewerId } from '../hooks/useCameraViewerId';
 
 interface EmbeddedCameraViewerProps {
   printerId: number;
@@ -93,7 +95,12 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
   const [reconnectCountdown, setReconnectCountdown] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
+  // Every img the viewer drops (minimized, re-keyed by a reconnect, closed)
+  // has its stream closed.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // On its stream and its /camera/stop: the stop ends this viewer's stream only.
+  const viewerId = useCameraViewerId();
+  const attachImg = useStreamImgRef(imgRef);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const stallCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -156,7 +163,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
   const stopSentRef = useRef(false);
   useEffect(() => {
     stopSentRef.current = false;
-    const stopUrl = `/api/v1/printers/${printerId}/camera/stop`;
+    const stopUrl = `/api/v1/printers/${printerId}/camera/stop?viewer=${viewerId}`;
 
     const sendStopOnce = () => {
       if (printerId > 0 && !stopSentRef.current) {
@@ -168,18 +175,13 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
       }
     };
 
-    const imgElement = imgRef.current;
-
     return () => {
-      if (imgElement) {
-        imgElement.src = '';
-      }
       sendStopOnce();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
       if (stallCheckIntervalRef.current) clearInterval(stallCheckIntervalRef.current);
     };
-  }, [printerId]);
+  }, [printerId, viewerId]);
 
   // Auto-hide loading after timeout
   useEffect(() => {
@@ -430,7 +432,9 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
     setPanOffset({ x: 0, y: 0 });
   };
 
-  const handleStreamError = () => {
+  const handleStreamError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    // Clearing the src (reconnect, Refresh) fires error with an empty src.
+    if (!e.currentTarget.getAttribute('src')) return;
     setStreamLoading(false);
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       attemptReconnect();
@@ -459,7 +463,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
     const stopHeaders: Record<string, string> = {};
     const stopToken = getAuthToken();
     if (stopToken) stopHeaders['Authorization'] = `Bearer ${stopToken}`;
-    fetch(`/api/v1/printers/${printerId}/camera/stop`, { method: 'POST', headers: stopHeaders }).catch(() => {});
+    fetch(`/api/v1/printers/${printerId}/camera/stop?viewer=${viewerId}`, { method: 'POST', headers: stopHeaders }).catch(() => {});
 
     if (imgRef.current) imgRef.current.src = '';
     setTimeout(() => setImageKey(Date.now()), 100);
@@ -555,7 +559,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
     }
   }, [isDragging, isResizing, dragOffset]);
 
-  const streamUrl = withStreamToken(`/api/v1/printers/${printerId}/camera/stream?fps=15&t=${imageKey}`);
+  const streamUrl = withStreamToken(`/api/v1/printers/${printerId}/camera/stream?fps=15&t=${imageKey}&viewer=${viewerId}`);
 
   return (
     <div
@@ -700,7 +704,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
             </div>
           )}
           <img
-            ref={imgRef}
+            ref={attachImg}
             key={imageKey}
             src={streamUrl}
             alt="Camera stream"

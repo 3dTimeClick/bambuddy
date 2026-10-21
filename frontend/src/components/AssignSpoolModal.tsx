@@ -9,6 +9,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
 import { filterSpoolsByQuery } from '../utils/inventorySearch';
 import { getSwatchStyle, resolveSpoolColorName } from '../utils/colors';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 interface AssignSpoolModalProps {
   isOpen: boolean;
@@ -87,11 +88,7 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
     enabled: isOpen,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
-    enabled: isOpen,
-  });
+  const { data: settings } = useUiSettings({ enabled: isOpen });
 
   const { data: spoolmanSpools, isLoading: spoolmanLoading } = useQuery({
     queryKey: ['spoolman-inventory-spools', 'assign-modal'],
@@ -105,7 +102,8 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
   // in the x1c-2 assign list), and assigning would silently steal it from
   // the other printer's slot.
   const { data: allSpoolmanAssignments } = useQuery({
-    queryKey: ['spoolman-slot-assignments-all'],
+    // Under the per-slot key, so every slot invalidation refreshes it too.
+    queryKey: ['spoolman-slot-assignments', 'all'],
     queryFn: () => api.getSpoolmanSlotAssignments(),
     enabled: isOpen && !!spoolmanEnabled,
   });
@@ -183,6 +181,8 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['spoolman-inventory-spools'] });
+      // Prefix match: also the all-printers list this dialog filters
+      // "assigned elsewhere" by.
       queryClient.invalidateQueries({ queryKey: ['spoolman-slot-assignments'] });
       nudgePrinterRepublish();
       showToast(t('inventory.assignSuccess'), 'success');

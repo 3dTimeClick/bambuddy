@@ -13,12 +13,12 @@ import pytest
 
 from backend.app.utils.threemf_tools import (
     expand_to_project_slots,
-    extract_bed_type_from_3mf,
     extract_embedded_presets_from_3mf,
     extract_filament_usage_from_3mf,
     extract_layer_filament_usage_from_3mf,
     extract_max_z_height_from_3mf,
     extract_plate_extruder_set_from_3mf,
+    extract_plate_metadata_from_3mf,
     extract_print_time_from_3mf,
     extract_project_filaments_from_3mf,
     extract_support_filament_slots_from_3mf,
@@ -816,7 +816,7 @@ class TestExtractEmbeddedPresetsFrom3mf:
 
 
 class TestExtractBedTypeFrom3mf:
-    """extract_bed_type_from_3mf reads per-plate `curr_bed_type` from
+    """extract_plate_metadata_from_3mf reads per-plate `curr_bed_type` from
     slice_info.config so the queue / print modal can show the right plate
     even on multi-plate 3MFs where different plates target different beds
     (#1281). archive.bed_type is one-value-per-archive (first plate's
@@ -835,7 +835,7 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path) == "Textured PEI Plate"
+        assert extract_plate_metadata_from_3mf(file_path).bed_type == "Textured PEI Plate"
 
     def test_multi_plate_returns_per_plate_value(self, tmp_path):
         # Reporter's case: a 3MF mixing PEI + Engineering across plates.
@@ -860,9 +860,9 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path, plate_id=1) == "Textured PEI Plate"
-        assert extract_bed_type_from_3mf(file_path, plate_id=2) == "Engineering Plate"
-        assert extract_bed_type_from_3mf(file_path, plate_id=3) == "Cool Plate"
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=1).bed_type == "Textured PEI Plate"
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=2).bed_type == "Engineering Plate"
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=3).bed_type == "Cool Plate"
 
     def test_no_plate_id_returns_first_plate(self, tmp_path):
         # The plate_id=None branch must match the archive-level capture
@@ -883,7 +883,7 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path) == "Cool Plate SuperTack"
+        assert extract_plate_metadata_from_3mf(file_path).bed_type == "Cool Plate SuperTack"
 
     def test_unknown_plate_id_returns_none(self, tmp_path):
         xml_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -897,7 +897,7 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path, plate_id=99) is None
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=99).bed_type is None
 
     def test_plate_without_bed_type_returns_none(self, tmp_path):
         # Older slicers may export a plate without curr_bed_type. The
@@ -917,8 +917,8 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path, plate_id=1) is None
-        assert extract_bed_type_from_3mf(file_path, plate_id=2) == "Engineering Plate"
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=1).bed_type is None
+        assert extract_plate_metadata_from_3mf(file_path, plate_id=2).bed_type == "Engineering Plate"
 
     def test_missing_slice_info_returns_none(self, tmp_path):
         buffer = io.BytesIO()
@@ -929,13 +929,13 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(buffer.read())
 
-        assert extract_bed_type_from_3mf(file_path) is None
+        assert extract_plate_metadata_from_3mf(file_path).bed_type is None
 
     def test_invalid_file_returns_none(self, tmp_path):
         file_path = tmp_path / "invalid.3mf"
         file_path.write_text("not a zip file")
 
-        assert extract_bed_type_from_3mf(file_path) is None
+        assert extract_plate_metadata_from_3mf(file_path).bed_type is None
 
     def test_whitespace_trimmed(self, tmp_path):
         # 3MF values sometimes carry surrounding whitespace from manual
@@ -952,7 +952,7 @@ class TestExtractBedTypeFrom3mf:
         file_path = tmp_path / "test.3mf"
         file_path.write_bytes(create_mock_3mf(xml_content).read())
 
-        assert extract_bed_type_from_3mf(file_path) == "Textured PEI Plate"
+        assert extract_plate_metadata_from_3mf(file_path).bed_type == "Textured PEI Plate"
 
 
 class TestExtractPrintTimeFrom3mf:

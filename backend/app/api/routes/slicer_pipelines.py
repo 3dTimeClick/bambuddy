@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth import RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.printer_scope import ensure_printers_exist
 from backend.app.models.slicer_pipeline import SlicerPipeline
 from backend.app.models.user import User
 from backend.app.schemas.slicer import PresetRef
@@ -165,6 +166,7 @@ async def update_pipeline(
         if data.target_printer_id == 0:
             row.target_printer_id = None
         else:
+            await ensure_printers_exist(db, [data.target_printer_id])
             row.target_printer_id = data.target_printer_id
     # PR C — class targeting + fanout strategy. Empty string from the frontend
     # also clears the class (radio toggled away).

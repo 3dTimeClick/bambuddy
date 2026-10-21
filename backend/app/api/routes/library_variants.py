@@ -43,7 +43,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import require_ownership_permission
+from backend.app.core.auth import ApiKeyActor, require_ownership_permission
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.library import FileVariantGroup, LibraryFile
@@ -97,7 +97,7 @@ def resolve_variant_model(lib_file: LibraryFile, explicit: str | None = None) ->
 async def _load_files(
     db: AsyncSession,
     file_ids: list[int],
-    user: User | None,
+    user: User | ApiKeyActor | None,
     can_access_all: bool,
 ) -> dict[int, LibraryFile]:
     """Fetch the caller's visible, untrashed files by id."""
@@ -187,7 +187,7 @@ async def _dissolve_if_too_small(db: AsyncSession, group: FileVariantGroup) -> b
 async def create_variant_group(
     payload: VariantGroupCreate,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,
@@ -242,7 +242,7 @@ async def create_variant_group(
 async def get_group_for_file(
     file_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_READ_ALL,
             Permission.LIBRARY_READ_OWN,
@@ -269,7 +269,7 @@ async def get_group_for_file(
 async def get_variant_group(
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_READ_ALL,
             Permission.LIBRARY_READ_OWN,
@@ -284,7 +284,7 @@ async def update_variant_group(
     group_id: int,
     payload: VariantGroupUpdate,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,
@@ -324,7 +324,7 @@ async def add_variant_group_member(
     payload: VariantGroupMemberRequest,
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,
@@ -380,7 +380,7 @@ async def remove_variant_group_member(
     group_id: int,
     file_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,
@@ -407,7 +407,7 @@ async def remove_variant_group_member(
 async def delete_variant_group(
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,

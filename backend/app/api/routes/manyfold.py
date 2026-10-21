@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes.library import save_3mf_bytes_to_library, validate_print_file_upload
 from backend.app.api.routes.settings import set_setting
-from backend.app.core.auth import ApiKeyActor, RequestActor, RequirePermissionIfAuthEnabled
+from backend.app.core.auth import ApiKeyActor, RequestActor, RequirePermissionIfAuthEnabled, require_actor_still_exists
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.library import LibraryFile
@@ -344,6 +344,8 @@ async def import_file(
 
     filename = _library_filename(file["filename"], file_id)
     validate_print_file_upload(filename, data)
+    # Not saved for a user deleted during the download (SQLite reuses the id).
+    await require_actor_still_exists(db, actor)
     folder_id = await _import_folder_id(db, body.folder_id, actor)
     library_file, was_existing = await save_3mf_bytes_to_library(
         db,

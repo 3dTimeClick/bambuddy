@@ -11,9 +11,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import delete, false, func, or_, select, true, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -51,6 +53,7 @@ from backend.app.services.finance_budget import (
     validate_print_budget,
 )
 from backend.app.services.ha_sensor_manager import ha_sensor_manager
+from backend.app.services.mqtt_relay import mqtt_relay
 from backend.app.services.notification_service import notification_service
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
 from backend.app.services.printer_manager import (
@@ -61,7 +64,9 @@ from backend.app.services.printer_manager import (
     supports_drying,
     supports_drying_while_printing,
 )
-from backend.app.services.smart_plug_manager import smart_plug_manager
+from backend.app.services.queue_item_printer import drop_printer_resolved
+from backend.app.services.slot_nozzle import reports_two_nozzles
+from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
     _global_tray_from_assignment,
     _slot_label_from_global_tray,
@@ -84,6 +89,7 @@ from backend.app.utils.threemf_tools import (
     default_plate_number,
     extract_rack_plan_from_3mf,
     extract_slot_extruders_from_3mf,
+    plate_bed_temperature,
     select_plate_gcode_name,
 )
 
@@ -523,6 +529,11 @@ def _candidates_for(item: PrintQueueItem) -> list[_ModelCandidate]:
     ]
 
 
+# Why a job for any printer of a model waits when every free one's last print
+# failed. The queue page matches it to offer Resume for the model.
+MODEL_GATE_WAIT_REASON = "The last print failed on every free matching printer"
+
+
 def _collapse_waiting_reasons(per_model: list[tuple[str | None, str]]) -> str | None:
     """Fold one waiting reason per candidate into a single line for the item.
 
@@ -721,6 +732,41 @@ def _int_or(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+# What a queue job's dispatch is worked out from, and an edit can change.
+_DISPATCH_INPUTS = (
+    "printer_id",
+    "status",
+    "ams_mapping",
+    "plate_id",
+    "filament_overrides",
+    "skip_filament_check",
+    "target_model",
+    "target_location",
+)
+
+
+async def _edited_since_loaded(db: AsyncSession, item: PrintQueueItem) -> bool:
+    """Whether ``item`` was changed or removed since ``check_queue`` loaded it.
+
+    The pass works on the jobs as loaded at its start, and it may have waited
+    since: a plug powering a printer on takes minutes. A job edited meanwhile
+    (moved to another printer, given a mapping or another plate, cancelled)
+    is left to the next pass, which reads it fresh: deciding from the stale
+    copy would overwrite the edit, or send the job where it no longer goes.
+    The query flushes the pass's own pending changes first, so those don't
+    count as edits.
+    """
+    row = (
+        await db.execute(
+            select(*(getattr(PrintQueueItem, name) for name in _DISPATCH_INPUTS)).where(PrintQueueItem.id == item.id)
+        )
+    ).one_or_none()
+    if row is not None and all(getattr(item, name) == value for name, value in zip(_DISPATCH_INPUTS, row, strict=True)):
+        return False
+    logger.info("Queue item %s changed during this pass; leaving it to the next", item.id)
+    return True
 
 
 def _global_tray_id(ams_id: int, tray_id: int) -> int:
@@ -1008,6 +1054,22 @@ def _unmatched_filament_message(required: list[dict], loaded: list[dict]) -> str
     )
 
 
+async def _queued_plate_bed_temperature(item: PrintQueueItem, archive: PrintArchive | None) -> int:
+    """Bed temperature for the plate a queued job prints, 0 when unknown.
+
+    The archive stores the highest bed temperature of any filament in the
+    project, while the job may print another plate than the one archived: a
+    PLA plate of a project that also holds PETG is heated for PLA. Read from
+    the archive's file for the job's own plate, falling back to the stored
+    value when the file can't be read.
+    """
+    stored = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+    if archive is None or not archive.file_path:
+        return stored
+    temperature = await asyncio.to_thread(plate_bed_temperature, settings.base_dir / archive.file_path, item.plate_id)
+    return temperature or stored
+
+
 def _effective_plate_id(explicit_plate_id: int | None, file_path: Path) -> int:
     """The plate to dispatch, resolved once in ``_start_print`` and reused at
     every call site below it: G-code injection, usage registration, rack-plan
@@ -1179,6 +1241,9 @@ class PrintScheduler:
         # so it can never re-arm. Keyed with the spool, the new spool is simply a
         # different key and the stale one is inert.
         self._notified_filament_low: set[tuple[int, int, int, int]] = set()
+        # The same, for the MQTT relay's filament/low event: its own record, so
+        # one channel having been told never silences the other.
+        self._relayed_filament_low: set[tuple[int, int, int, int]] = set()
         # Earliest monotonic time the next low-filament check may run (#2913).
         self._filament_low_next_check: float = 0.0
         # SKU key -> (condition, events told) for a SKU that is alerting (#2955): the
@@ -1242,6 +1307,17 @@ class PrintScheduler:
         # unsuccessful exit; a successful start removes the item id and leaves
         # the reservation for finance_billing to consume with the archive.
         self._unconfirmed_budget_reservations: set[int] = set()
+        # The print user `_start_print` handed to printer_manager for an item
+        # whose print command has not been sent yet (item_id -> printer_id).
+        # `_dispatch_one` takes it back on every unsuccessful exit, like the
+        # expected print above: it marks the printer's next print as Bambuddy's.
+        self._unconfirmed_print_user: dict[int, int] = {}
+        # Prints whose command went out but which the printer has not been
+        # seen starting yet: item_id -> (printer_id, remote_filename, archive_id),
+        # the file and archive None for a library print. The watchdog drops the
+        # entry once the print runs, and withdraws what it stands for when the
+        # print never starts (see `_forget_unstarted_print`).
+        self._sent_unstarted_print: dict[int, tuple[int, str | None, int | None]] = {}
         # Chamber temperature history for smart soak-time reduction.
         # printer_id -> deque of (monotonic_timestamp, celsius) sampled each scheduler tick.
         # Entries older than _chamber_history_ttl are pruned on write.
@@ -1375,6 +1451,8 @@ class PrintScheduler:
                     item.status = status
                     item.completed_at = datetime.now(timezone.utc)
                     closed = True
+                    # The printer is idle: nothing it prints next is this item's.
+                    self._forget_unstarted_print(item.id, unless_printing=True)
                     logger.warning(
                         "Queue item %s was still 'printing' after printer %s reported %s for %.0fs — "
                         "closing it as %s. Its completion event was never matched to it, which blocks "
@@ -1387,6 +1465,9 @@ class PrintScheduler:
                     )
                 if closed:
                     await db.commit()
+                    from backend.app.services.print_batch import refresh_batches_after
+
+                    await refresh_batches_after([item.id for item in items if item.status != "printing"])
                 for printer_id in list(self._terminal_since):
                     if printer_id not in seen_printers:
                         del self._terminal_since[printer_id]
@@ -1437,6 +1518,32 @@ class PrintScheduler:
         """Stop the scheduler."""
         self._running = False
         logger.info("Print scheduler stopped")
+
+    def forget_printer(self, printer_id: int) -> None:
+        """Drop what is kept for a deleted printer, so the next printer given its
+        id (SQLite reuses it) starts clean: refused uploads and failed power-ons
+        would keep it out of dispatch for up to an hour.
+
+        A dispatch already in flight keeps its own state (_inflight, the preheat
+        pins, unconfirmed prints): it unwinds that when it ends.
+        """
+        for keyed in (
+            self._upload_backoff,
+            self._upload_refusals,
+            self._wake_failures,
+            self._drying_in_progress,
+            self._dispatch_holds,
+            self._chamber_history,
+            self._keep_warm,
+            self._terminal_since,
+        ):
+            keyed.pop(printer_id, None)
+        self._upload_refusal_notified.discard(printer_id)
+        for keyed in (self._auto_dry_units, self._auto_dry_above):
+            for key in [key for key in keyed if key[0] == printer_id]:
+                del keyed[key]
+        for item_id in [i for i, sent in self._sent_unstarted_print.items() if sent[0] == printer_id]:
+            del self._sent_unstarted_print[item_id]
 
     async def check_queue(self) -> bool:
         """Check for prints ready to start.
@@ -1678,6 +1785,7 @@ class PrintScheduler:
                         target_model=(entry[1] if entry else "") or "",
                         waiting_reason=reason,
                         db=db,
+                        printer_id=item.printer_id,
                     )
                 except Exception as e:
                     # A queue that cannot say why it is waiting is the bug being
@@ -1846,6 +1954,15 @@ class PrintScheduler:
             scope_auth_enabled = await is_auth_enabled(db)
             creator_scopes: dict[int, PrinterScope] = {}
 
+            # Printers a model job passes over while drying blocks the queue,
+            # as a pinned job waits for its own. A parked timer never ends,
+            # so it does not hold (#2896).
+            drying_held: set[int] = (
+                {pid for pid in self._drying_in_progress if not self._drying_is_only_parked(pid)}
+                if self._drying_in_progress and await self._get_bool_setting(db, "queue_drying_block")
+                else set()
+            )
+
             async def _creator_scope(user_id: int | None) -> PrinterScope:
                 if not scope_auth_enabled or user_id is None:
                     return ALL_PRINTERS
@@ -1873,7 +1990,7 @@ class PrintScheduler:
                     and await self._release_short_model_hold(
                         db,
                         item,
-                        busy_printers | interlocked.keys(),
+                        busy_printers | interlocked.keys() | drying_held,
                         require_plate_clear,
                         await _creator_scope(item.created_by_id),
                     )
@@ -1970,7 +2087,14 @@ class PrintScheduler:
                                 for extra_plug in [p for p in auto_on_plugs if p.id != primary_plug.id]:
                                     try:
                                         service = await smart_plug_manager.get_service_for_plug(extra_plug, db)
-                                        await service.turn_on(extra_plug)
+                                        if await service.turn_on(extra_plug):
+                                            await publish_plug_state(
+                                                extra_plug.id,
+                                                extra_plug.name,
+                                                extra_plug.printer_id,
+                                                on=True,
+                                                ha_entity_id=extra_plug.ha_entity_id,
+                                            )
                                         logger.info(
                                             "Also powered on plug '%s' for printer %s", extra_plug.name, item.printer_id
                                         )
@@ -2059,6 +2183,9 @@ class PrintScheduler:
                     # (all -1). A stored all-[-1] mapping is a bug artifact — a
                     # frontend status-load race can persist [-1] (#2589) — and
                     # must be recomputed from live trays rather than trusted.
+                    if await _edited_since_loaded(db, item):
+                        continue
+
                     unmappable = await self._ensure_ams_mapping(db, item.printer_id, item)
                     if unmappable:
                         await self._fail_unmappable_item(db, item, item.printer_id, unmappable)
@@ -2165,6 +2292,8 @@ class PrintScheduler:
                     # printer for a file that can never legally run on it is
                     # worse than not waking at all (#2786).
                     wakeable_candidates: list[_ModelCandidate] = []
+                    # Printers passed over because their last print failed.
+                    gate_blocked: set[int] = set()
 
                     if not candidates:
                         # Every candidate file has been deleted or trashed out from
@@ -2208,21 +2337,34 @@ class PrintScheduler:
                             self._resolve_variant(item, candidate)
                             return await self._filament_short_on(db, item, pid)
 
-                        match_id, match_reason = await self._find_idle_printer_for_model(
-                            db,
-                            candidate.target_model,
-                            # Sensor-held printers are unavailable to the
-                            # matcher but stay out of busy_printers itself
-                            # (#1148) — see where `interlocked` is built.
-                            busy_printers | interlocked.keys(),
-                            effective_types,
-                            item.target_location,
-                            filament_overrides=filament_overrides,
-                            require_plate_clear=require_plate_clear,
-                            wakeable_ids=wakeable_printer_ids,
-                            printer_scope=item_scope,
-                            is_short=is_short,
-                        )
+                        while True:
+                            match_id, match_reason = await self._find_idle_printer_for_model(
+                                db,
+                                candidate.target_model,
+                                # Sensor-held printers are unavailable to the
+                                # matcher but stay out of busy_printers itself
+                                # (#1148) — see where `interlocked` is built.
+                                busy_printers | interlocked.keys() | gate_blocked | drying_held,
+                                effective_types,
+                                item.target_location,
+                                filament_overrides=filament_overrides,
+                                require_plate_clear=require_plate_clear,
+                                wakeable_ids=wakeable_printer_ids,
+                                printer_scope=item_scope,
+                                is_short=is_short,
+                                drying_ids=drying_held,
+                            )
+                            # "Only if the previous print succeeded" is about the
+                            # printer the job lands on: one whose last print failed
+                            # is passed over for another of the model.
+                            if (
+                                match_id
+                                and item.require_previous_success
+                                and not await self._check_previous_success(db, item, printer_id=match_id)
+                            ):
+                                gate_blocked.add(match_id)
+                                continue
+                            break
                         if match_id:
                             printer_id = match_id
                             chosen = candidate
@@ -2258,6 +2400,10 @@ class PrintScheduler:
                             skip_reasons["powered_on_printer"] = skip_reasons.get("powered_on_printer", 0) + 1
                             continue
 
+                    if printer_id is None and gate_blocked:
+                        # The matcher reports the printers passed over as busy;
+                        # what holds the job is their failed last print.
+                        per_model_reasons = [(item.target_model, MODEL_GATE_WAIT_REASON)]
                     waiting_reason = None if printer_id else _collapse_waiting_reasons(per_model_reasons)
 
                     # Fold the winning variant's file and settings onto the item
@@ -2269,12 +2415,19 @@ class PrintScheduler:
                     # Update waiting_reason if changed and send notification when first waiting
                     if item.waiting_reason != waiting_reason:
                         was_waiting = item.waiting_reason is not None
+                        previous_reason = item.waiting_reason
                         item.waiting_reason = waiting_reason
                         await db.commit()
 
                         # Send waiting notification only when transitioning to waiting state
                         # and the reason requires user action (not just "all printers busy")
-                        if waiting_reason and not was_waiting and not self._is_busy_only(waiting_reason):
+                        # Also when a job that only waited for a busy printer
+                        # now waits on something the user has to do.
+                        if (
+                            waiting_reason
+                            and (not was_waiting or self._is_busy_only(previous_reason or ""))
+                            and not self._is_busy_only(waiting_reason)
+                        ):
                             job_name = await self._get_job_name(db, item)
                             await notification_service.on_queue_job_waiting(
                                 job_name=job_name,
@@ -2298,26 +2451,8 @@ class PrintScheduler:
                             skip_reasons["library_row_in_use"] = skip_reasons.get("library_row_in_use", 0) + 1
                             continue
 
-                        # Check condition (previous print success) before assigning
-                        if item.require_previous_success:
-                            if not await self._check_previous_success(db, item):
-                                item.status = "skipped"
-                                item.error_message = "Previous print failed or was aborted"
-                                item.completed_at = datetime.now(timezone.utc)
-                                await db.commit()
-                                logger.info("Skipped queue item %s - previous print failed", item.id)
-
-                                # Send notification
-                                job_name = await self._get_job_name(db, item)
-                                printer = await self._get_printer(db, printer_id)
-                                await notification_service.on_queue_job_skipped(
-                                    job_name=job_name,
-                                    printer_id=printer_id,
-                                    printer_name=printer.name if printer else "Unknown",
-                                    reason="Previous print failed or was aborted",
-                                    db=db,
-                                )
-                                continue
+                        if await _edited_since_loaded(db, item):
+                            continue
 
                         # Assign printer and start - clear waiting reason
                         item.printer_id = printer_id
@@ -2349,6 +2484,20 @@ class PrintScheduler:
                                 printer_id,
                             )
                             item.ams_mapping = None
+                        # On a nozzle-rack printer its own nozzle mapping likewise
+                        # (set through the API or an order's plate spec): it names
+                        # rack positions, and the dispatch sends a stored one as-is
+                        # instead of resolving this printer's rack. Elsewhere it
+                        # holds extruder indices, the same on every printer of the
+                        # model (an H2D VP keeps the slicer's for that reason), and
+                        # one that came with the chosen variant belongs to that
+                        # variant's file: both stay.
+                        if (
+                            (chosen is None or chosen.variant is None)
+                            and printer is not None
+                            and is_nozzle_rack_model(printer.model)
+                        ):
+                            item.nozzle_mapping = None
 
                         # Resolve the AMS mapping for the assigned printer. It is
                         # always missing here, so this computes it, and it also
@@ -2370,6 +2519,13 @@ class PrintScheduler:
                         # this item asked for a model, not this printer.
                         if await self._block_on_unmatched_filament(db, item, release_assignment=True):
                             continue
+
+                        # As for a pinned job: drying stops once the print is
+                        # decided, unless it may run through it.
+                        if self._drying_in_progress.get(
+                            printer_id
+                        ) and not await self._drying_may_continue_through_print(db, printer_id):
+                            await self._stop_drying(printer_id)
 
                         _claim_library_row(item)
                         dispatch_ids.append(item.id)
@@ -2557,7 +2713,7 @@ class PrintScheduler:
             # routes reject reassignment (409), so printer_id can't change out from
             # under the in-flight upload and split the queue row from the
             # archive/expected-print/physical command.
-            if not await self._claim_for_dispatch(item_db, item_id):
+            if not await self._claim_for_dispatch(item_db, item_id, selected_printer_id):
                 logger.info(
                     "Queue item %s not claimable for dispatch (cancelled, removed, or already claimed) — skipping",
                     item_id,
@@ -2595,6 +2751,9 @@ class PrintScheduler:
                 # A confirmed send removes the entry itself, so this is a no-op
                 # on the happy path.
                 self._rollback_unconfirmed_expected_print(item_id)
+                # Likewise the print user it set: the printer's next print is
+                # not this item's.
+                self._rollback_unconfirmed_print_user(item_id)
                 # Mirror the pre-#1625 background-dispatch lifecycle: a
                 # reservation survives only after start_print() accepted the
                 # command. Failure, cancellation, deferral, and exceptions all
@@ -2671,6 +2830,43 @@ class PrintScheduler:
             )
         except Exception:
             pass  # toast is best-effort
+
+    def _rollback_unconfirmed_print_user(self, item_id: int) -> None:
+        printer_id = self._unconfirmed_print_user.pop(item_id, None)
+        if printer_id is not None:
+            printer_manager.clear_current_print_user_for_item(printer_id, item_id)
+
+    def _forget_unstarted_print(self, item_id: int, *, unless_printing: bool, keep_expected: bool = False) -> None:
+        """Withdraw the expected print and print user of a sent print that never started.
+
+        Both tell the rest of Bambuddy that the printer's next print is this
+        item's: left behind, a print started by hand later is taken for it.
+        With ``unless_printing``, a printer that is printing after all keeps
+        them, as that print is most likely this one starting late.
+
+        ``keep_expected`` withdraws only the print user, which vouches for any
+        print on the printer. The expected print names this item's file, so a
+        late start of it is still matched to its archive.
+        """
+        sent = self._sent_unstarted_print.get(item_id)
+        if sent is None:
+            return
+        printer_id, remote_filename, archive_id = sent
+        if unless_printing:
+            status = printer_manager.get_status(printer_id)
+            if status is not None and status.state in _ACTIVE_PRINT_STATES:
+                return
+        printer_manager.clear_current_print_user_for_item(printer_id, item_id)
+        if keep_expected:
+            return
+        del self._sent_unstarted_print[item_id]
+        if remote_filename is not None and archive_id is not None:
+            try:
+                from backend.app.main import unregister_expected_print
+
+                unregister_expected_print(printer_id, remote_filename, archive_id)
+            except Exception:
+                logger.warning("Queue item %s: failed to unregister expected print", item_id)
 
     def _rollback_unconfirmed_expected_print(self, item_id: int) -> None:
         """Drop an expectation for a print command that was never sent.
@@ -2821,19 +3017,24 @@ class PrintScheduler:
             sorted(pin),
         )
 
-    async def _claim_for_dispatch(self, db: AsyncSession, item_id: int) -> bool:
+    async def _claim_for_dispatch(self, db: AsyncSession, item_id: int, printer_id: int | None = None) -> bool:
         """Atomically stamp ``dispatching_at`` on a still-pending, unclaimed row.
 
         Returns True if this call won the claim, False if the row was already
         claimed, no longer pending (cancelled mid-tick), or removed. The CAS is
-        the load-bearing guard against reassign-during-dispatch (#2615)."""
-        res = await db.execute(
+        the load-bearing guard against reassign-during-dispatch (#2615).
+        ``printer_id`` is the printer the item was selected for: a row moved to
+        another printer since is not claimed, and the next pass selects it for
+        that one."""
+        query = (
             update(PrintQueueItem)
             .where(PrintQueueItem.id == item_id)
             .where(PrintQueueItem.status == "pending")
             .where(PrintQueueItem.dispatching_at.is_(None))
-            .values(dispatching_at=datetime.now(timezone.utc))
         )
+        if printer_id is not None:
+            query = query.where(PrintQueueItem.printer_id == printer_id)
+        res = await db.execute(query.values(dispatching_at=datetime.now(timezone.utc)))
         await db.commit()
         return res.rowcount > 0
 
@@ -3030,7 +3231,14 @@ class PrintScheduler:
                 for extra_plug in [p for p in auto_on_plugs if p.id != primary_plug.id]:
                     try:
                         service = await smart_plug_manager.get_service_for_plug(extra_plug, db)
-                        await service.turn_on(extra_plug)
+                        if await service.turn_on(extra_plug):
+                            await publish_plug_state(
+                                extra_plug.id,
+                                extra_plug.name,
+                                extra_plug.printer_id,
+                                on=True,
+                                ha_entity_id=extra_plug.ha_entity_id,
+                            )
                         logger.info("Also powered on plug '%s' for printer %s", extra_plug.name, printer.id)
                     except Exception as e:
                         logger.warning("Failed to power on extra plug '%s': %s", extra_plug.name, e)
@@ -3049,6 +3257,7 @@ class PrintScheduler:
         wakeable_ids: set[int] | None = None,
         printer_scope: PrinterScope = ALL_PRINTERS,
         is_short: Callable[[int], Awaitable[bool]] | None = None,
+        drying_ids: set[int] | None = None,
     ) -> tuple[int | None, str | None]:
         """Find an idle, connected printer matching the model with compatible filaments.
 
@@ -3071,6 +3280,8 @@ class PrintScheduler:
                       is not. When every eligible printer is short, the first is
                       returned all the same, so the deficit gate holds the job there
                       and "Print Anyway" still has a printer to print on.
+            drying_ids: Excluded printers held by a drying cycle; named "(drying)"
+                        in the reason, as a pinned job's wait is.
 
         Returns:
             Tuple of (printer_id, waiting_reason):
@@ -3109,7 +3320,7 @@ class PrintScheduler:
                     if missing_colors:
                         printers_missing_filament.append((printer.name, missing_colors))
                         continue
-                printers_busy.append(printer.name)
+                printers_busy.append(f"{printer.name} (drying)" if printer.id in (drying_ids or ()) else printer.name)
                 continue
 
             is_connected = printer_manager.is_connected(printer.id)
@@ -3391,16 +3602,18 @@ class PrintScheduler:
                 tray_color = tray.get("tray_color") or ""
                 if tray_type:
                     color_norm = tray_color.replace("#", "").lower()[:6]
-                    loaded.add((tray_type.upper(), color_norm))
+                    loaded.add((canonical_filament_type(tray_type), color_norm))
         for vt in raw_data.get("vt_tray") or []:
             vt_type = vt.get("tray_type")
             if vt_type:
                 color_norm = (vt.get("tray_color", "") or "").replace("#", "").lower()[:6]
-                loaded.add((vt_type.upper(), color_norm))
+                loaded.add((canonical_filament_type(vt_type), color_norm))
 
+        # Types compared as the type check compares them: a PA12-CF override
+        # is met by PA-CF in its colour.
         matches = 0
         for o in overrides:
-            o_type = (o.get("type") or "").upper()
+            o_type = canonical_filament_type(o.get("type") or "")
             o_color = (o.get("color") or "").replace("#", "").lower()[:6]
             if (o_type, o_color) in loaded:
                 matches += 1
@@ -4002,6 +4215,9 @@ class PrintScheduler:
         item.completed_at = datetime.now(timezone.utc)
         item.waiting_reason = None
         await db.commit()
+        from backend.app.services.print_batch import refresh_batches_after
+
+        await refresh_batches_after([item.id])
         logger.warning(
             "Queue item %s: no usable AMS mapping on printer %s — %s",
             item.id,
@@ -4255,44 +4471,17 @@ class PrintScheduler:
         # Get ams_extruder_map for dual-nozzle printers (H2D, H2D Pro)
         ams_extruder_map = status.raw_data.get("ams_extruder_map", {})
 
-        # Dual-nozzle detection, used below to route external spools to an
-        # extruder (#2771). Mirrors `buildLoadedFilaments` in the frontend,
-        # which was corrected for #1257 while this copy kept the old signal.
-        #
-        # `ams_extruder_map` is derived from AMS info bits, so a dual-nozzle
-        # printer with zero AMS units reports an empty map — and every external
-        # spool then got `extruder_id=None`, which the nozzle-aware filter in
-        # `_match_filaments_to_slots` rejects outright because `None` equals
-        # neither 0 nor 1. On an X2D feeding from external spools only that left
-        # nothing to match, the mapping came back all -1, and the print went out
-        # with `use_ams: true` and no mapping table at all — firmware 0700_8012,
-        # "Failed to get AMS mapping table".
-        #
-        # `nozzles` is always a two-entry list (the state seeds it with two empty
-        # NozzleInfo stubs), so its length proves nothing; only a populated
-        # diameter on the second entry means real hardware. The other two signals
-        # are fallbacks for firmware revisions that surface one but not the
-        # other: a populated `ams_extruder_map` is dual-nozzle by construction,
-        # and so is more than one `vt_tray` entry, since single-nozzle printers
-        # expose exactly one external feed.
-        nozzles = getattr(status, "nozzles", None) or []
+        # Routes external spools to an extruder (#2771). Mirrors
+        # `buildLoadedFilaments` in the frontend.
         vt_trays = status.raw_data.get("vt_tray") or []
-        is_dual_nozzle = bool(
-            (len(nozzles) > 1 and getattr(nozzles[1], "nozzle_diameter", ""))
-            or ams_extruder_map
-            # isinstance, because a dict here would count its ~30 keys as trays.
-            # bambu_mqtt normalises vt_tray to a list before it reaches raw_data,
-            # so this is unreachable — but the loop below would raise on a dict
-            # and that is the pre-existing behaviour to keep, not to paper over.
-            or (isinstance(vt_trays, list) and len(vt_trays) > 1)
-        )
+        is_dual_nozzle = reports_two_nozzles(status)
 
         # Parse AMS units from raw_data
         ams_data = status.raw_data.get("ams", [])
         for ams_unit in ams_data:
             ams_id = int(ams_unit.get("id", 0))
             trays = ams_unit.get("tray", [])
-            is_ht = len(trays) == 1  # AMS-HT has single tray
+            is_ht = 128 <= ams_id <= 135  # AMS-HT unit ids; a regular AMS may list fewer trays
 
             for tray in trays:
                 tray_type = tray.get("tray_type")
@@ -4836,7 +5025,15 @@ class PrintScheduler:
         idle = state.state in ("IDLE", "FINISH", "FAILED")
         if not idle:
             logger.debug("Printer %d: not idle — state=%s", printer_id, state.state)
-        return idle
+            return False
+
+        # A print would run from the SD card the firmware is being written to.
+        from backend.app.services.firmware_update import upload_in_progress
+
+        if upload_in_progress(printer_id):
+            logger.debug("Printer %d: not idle — firmware upload in progress", printer_id)
+            return False
+        return True
 
     @staticmethod
     def _pinned_hold_reason(printer_id: int, printer_name: str, require_plate_clear: bool) -> str:
@@ -5105,8 +5302,18 @@ class PrintScheduler:
             # id in that time would stay silenced until a restart. Forgetting
             # what was sent is right anyway: whoever switches the event back on
             # is told about the spools that are low now.
-            if not await notification_service._get_providers_for_event(db, "on_filament_low"):
+            #
+            # The MQTT relay publishes the same event, so a connected relay is
+            # reason enough to run the check. Its record is forgotten when the
+            # relay is switched off, not when the broker drops: a reconnect must
+            # not re-send every low slot.
+            notify = bool(await notification_service._get_providers_for_event(db, "on_filament_low", fleet_wide=True))
+            relay = mqtt_relay.enabled and mqtt_relay.connected
+            if not notify:
                 self._notified_filament_low.clear()
+            if not mqtt_relay.enabled:
+                self._relayed_filament_low.clear()
+            if not notify and not relay:
                 return
 
             global_threshold = await self._get_low_stock_threshold(db)
@@ -5147,7 +5354,7 @@ class PrintScheduler:
                 # otherwise re-alert on every spool as soon as it came back.
                 return
 
-            await self._emit_filament_low(db, slots)
+            await self._emit_filament_low(db, slots, notify=notify, relay=relay)
         except Exception as e:
             logger.warning("Low-filament check failed: %s", e, exc_info=True)
 
@@ -5223,19 +5430,29 @@ class PrintScheduler:
         return slots
 
     async def _emit_filament_low(
-        self, db: AsyncSession, slots: dict[tuple[int, int, int, int], tuple[float, float, str | None]]
+        self,
+        db: AsyncSession,
+        slots: dict[tuple[int, int, int, int], tuple[float, float, str | None]],
+        *,
+        notify: bool = True,
+        relay: bool = False,
     ) -> None:
-        """Send one notification per slot that has newly crossed its threshold."""
-        printer_names: dict[int, str] = {}
+        """Send one notification and/or MQTT relay event per slot that has newly crossed its threshold."""
+        printers: dict[int, Printer] = {}
         for key, (pct, threshold, color) in slots.items():
-            printer_id, ams_id, tray_id, _spool_id = key
+            printer_id, ams_id, tray_id, spool_id = key
             if pct >= threshold:
                 # Back above the line: re-arm rather than expire on a timer, so a
                 # refilled slot can alert again and a spool sitting just under the
                 # threshold stays quiet.
                 self._notified_filament_low.discard(key)
+                self._relayed_filament_low.discard(key)
                 continue
-            if key in self._notified_filament_low:
+            send_notification = notify and key not in self._notified_filament_low
+            # Only while connected, so a crossing the relay missed reaches it
+            # after the reconnect.
+            send_relay = relay and key not in self._relayed_filament_low
+            if not send_notification and not send_relay:
                 continue
             # Marked before sending, which is a choice rather than the only
             # option, and it is the opposite failure mode from the one the
@@ -5247,24 +5464,37 @@ class PrintScheduler:
             # the two failures. A spool that is low stays low, so the next real
             # signal is not far away; a provider stuck retrying is a signal that
             # never stops.
-            self._notified_filament_low.add(key)
+            if send_notification:
+                self._notified_filament_low.add(key)
+            if send_relay:
+                self._relayed_filament_low.add(key)
 
-            if printer_id not in printer_names:
+            if printer_id not in printers:
                 printer = (await db.execute(select(Printer).where(Printer.id == printer_id))).scalar_one_or_none()
                 if printer is None:
                     continue
-                printer_names[printer_id] = printer.name
-            try:
-                await notification_service.on_filament_low(
-                    printer_id,
-                    printer_names[printer_id],
-                    _ams_slot_label(ams_id, tray_id),
-                    int(pct),
-                    db,
-                    color=color,
-                )
-            except Exception as e:
-                logger.warning("Low-filament notification failed for slot %s: %s", key, e)
+                printers[printer_id] = printer
+            printer = printers[printer_id]
+            slot = _ams_slot_label(ams_id, tray_id)
+            if send_notification:
+                try:
+                    await notification_service.on_filament_low(
+                        printer_id,
+                        printer.name,
+                        slot,
+                        int(pct),
+                        db,
+                        color=color,
+                    )
+                except Exception as e:
+                    logger.warning("Low-filament notification failed for slot %s: %s", key, e)
+            if send_relay:
+                try:
+                    await mqtt_relay.on_filament_low(
+                        printer_id, printer.name, printer.serial_number, slot, int(pct), color, spool_id
+                    )
+                except Exception as e:
+                    logger.warning("Low-filament MQTT relay event failed for slot %s: %s", key, e)
 
     async def _check_stock_forecast(self, db: AsyncSession) -> None:
         """Alert when a filament SKU reaches its reorder point or is about to break (#2955).
@@ -5296,8 +5526,12 @@ class PrintScheduler:
             if self._stock_alerts_persisted is None:
                 await self._load_stock_alerts(db)
             wanted = {
-                "reorder": bool(await notification_service._get_providers_for_event(db, "on_stock_reorder_alert")),
-                "break": bool(await notification_service._get_providers_for_event(db, "on_stock_break_alert")),
+                "reorder": bool(
+                    await notification_service._get_providers_for_event(db, "on_stock_reorder_alert", fleet_wide=True)
+                ),
+                "break": bool(
+                    await notification_service._get_providers_for_event(db, "on_stock_break_alert", fleet_wide=True)
+                ),
             }
             if not any(wanted.values()):
                 # Nobody wants either event. Forget what was sent, so whoever
@@ -5417,7 +5651,9 @@ class PrintScheduler:
         ).all()
         history: dict[int, list[stock_forecast.UsageRecord]] = {}
         for spool_id, created_at, weight_used in rows:
-            if created_at is None:
+            # A deleted spool's usage forecasts no stock. Skipped here rather than
+            # filtered before the limit, so the window matches the forecast panel's.
+            if created_at is None or spool_id is None:
                 continue
             history.setdefault(spool_id, []).append(stock_forecast.UsageRecord(created_at, float(weight_used or 0)))
         return history
@@ -5547,6 +5783,38 @@ class PrintScheduler:
         for key in [k for k in self._notified_stock_alerts if k not in forecasts]:
             del self._notified_stock_alerts[key]
 
+    @staticmethod
+    async def _creator_printer_scope(db: AsyncSession, user_id: int | None) -> PrinterScope:
+        """The printers a job's creator may use (#1727), as the queue pass reads them."""
+        from backend.app.core.auth import is_auth_enabled
+
+        if user_id is None or not await is_auth_enabled(db):
+            return ALL_PRINTERS
+        return await resolve_user_id_printer_scope(db, user_id)
+
+    async def _model_job_printer_ids(
+        self,
+        db: AsyncSession,
+        item: PrintQueueItem,
+        scope: PrinterScope,
+        cache: dict[tuple[str, str | None, int | None], set[int]],
+    ) -> set[int]:
+        """Every printer an "Any <model>" job could land on: the active printers
+        of each of its candidate models, in its location, that its creator may use.
+
+        ``cache`` holds one lookup per model, location and creator for the pass,
+        so a long queue of model jobs does not query once per job."""
+        printer_ids: set[int] = set()
+        for candidate in _candidates_for(item):
+            if not candidate.target_model:
+                continue
+            key = (candidate.target_model, item.target_location, item.created_by_id)
+            if key not in cache:
+                printers = await self._printers_for_model(db, candidate.target_model, item.target_location, scope)
+                cache[key] = {printer.id for printer in printers}
+            printer_ids |= cache[key]
+        return printer_ids
+
     async def _check_auto_drying(
         self,
         db: AsyncSession,
@@ -5591,13 +5859,33 @@ class PrintScheduler:
         self._sync_drying_state()
 
         # Find printers with scheduled items (for queue drying mode)
+        # An "Any <model>" job counts for every printer it could land on.
         printers_with_scheduled: set[int] = set()
-        printers_with_items: set[int] = set()
+        # Printers with a job that could start now: the ones block mode keeps
+        # a new cycle off. A job waiting for its start time is what queue
+        # drying dries ahead of.
+        printers_with_ready_items: set[int] = set()
+        now_utc = datetime.now(timezone.utc)
+        creator_scopes: dict[int | None, PrinterScope] = {}
+        model_printers: dict[tuple[str, str | None, int | None], set[int]] = {}
         for item in queue_items:
             if item.printer_id:
-                printers_with_items.add(item.printer_id)
-                if item.scheduled_time and not item.manual_start:
-                    printers_with_scheduled.add(item.printer_id)
+                item_printers = {item.printer_id}
+            elif item.target_model or item.variants:
+                if item.created_by_id not in creator_scopes:
+                    creator_scopes[item.created_by_id] = await self._creator_printer_scope(db, item.created_by_id)
+                item_printers = await self._model_job_printer_ids(
+                    db, item, creator_scopes[item.created_by_id], model_printers
+                )
+            else:
+                continue
+            if item.scheduled_time and not item.manual_start:
+                printers_with_scheduled |= item_printers
+            sched = item.scheduled_time
+            if sched is not None and sched.tzinfo is None:
+                sched = sched.replace(tzinfo=timezone.utc)
+            if sched is None or sched <= now_utc:
+                printers_with_ready_items |= item_printers
 
         # If only queue mode is on and no printers have scheduled items, stop drying
         # (but skip this short-circuit when print_drying_enabled is on — busy printers
@@ -5663,10 +5951,13 @@ class PrintScheduler:
                         await self._stop_drying(pid)
                     logger.debug("Auto-drying: printer %d skipped — no scheduled prints", pid)
                     continue
-                # When block mode is on, don't START new drying on printers with pending items.
-                # But allow already-drying printers through so humidity auto-stop logic still runs.
-                if block_for_drying and pid in printers_with_items and not self._drying_in_progress.get(pid):
-                    logger.debug("Auto-drying: printer %d skipped — has pending items (block mode)", pid)
+                # When block mode is on, don't START new drying on printers with
+                # a job that could start now: the cycle would hold it. One
+                # scheduled for later may pre-dry; if the cycle is still running
+                # at its time, the hold applies then. Already-drying printers go
+                # through so humidity auto-stop logic still runs.
+                if block_for_drying and pid in printers_with_ready_items and not self._drying_in_progress.get(pid):
+                    logger.debug("Auto-drying: printer %d skipped — has a job ready to start (block mode)", pid)
                     continue
             if not printer_manager.is_connected(pid):
                 logger.debug("Auto-drying: printer %d skipped — not connected", pid)
@@ -6754,7 +7045,7 @@ class PrintScheduler:
             # missing bed_temperature (Orca gcode.3mf exports parse without
             # one) does NOT skip the hold — chamber need gates the feature.
             archive = next_item.archive
-            item_bed = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+            item_bed = await _queued_plate_bed_temperature(next_item, archive)
             bed_target = max(item_bed, hold_temp)
             if bed_target <= 0:
                 continue
@@ -6974,6 +7265,8 @@ class PrintScheduler:
         """
         if item_id in self._inflight:
             self._cancelled_dispatches.add(item_id)
+        # A print sent for it earlier that never started is not one any more.
+        self._forget_unstarted_print(item_id, unless_printing=False)
 
     async def _preheat_sleep(self, item_id: int, seconds: float) -> bool:
         """Sleep in slices, returning False as soon as the item stops wanting preheat.
@@ -7126,7 +7419,7 @@ class PrintScheduler:
             self._preheat_flap_to_cooling(item.id, printer)
             return True
 
-        bed_target = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
+        bed_target = await _queued_plate_bed_temperature(item, archive)
         if bed_target <= 0:
             # No bed temperature in the slicer metadata. When the print needs a
             # hot chamber the bed is simply how we heat it, so fall back to the
@@ -7401,6 +7694,7 @@ class PrintScheduler:
             if not success:
                 logger.warning("Failed to turn on smart plug '%s'", plug.name)
                 return False
+            await publish_plug_state(plug.id, plug.name, plug.printer_id, on=True, ha_entity_id=plug.ha_entity_id)
             logger.info("Powered on smart plug '%s' for printer %s", plug.name, printer_id)
 
         # Get printer from database for connection
@@ -7409,6 +7703,11 @@ class PrintScheduler:
         if not printer:
             logger.error("Printer %s not found in database", printer_id)
             return False
+        # End the pass's transaction before waiting up to minutes for the boot:
+        # held open, it pins a pooled connection idle in transaction
+        # (PostgreSQL) and a stale read snapshot (SQLite). Nothing below reads
+        # through it.
+        await db.commit()
 
         # Wait for printer to boot (give it some time before trying to connect)
         logger.info("Waiting 30s for printer %s to boot...", printer_id)
@@ -7436,8 +7735,13 @@ class PrintScheduler:
         logger.warning("Printer %s did not connect within %ss after power on", printer_id, self._power_on_wait_time)
         return False
 
-    async def _check_previous_success(self, db: AsyncSession, item: PrintQueueItem) -> bool:
+    async def _check_previous_success(
+        self, db: AsyncSession, item: PrintQueueItem, printer_id: int | None = None
+    ) -> bool:
         """Check if the previous print on this printer succeeded.
+
+        ``printer_id`` names the printer to look at when the item has none yet
+        (a job for any printer of a model, checked against the one offered).
 
         A user-cancelled predecessor is treated as neutral — `cancelled` is a
         deliberate action, not a failure, so subsequent items should still
@@ -7454,11 +7758,13 @@ class PrintScheduler:
         """
         result = await db.execute(
             select(PrintQueueItem)
-            .where(PrintQueueItem.printer_id == item.printer_id)
+            .where(PrintQueueItem.printer_id == (printer_id if printer_id is not None else item.printer_id))
             .where(PrintQueueItem.id != item.id)
             .where(PrintQueueItem.status.in_(["completed", "failed", "cancelled", "aborted"]))
             .where(PrintQueueItem.gate_acknowledged == False)  # noqa: E712
-            .order_by(PrintQueueItem.completed_at.desc())
+            # A row ended without a completion time must not count as the
+            # latest: PostgreSQL sorts NULL first in a descending order.
+            .order_by(PrintQueueItem.completed_at.desc().nulls_last(), PrintQueueItem.id.desc())
             .limit(1)
         )
         prev_item = result.scalar_one_or_none()
@@ -7817,8 +8123,9 @@ class PrintScheduler:
         )
         self._short_hold_checked_at.pop(item.id, None)
         item.printer_id = match_id
-        # Resolved against the printer it leaves (#3239).
-        item.ams_mapping = None
+        # Resolved against the printer it leaves (#3239): the tray mapping and
+        # the nozzle positions.
+        drop_printer_resolved(item)
         item.manual_start = False
         item.filament_short = False
         item.waiting_reason = None
@@ -7891,6 +8198,7 @@ class PrintScheduler:
                     target_model=(printer.model if printer else "") or "",
                     waiting_reason="filament_short",
                     db=db,
+                    printer_id=item.printer_id,
                 )
             except Exception as e:
                 logger.debug("filament_short notification failed for item %s: %s", item.id, e)
@@ -7986,7 +8294,7 @@ class PrintScheduler:
             # has the filament, since an unresolved slot is deliberately not a
             # conflict worth recomputing over.
             item.printer_id = None
-            item.ams_mapping = None
+            drop_printer_resolved(item)
         await db.commit()
 
         job_name = await self._get_job_name(db, item)
@@ -8003,10 +8311,21 @@ class PrintScheduler:
                 target_model=(printer.model if printer else "") or "",
                 waiting_reason=f"needs {wanted}",
                 db=db,
+                # Released to the pool: no printer holds it any more.
+                printer_id=None if release_assignment else held_by,
             )
         except Exception as e:
             logger.debug("filament_missing notification failed for item %s: %s", item.id, e)
         return True
+
+    @staticmethod
+    async def _queue_owner_id(db: AsyncSession, item: PrintQueueItem) -> int | None:
+        """The queue item's owner as the row has it now.
+
+        item.created_by_id was read before preheat and upload, which can take
+        minutes; deleting the user clears the row, not this session's copy.
+        """
+        return await db.scalar(select(PrintQueueItem.created_by_id).where(PrintQueueItem.id == item.id))
 
     async def _propagate_owner_to_printer_manager(self, db: AsyncSession, item: PrintQueueItem) -> None:
         """Hand the queue item's owner to printer_manager so the
@@ -8017,13 +8336,83 @@ class PrintScheduler:
         in that case the print log row falls back to the existing un-credited
         behaviour rather than crashing the dispatch).
         """
-        if not item.created_by_id:
-            return
         from backend.app.models.user import User
 
-        owner = await db.get(User, item.created_by_id)
+        # Read from the row, not item.created_by_id or db.get: both can still
+        # hold a user deleted during the upload, after delete_user forgot them
+        # (on SQLite the id may be someone new's by the time the print ends).
+        # Joined with the printer too: one deleted during the upload was
+        # forgotten as well, and this would write the owner back under its id.
+        owner = (
+            await db.execute(
+                select(User.id, User.username)
+                .join(PrintQueueItem, PrintQueueItem.created_by_id == User.id)
+                .join(Printer, Printer.id == PrintQueueItem.printer_id)
+                .where(PrintQueueItem.id == item.id)
+            )
+        ).first()
         if owner:
-            printer_manager.set_current_print_user(item.printer_id, owner.id, owner.username)
+            printer_manager.set_current_print_user(item.printer_id, owner.id, owner.username, queue_item_id=item.id)
+            if item.printer_id is not None:
+                self._unconfirmed_print_user[item.id] = item.printer_id
+
+    async def _fail_dispatch(self, db: AsyncSession, item: PrintQueueItem, message: str) -> bool:
+        """Mark a dispatching item failed, unless the user cancelled it meanwhile.
+
+        A cancel lands in another session while the upload runs (the edit route
+        even tells users to cancel a job that is being sent). An unconditional
+        write here would turn that cancellation into a failure, with a failure
+        notification, and block the next job that needs the previous print to
+        have succeeded. Returns whether the item was marked failed.
+        """
+        result = cast(
+            CursorResult,
+            await db.execute(
+                update(PrintQueueItem)
+                .where(PrintQueueItem.id == item.id)
+                .where(PrintQueueItem.status.in_(("pending", "printing")))
+                .values(status="failed", error_message=message, completed_at=datetime.now(timezone.utc))
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        await db.commit()
+        if result.rowcount == 0:
+            # Cancelled, or deleted, meanwhile: the row is not refreshed, it may be gone.
+            logger.info("Queue item %s: not marked failed (%s), it was cancelled meanwhile", item.id, message)
+            return False
+        await db.refresh(item)
+        from backend.app.services.print_batch import refresh_batches_after
+
+        await refresh_batches_after([item.id])
+        return True
+
+    @staticmethod
+    async def _defer_until_printer_idle(db: AsyncSession, item: PrintQueueItem) -> None:
+        """Put a job whose printer turned busy before the start back in the queue.
+
+        Only if it is still printing: a stop that landed meanwhile stands.
+        """
+        await db.execute(
+            update(PrintQueueItem)
+            .where(PrintQueueItem.id == item.id)
+            .where(PrintQueueItem.status == "printing")
+            .values(status="pending", started_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+
+    @staticmethod
+    async def _close_cancelled_dispatch_toast(item: PrintQueueItem, toast_uid: int | None) -> None:
+        """Close the dispatch toast of an item the user cancelled while it was sent."""
+        try:
+            await ws_manager.send_queue_item_failed(
+                user_id=toast_uid,
+                queue_item_id=item.id,
+                printer_id=item.printer_id,
+                reason="cancelled_mid_dispatch",
+            )
+        except Exception:
+            pass  # toast is best-effort
 
     async def _start_print(self, db: AsyncSession, item: PrintQueueItem):
         """Upload file and start print for a queue item.
@@ -8077,10 +8466,8 @@ class PrintScheduler:
             )
             await db.commit()
         except HTTPException as exc:
-            item.status = "failed"
-            item.error_message = str(exc.detail)
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, str(exc.detail)):
+                return
             logger.error("Queue item %s: Budget check failed: %s", item.id, item.error_message)
             await self._power_off_if_needed(db, item)
             return
@@ -8089,20 +8476,16 @@ class PrintScheduler:
         result = await db.execute(select(Printer).where(Printer.id == item.printer_id))
         printer = result.scalar_one_or_none()
         if not printer:
-            item.status = "failed"
-            item.error_message = "Printer not found"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Printer not found"):
+                return
             logger.error("Queue item %s: Printer %s not found", item.id, item.printer_id)
             await self._power_off_if_needed(db, item)
             return
 
         # Check printer is connected
         if not printer_manager.is_connected(item.printer_id):
-            item.status = "failed"
-            item.error_message = "Printer not connected"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Printer not connected"):
+                return
             logger.error("Queue item %s: Printer %s not connected", item.id, item.printer_id)
             await self._power_off_if_needed(db, item)
             return
@@ -8161,10 +8544,8 @@ class PrintScheduler:
             result = await db.execute(select(PrintArchive).where(PrintArchive.id == item.archive_id))
             archive = result.scalar_one_or_none()
             if not archive:
-                item.status = "failed"
-                item.error_message = "Archive not found"
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, "Archive not found"):
+                    return
                 logger.error("Queue item %s: Archive %s not found", item.id, item.archive_id)
                 await self._power_off_if_needed(db, item)
                 return
@@ -8199,14 +8580,16 @@ class PrintScheduler:
                 trashed = (
                     await db.execute(select(LibraryFile.filename).where(LibraryFile.id == item.library_file_id))
                 ).scalar_one_or_none()
-                item.status = "failed"
-                item.error_message = (
-                    f"'{trashed}' is in the library trash — restore it and queue the print again"
-                    if trashed
-                    else "Library file not found — it was deleted after this job was queued"
-                )
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(
+                    db,
+                    item,
+                    (
+                        f"'{trashed}' is in the library trash — restore it and queue the print again"
+                        if trashed
+                        else "Library file not found — it was deleted after this job was queued"
+                    ),
+                ):
+                    return
                 logger.error(
                     "Queue item %s: library file %s is %s",
                     item.id,
@@ -8267,6 +8650,11 @@ class PrintScheduler:
                         # Read while the row is still here; the photos move
                         # below, once the delete has actually committed.
                         consumed_photos = list(library_file.photos or [])
+                        # The delete clears the link on the earlier archives of
+                        # this file (ON DELETE SET NULL; core/sqlite_fk on
+                        # SQLite). This one is loaded, so set it here too, or it
+                        # keeps the stale id in the session.
+                        archive.library_file_id = None
                         await db.delete(library_file)
                         file_path = settings.base_dir / archive.file_path
                         filename = archive.filename
@@ -8292,18 +8680,14 @@ class PrintScheduler:
                 await db.rollback()
                 item = await db.get(PrintQueueItem, queue_item_id)
                 if item:
-                    item.status = "failed"
-                    item.error_message = "Failed to create archive from library file"
-                    item.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
+                    if not await self._fail_dispatch(db, item, "Failed to create archive from library file"):
+                        return
                     await self._power_off_if_needed(db, item)
                 return
 
             if not archive:
-                item.status = "failed"
-                item.error_message = "Failed to create archive from library file"
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, "Failed to create archive from library file"):
+                    return
                 logger.error("Queue item %s: Archive creation from library file returned no archive", item.id)
                 await self._power_off_if_needed(db, item)
                 return
@@ -8372,20 +8756,16 @@ class PrintScheduler:
 
         else:
             # Neither archive nor library file specified
-            item.status = "failed"
-            item.error_message = "No source file specified"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "No source file specified"):
+                return
             logger.error("Queue item %s: No archive_id or library_file_id specified", item.id)
             await self._power_off_if_needed(db, item)
             return
 
         # Check file exists on disk
         if not file_path.exists():
-            item.status = "failed"
-            item.error_message = "Source file not found on disk"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Source file not found on disk"):
+                return
             logger.error("Queue item %s: File not found: %s", item.id, file_path)
             await self._power_off_if_needed(db, item)
             return
@@ -8415,10 +8795,8 @@ class PrintScheduler:
             rack = _rack_nozzle_diameters(nozzle_status)
             mismatch_msg = _nozzle_mismatch_message(sliced_nozzle, installed, rack)
             if mismatch_msg:
-                item.status = "failed"
-                item.error_message = mismatch_msg
-                item.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+                if not await self._fail_dispatch(db, item, mismatch_msg):
+                    return
                 logger.warning("Queue item %s: nozzle mismatch — %s", item.id, mismatch_msg)
                 await notification_service.on_queue_job_failed(
                     job_name=filename.replace(".gcode.3mf", "").replace(".3mf", ""),
@@ -8519,6 +8897,8 @@ class PrintScheduler:
         # (reporter @Jostxxl). expire_on_commit=False keeps item/printer/archive
         # readable; the status writes below (upload-failure path and the
         # pending->printing CAS) transparently open a fresh transaction.
+        # The owner is read here, after preheat, so the commit releases this read too.
+        toast_uid = await self._queue_owner_id(db, item)
         await db.commit()
 
         # Delete existing file if present (avoids 553 error on overwrite)
@@ -8544,7 +8924,6 @@ class PrintScheduler:
 
         # Dispatch toast — announce the upload start with the total byte
         # count so the frontend can render an honest progress bar.
-        toast_uid = item.created_by_id
         toast_file_name = filename.replace(".gcode.3mf", "").replace(".3mf", "")
         try:
             total_bytes = file_path.stat().st_size
@@ -8617,6 +8996,16 @@ class PrintScheduler:
         if injected_path and injected_path.exists():
             injected_path.unlink(missing_ok=True)
 
+        # Again after the upload, which can take minutes: an owner deleted
+        # meanwhile gets no more toasts, and neither does whoever has their id.
+        toast_uid = await self._queue_owner_id(db, item)
+
+        # The printer's copy at this path was replaced (or deleted above): the
+        # file browser's previews must not show the old one.
+        from backend.app.services.printer_file_cache import printer_file_cache
+
+        printer_file_cache.forget(printer.id, remote_path)
+
         if not uploaded:
             # This used to be one string for every upload failure, telling
             # everyone to check the SD card. The client knows which of seven
@@ -8628,10 +9017,9 @@ class PrintScheduler:
             if upload_error is None and failure is not None and failure.kind in _UPLOAD_REQUEUE_KINDS:
                 await self._requeue_after_upload_refused(db, item, printer, error_msg, toast_uid)
                 return
-            item.status = "failed"
-            item.error_message = error_msg
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, error_msg):
+                await self._close_cancelled_dispatch_toast(item, toast_uid)
+                return
             logger.error(
                 f"Queue item {item.id}: FTP upload failed - printer={printer.name}, model={printer.model}, "
                 f"ip={printer.ip_address}. Check logs above for storage diagnostics and specific error codes."
@@ -8682,7 +9070,9 @@ class PrintScheduler:
                 remote_filename,
                 archive.id,
                 ams_mapping=ams_mapping,
-                created_by_id=item.created_by_id,
+                # Read after the upload (toast_uid): a user deleted meanwhile gets
+                # no print-start email, and neither does whoever has their id.
+                created_by_id=toast_uid,
                 cost_center_id=item.cost_center_id,
                 # The plate actually dispatched, not the queue item's raw
                 # column: on None, `register_expected_print` stores nothing,
@@ -8874,13 +9264,29 @@ class PrintScheduler:
                     # how a plate gets levelled on one nozzle and drawn with
                     # another, millimetres above the bed. Nothing has been sent
                     # to the printer yet, so failing here costs only the upload.
-                    item.status = "failed"
-                    item.error_message = (
-                        f"Nozzle rack pick no longer fits the printer: {rack_error}. "
-                        "Edit the item to choose another position."
-                    )
-                    item.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
+                    # The file is already on the SD card by this point, and a
+                    # 3MF left there is a phantom print waiting to be started
+                    # from the touchscreen. Same cleanup the start_print
+                    # failure path below does, for the same reason.
+                    try:
+                        await delete_file_async(
+                            printer.ip_address,
+                            printer.access_code,
+                            remote_path,
+                            printer_model=printer.model,
+                        )
+                    except Exception:
+                        pass  # Best-effort — don't fail the error handler
+                    if not await self._fail_dispatch(
+                        db,
+                        item,
+                        (
+                            f"Nozzle rack pick no longer fits the printer: {rack_error}. "
+                            "Edit the item to choose another position."
+                        ),
+                    ):
+                        await self._close_cancelled_dispatch_toast(item, toast_uid)
+                        return
                     logger.warning(
                         "Queue item %s: refusing to dispatch to %s — %s (chose %s, rack %s)",
                         item.id,
@@ -8902,19 +9308,6 @@ class PrintScheduler:
                             queue_item_id=item.id,
                             printer_id=item.printer_id,
                             reason="nozzle_rack_pick_stale",
-                        )
-                    except Exception:
-                        pass  # Best-effort — don't fail the error handler
-                    # The file is already on the SD card by this point, and a
-                    # 3MF left there is a phantom print waiting to be started
-                    # from the touchscreen. Same cleanup the start_print
-                    # failure path below does, for the same reason.
-                    try:
-                        await delete_file_async(
-                            printer.ip_address,
-                            printer.access_code,
-                            remote_path,
-                            printer_model=printer.model,
                         )
                     except Exception:
                         pass  # Best-effort — don't fail the error handler
@@ -8967,9 +9360,9 @@ class PrintScheduler:
         # — on a dual-nozzle machine use_ams is which extruder to feed, not
         # whether to use the AMS, so it is not ours to rewrite.
         effective_use_ams = item.use_ams
+        plate_uses_only_external = False
         if (
-            effective_use_ams
-            and ams_mapping
+            ams_mapping
             and file_path is not None
             # Cheap gate before opening the file: with nothing on the spool
             # holder anywhere in the mapping, no subset of it can be all
@@ -8987,6 +9380,11 @@ class PrintScheduler:
                 ams_mapping, extract_filament_requirements(file_path, plate_id=effective_plate_id)
             )
             if consumed and all(_is_external_tray(t) for t in consumed):
+                # Exact for this plate: the command builder must not turn the
+                # AMS back on for a real tray another plate of the file uses,
+                # whether the job asked for the AMS or already had it off.
+                plate_uses_only_external = True
+            if plate_uses_only_external and effective_use_ams:
                 effective_use_ams = False
                 logger.info(
                     "Queue item %s: every filament plate %s prints is on the external spool "
@@ -9023,6 +9421,7 @@ class PrintScheduler:
             layer_inspect=item.layer_inspect,
             timelapse=effective_timelapse,
             use_ams=effective_use_ams,
+            plate_uses_only_external=plate_uses_only_external,
             nozzle_offset_cali=item.nozzle_offset_cali,
             nozzle_mapping=item.nozzle_mapping
             or (json.dumps(resolved_nozzle_mapping) if resolved_nozzle_mapping else None),
@@ -9035,6 +9434,13 @@ class PrintScheduler:
             # rolled back.
             self._unconfirmed_expected_print.pop(item.id, None)
             self._unconfirmed_budget_reservations.discard(item.id)
+            self._unconfirmed_print_user.pop(item.id, None)
+            if item.printer_id is not None:
+                self._sent_unstarted_print[item.id] = (
+                    item.printer_id,
+                    remote_filename if archive else None,
+                    archive.id if archive else None,
+                )
             # Handoff to the print's own gcode: keep whatever preheat set (bed
             # target, chamber target, airduct heating) — the gcode owns
             # heater/flap control from here. Clearing the pin prevents
@@ -9113,8 +9519,6 @@ class PrintScheduler:
 
             # MQTT relay - publish queue job started
             try:
-                from backend.app.services.mqtt_relay import mqtt_relay
-
                 await mqtt_relay.on_queue_job_started(
                     job_id=item.id,
                     filename=filename,
@@ -9154,16 +9558,13 @@ class PrintScheduler:
                     item.printer_id,
                     post_dispatch_state,
                 )
-                item.status = "pending"
-                item.started_at = None
-                await db.commit()
+                await self._defer_until_printer_idle(db, item)
                 return
 
             # Print command failed - revert status
-            item.status = "failed"
-            item.error_message = "Failed to send print command to printer"
-            item.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not await self._fail_dispatch(db, item, "Failed to send print command to printer"):
+                await self._close_cancelled_dispatch_toast(item, toast_uid)
+                return
             logger.error(
                 f"Queue item {item.id}: Failed to start print on {printer.name} ({printer.model}) - "
                 f"printer_manager.start_print() returned False. "
@@ -9248,6 +9649,9 @@ class PrintScheduler:
         # once is what matters — it is the state the printer was in when it
         # declined to start (#2758).
         drying_ams_ids: list[int] = []
+        # The printer answered the start with a refusal: nothing will start,
+        # and the command was not lost, so no reconnect either.
+        start_refusal: tuple[str, str | None] | None = None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             await asyncio.sleep(poll_interval)
@@ -9269,6 +9673,7 @@ class PrintScheduler:
                 # would otherwise look like "command landed" and leave the
                 # queue item stuck in 'printing' forever (#1370).
                 scheduler._release_dispatch_hold(printer_id)
+                scheduler._sent_unstarted_print.pop(queue_item_id, None)
                 try:
                     await ws_manager.send_queue_item_acked(
                         user_id=created_by_id,
@@ -9285,6 +9690,10 @@ class PrintScheduler:
             # this ordering costs the detection nothing.
             if _mqtt_commands_rejected(status):
                 command_rejected = True
+                break
+            refusal = getattr(printer_manager.get_client(printer_id), "last_start_refusal", None)
+            if isinstance(refusal, tuple):
+                start_refusal = refusal
                 break
             if pre_subtask_id is not None and status.subtask_id is not None and status.subtask_id != pre_subtask_id:
                 # Phase A exit — printer accepted the file (subtask_id flipped
@@ -9306,6 +9715,7 @@ class PrintScheduler:
                 last_status = status
                 if status.state in _ACTIVE_PRINT_STATES:
                     scheduler._release_dispatch_hold(printer_id)
+                    scheduler._sent_unstarted_print.pop(queue_item_id, None)
                     try:
                         await ws_manager.send_queue_item_acked(
                             user_id=created_by_id,
@@ -9436,6 +9846,20 @@ class PrintScheduler:
             )
             revert_outcome = "revert_failed"
 
+        if revert_outcome in ("command_rejected", "gave_up"):
+            # The item is failed: its print user and expected print must not
+            # pass the printer's next print off as Bambuddy's.
+            scheduler._forget_unstarted_print(queue_item_id, unless_printing=True)
+            from backend.app.services.print_batch import refresh_batches_after
+
+            await refresh_batches_after([queue_item_id])
+        elif revert_outcome == "reverted":
+            # Another try claims the printer again. Until then no print on it
+            # is vouched for as this item's, except a late start of its file.
+            scheduler._forget_unstarted_print(queue_item_id, unless_printing=True, keep_expected=True)
+        elif revert_outcome == "already_moved_on":
+            scheduler._sent_unstarted_print.pop(queue_item_id, None)
+
         if revert_outcome == "already_moved_on":
             # Preserves the pre-#1370 early-return: if on_print_complete (or any
             # other path) already moved the item past 'printing', don't run the
@@ -9475,7 +9899,16 @@ class PrintScheduler:
             )
             await scheduler._notify_dispatch_gave_up(queue_item_id, printer_id, created_by_id)
         elif revert_outcome == "reverted":
-            if landed_on_subtask:
+            if start_refusal is not None:
+                logger.warning(
+                    "Queue item %s: printer %d refused the print start (result=%s, reason=%s) — "
+                    "reverted to 'pending' for retry",
+                    queue_item_id,
+                    printer_id,
+                    start_refusal[0],
+                    start_refusal[1],
+                )
+            elif landed_on_subtask:
                 logger.warning(
                     "Queue item %s: printer %d accepted project_file (subtask_id "
                     "advanced) but never transitioned to an active state within "
@@ -9501,7 +9934,7 @@ class PrintScheduler:
         # project_file landed on the printer. A forced reconnect at this point
         # would interrupt the printer's parse and trigger 0500_4003 (#1150) —
         # skip the recovery entirely.
-        if landed_on_subtask:
+        if landed_on_subtask or start_refusal is not None:
             return
 
         # Phase A timeout path: if the printer's gcode_file changed since

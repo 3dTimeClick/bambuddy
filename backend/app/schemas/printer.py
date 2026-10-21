@@ -2,8 +2,28 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
 from backend.app.schemas.printer_location import normalize_location_name
-from backend.app.utils.printer_models import supports_nozzle_flow_type
+
+
+def _mask_url_login(url: str | None) -> str | None:
+    """A stored camera URL with its login secret masked.
+
+    One URL, not a log line: the login runs to the last ``@`` before the
+    first ``/`` after the scheme, whitespace, ``?`` and ``#`` included (when
+    in doubt it is masked). The user part up to the first ``:`` survives;
+    without a ``:`` the login may be a token and goes whole.
+    """
+    if not url or "://" not in url:
+        return url
+    start = url.index("://") + 3
+    slash = url.find("/", start)
+    end = len(url) if slash == -1 else slash
+    if "@" not in url[start:end]:
+        return url
+    login, host = url[start:end].rsplit("@", 1)
+    shown = f"{login.split(':', 1)[0]}:[REDACTED]" if ":" in login else "[REDACTED]"
+    return f"{url[:start]}{shown}@{host}{url[end:]}"
 
 
 class PrinterBase(BaseModel):
@@ -63,7 +83,8 @@ class PlateDetectionROI(BaseModel):
     h: float = Field(..., ge=0.0, le=1.0)  # Height %
 
 
-class PrinterUpdate(BaseModel):
+class PrinterUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "printers"
     name: str | None = None
     ip_address: str | None = Field(
         default=None,
@@ -114,52 +135,15 @@ class PrinterResponse(PrinterBase):
     class Config:
         from_attributes = True
 
+    @field_validator("external_camera_url", "external_camera_snapshot_url", mode="after")
     @classmethod
-    def from_orm_with_roi(cls, printer) -> "PrinterResponse":
-        """Create response from ORM model, converting ROI fields to nested object."""
-        data = {
-            "id": printer.id,
-            "name": printer.name,
-            "serial_number": printer.serial_number,
-            "ip_address": printer.ip_address,
-            "model": printer.model,
-            "location": printer.location,
-            "auto_archive": printer.auto_archive,
-            "external_camera_url": printer.external_camera_url,
-            "external_camera_type": printer.external_camera_type,
-            "external_camera_enabled": printer.external_camera_enabled,
-            "external_camera_snapshot_url": printer.external_camera_snapshot_url,
-            "camera_rotation": printer.camera_rotation,
-            "camera_light_auto": bool(printer.camera_light_auto),
-            "is_active": printer.is_active,
-            "nozzle_count": printer.nozzle_count,
-            "supports_nozzle_flow_type": supports_nozzle_flow_type(printer.model),
-            "print_hours_offset": printer.print_hours_offset,
-            "wear_cost_per_hour": printer.wear_cost_per_hour,
-            "plate_detection_enabled": printer.plate_detection_enabled,
-            "created_at": printer.created_at,
-            "updated_at": printer.updated_at,
-        }
-        # Build ROI object if any ROI field is set
-        if any(
-            [
-                printer.plate_detection_roi_x is not None,
-                printer.plate_detection_roi_y is not None,
-                printer.plate_detection_roi_w is not None,
-                printer.plate_detection_roi_h is not None,
-            ]
-        ):
-            data["plate_detection_roi"] = PlateDetectionROI(
-                x=printer.plate_detection_roi_x or 0.15,
-                y=printer.plate_detection_roi_y or 0.35,
-                w=printer.plate_detection_roi_w or 0.70,
-                h=printer.plate_detection_roi_h or 0.55,
-            )
-        return cls(**data)
+    def _camera_credentials(cls, value: str | None) -> str | None:
+        """Readers see the camera URLs without the password in them."""
+        return _mask_url_login(value)
 
 
 class PrinterResponseWithSecret(PrinterResponse):
-    """PrinterResponse + access_code. Returned ONLY to callers with
+    """PrinterResponse + access_code and the full camera URLs. Returned ONLY to callers with
     PRINTERS_UPDATE (Admin / Operator JWTs, or single-trust auth-disabled mode).
 
     Viewers and API keys never receive this shape — they get the bare
@@ -168,6 +152,12 @@ class PrinterResponseWithSecret(PrinterResponse):
     """
 
     access_code: str
+
+    @field_validator("external_camera_url", "external_camera_snapshot_url", mode="after")
+    @classmethod
+    def _camera_credentials(cls, value: str | None) -> str | None:
+        """Editors keep the full camera URLs, to edit them."""
+        return value
 
 
 class HMSErrorResponse(BaseModel):

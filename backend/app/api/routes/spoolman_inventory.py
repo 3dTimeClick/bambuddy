@@ -53,7 +53,7 @@ from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.supplier import SpoolmanSpoolSupplier, Supplier
 from backend.app.models.user import User
 from backend.app.schemas.spool import SpoolFilamentPresetBase, SpoolKProfileBase, naive_utc
-from backend.app.schemas.spoolman import SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
+from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId, SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
 from backend.app.schemas.supplier import SpoolSupplierLinkInput
 from backend.app.services import slot_unlink_grace
 from backend.app.services.location_service import (
@@ -61,10 +61,10 @@ from backend.app.services.location_service import (
     maybe_sync_spoolman_locations,
     resolve_spoolman_location_string,
 )
-from backend.app.services.printer_manager import printer_manager
+from backend.app.services.printer_manager import PrinterManager, printer_manager
 from backend.app.services.slicer_filament_resolver import resolve_slicer_filament
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
-from backend.app.services.spool_filament_preset import resolve_spoolman_preset
+from backend.app.services.spool_filament_preset import forget_spoolman_spool_own_preset, resolve_spoolman_preset
 from backend.app.services.spoolman import (
     SpoolmanClient,
     SpoolmanClientError,
@@ -76,6 +76,7 @@ from backend.app.services.spoolman import (
 from backend.app.services.spoolman_tracking import get_fallback_spool_tag_for_slot, is_slot_fallback_tag
 from backend.app.services.tag_conflict import tag_already_linked
 from backend.app.utils.color_utils import spoolman_color_hex
+from backend.app.utils.filament_finish import finish_generic_id
 from backend.app.utils.filament_ids import (
     GENERIC_FILAMENT_IDS,
     filament_id_to_setting_id,
@@ -455,9 +456,8 @@ class SpoolTagLinkRequest(BaseModel):
 class SpoolSlotAssignmentRequest(BaseModel):
     spoolman_spool_id: int = Field(..., gt=0)
     printer_id: int = Field(..., gt=0)
-    # ams_id 0–7 for physical AMS units; 255 = external/virtual spool extruder slot
-    ams_id: int = Field(..., ge=0, le=255)
-    tray_id: int = Field(..., ge=0, le=3)
+    ams_id: SlotAmsId
+    tray_id: SlotTrayId
 
 
 # ---------------------------------------------------------------------------
@@ -999,9 +999,38 @@ async def update_spool(
             new_extra[BAMBU_LAST_DRIED_HOURS_KEY] = json.dumps("")
         async with _translate_spoolman_errors():
             updated = await client.merge_spool_extra(spool_id, new_extra)
+        if sf_set or sfn_set:
+            forget_spoolman_spool_own_preset(spool_id)
 
     await ws_manager.broadcast({"type": "inventory_changed"})
     return _map_spoolman_spool(updated)
+
+
+async def _release_spool_slots(db: AsyncSession, spool_id: int, *, keep_tracked: bool) -> list[tuple[int, int, int]]:
+    """Delete a spool's slot rows; returns the freed (printer, ams, tray) slots.
+
+    ``keep_tracked`` keeps the rows of a printer with a print being tracked:
+    its usage is charged at completion by the slot's spool, which only the row
+    knows for a spool without a tag. ``release_archived_slot_rows`` frees them
+    once that print is reported. The caller commits, then announces.
+    """
+    from backend.app.models.active_print_spoolman import ActivePrintSpoolman
+
+    query = select(SpoolmanSlotAssignment).where(SpoolmanSlotAssignment.spoolman_spool_id == spool_id)
+    if keep_tracked:
+        query = query.where(SpoolmanSlotAssignment.printer_id.not_in(select(ActivePrintSpoolman.printer_id)))
+    rows = (await db.execute(query)).scalars().all()
+    freed = [(r.printer_id, r.ams_id, r.tray_id) for r in rows]
+    for row in rows:
+        await db.delete(row)
+    return freed
+
+
+async def _announce_freed_slots(freed: list[tuple[int, int, int]]) -> None:
+    for printer_id, ams_id, tray_id in freed:
+        await ws_manager.broadcast(
+            {"type": "spool_assignment_changed", "printer_id": printer_id, "ams_id": ams_id, "tray_id": tray_id}
+        )
 
 
 async def _purge_local_rows_for_spool(db: AsyncSession, spool_id: int) -> None:
@@ -1031,8 +1060,12 @@ async def delete_spool(
     async with _translate_spoolman_errors():
         await client.delete_spool(spool_id)
     await _purge_local_rows_for_spool(db, spool_id)
+    # Its slots go too: a row left behind points tracking and the scheduler
+    # at an id Spoolman no longer has.
+    freed = await _release_spool_slots(db, spool_id, keep_tracked=False)
     await db.commit()
     await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     return {"status": "deleted"}
 
 
@@ -1046,12 +1079,16 @@ async def archive_spool(
     client = await _get_client(db)
     async with _translate_spoolman_errors():
         spool = await client.set_spool_archived(spool_id, archived=True)
+    # An archived spool gives its slots up, as in the built-in inventory.
+    freed = await _release_spool_slots(db, spool_id, keep_tracked=True)
+    await db.commit()
+    await ws_manager.broadcast({"type": "inventory_changed"})
+    await _announce_freed_slots(freed)
     try:
         mapped = _map_spoolman_spool(spool)
     except ValueError as exc:
         logger.warning("Malformed Spoolman spool (id=%r): %s", spool_id, exc)
         raise HTTPException(status_code=502, detail="Spoolman returned malformed spool data") from exc
-    await ws_manager.broadcast({"type": "inventory_changed"})
     return mapped
 
 
@@ -1157,12 +1194,14 @@ async def bulk_delete_spools(
     """Hard-delete every listed Spoolman spool. Per-spool failures are collected."""
     client = await _get_client(db)
     deleted = 0
+    freed: list[tuple[int, int, int]] = []
     errors: list[dict] = []
     for sid in payload.ids:
         try:
             async with _translate_spoolman_errors():
                 await client.delete_spool(sid)
             await _purge_local_rows_for_spool(db, sid)
+            freed += await _release_spool_slots(db, sid, keep_tracked=False)
             deleted += 1
         except HTTPException as exc:
             errors.append({"id": sid, "status": exc.status_code, "detail": exc.detail})
@@ -1172,6 +1211,7 @@ async def bulk_delete_spools(
     if deleted:
         await db.commit()
         await ws_manager.broadcast({"type": "inventory_changed"})
+        await _announce_freed_slots(freed)
     return {"deleted": deleted, "errors": errors}
 
 
@@ -1184,11 +1224,13 @@ async def bulk_archive_spools(
     """Archive every listed Spoolman spool. Per-spool failures are collected."""
     client = await _get_client(db)
     archived = 0
+    freed: list[tuple[int, int, int]] = []
     errors: list[dict] = []
     for sid in payload.ids:
         try:
             async with _translate_spoolman_errors():
                 await client.set_spool_archived(sid, archived=True)
+            freed += await _release_spool_slots(db, sid, keep_tracked=True)
             archived += 1
         except HTTPException as exc:
             errors.append({"id": sid, "status": exc.status_code, "detail": exc.detail})
@@ -1196,7 +1238,9 @@ async def bulk_archive_spools(
             logger.exception("Spoolman bulk-archive failed for spool %s", sid)
             errors.append({"id": sid, "status": 500, "detail": str(exc)})
     if archived:
+        await db.commit()
         await ws_manager.broadcast({"type": "inventory_changed"})
+        await _announce_freed_slots(freed)
     return {"archived": archived, "errors": errors}
 
 
@@ -1235,8 +1279,10 @@ async def bulk_reset_spool_consumed_counter(
 
     Caller passes an explicit list of IDs — no "reset all" shortcut, since
     a typo on a wildcard would wipe the entire inventory's tracking.
-    Returns the count of spools successfully reset; individual failures are
-    logged but do not abort the batch.
+    Returns the count of spools reset and, like the other bulk actions, the
+    ones Spoolman refused in ``errors``: an individual failure does not abort
+    the batch, and a batch where every reset failed is not reported as a
+    success (FO-C8).
     """
     spool_ids = payload.get("spool_ids")
     if not isinstance(spool_ids, list) or not spool_ids:
@@ -1246,6 +1292,7 @@ async def bulk_reset_spool_consumed_counter(
 
     client = await _get_client(db)
     reset_count = 0
+    errors: list[dict] = []
     for spool_id in spool_ids:
         try:
             async with _translate_spoolman_errors():
@@ -1253,9 +1300,10 @@ async def bulk_reset_spool_consumed_counter(
             reset_count += 1
         except HTTPException as exc:
             logger.warning("Spoolman reset-consumed-counter failed for spool %s: %s", spool_id, exc.detail)
+            errors.append({"id": spool_id, "status": exc.status_code, "detail": exc.detail})
     if reset_count:
         await ws_manager.broadcast({"type": "inventory_changed"})
-    return {"reset": reset_count}
+    return {"reset": reset_count, "errors": errors}
 
 
 @router.patch("/spools/{spool_id}/weight")
@@ -1591,8 +1639,13 @@ async def sync_spoolman_ams_weights(
     # Only slots on printers the caller may see (#1727)
     assignments = [a for a in result.scalars().all() if printer_scope.allows(a.printer_id)]
 
+    from backend.app.services.usage_tracker import _active_sessions
+
     synced = 0
     skipped = 0
+    # A printing printer is left alone: its print's usage is charged when it
+    # completes, on top of whatever remaining weight the spool has by then.
+    printing = 0
 
     def _find_tray(ams_data: list, ams_id: int, tray_id: int) -> dict | None:
         if not ams_data:
@@ -1619,13 +1672,29 @@ async def sync_spoolman_ams_weights(
             continue
 
         state = printer_manager.get_status(assignment.printer_id)
-        if not state or not state.raw_data:
+        # A disconnected printer keeps its last report, which is not a reading.
+        if not state or not state.raw_data or getattr(state, "connected", True) is False:
             logger.info(
                 "Spoolman AMS sync: printer %d not connected, skipping spool %d",
                 assignment.printer_id,
                 assignment.spoolman_spool_id,
             )
             skipped += 1
+            continue
+
+        # Until completion has charged the print its session stays open, also
+        # after the printer has reported the print finished.
+        if (
+            str(getattr(state, "state", "") or "").upper() in PrinterManager.ACTIVE_PRINT_STATES
+            or assignment.printer_id in _active_sessions
+        ):
+            logger.info(
+                "Spoolman AMS sync: printer %d is printing, skipping spool %d",
+                assignment.printer_id,
+                assignment.spoolman_spool_id,
+            )
+            skipped += 1
+            printing += 1
             continue
 
         ams_raw = state.raw_data.get("ams", [])
@@ -1695,7 +1764,7 @@ async def sync_spoolman_ams_weights(
                 )
             skipped += 1
 
-    return {"synced": synced, "skipped": skipped}
+    return {"synced": synced, "skipped": skipped, "printing": printing}
 
 
 @router.post("/slot-assignments")
@@ -1722,6 +1791,10 @@ async def assign_spoolman_slot(
     # This prevents ghost rows pointing at non-existent spool IDs.
     async with _translate_spoolman_errors():
         spool = await client.get_spool(body.spoolman_spool_id)
+    # As the built-in inventory refuses it: an archived spool on a slot would
+    # be charged the next print's usage (SSA-8).
+    if spool.get("archived"):
+        raise HTTPException(status_code=400, detail="Cannot assign an archived spool")
 
     # Spool confirmed in Spoolman — upsert into local slot-assignment table
     # assigned_at is intentionally not refreshed on re-assign (original timestamp preserved)
@@ -1854,7 +1927,10 @@ async def assign_spoolman_slot(
             # preset (GFG96) rather than trading it for "PETG"'s GFG99.
             if not tray_info_idx:
                 tray_info_idx = (
-                    GENERIC_FILAMENT_IDS.get(material_upper)
+                    # The finish first, as in internal mode: a Silk spool
+                    # gets Generic PLA Silk.
+                    finish_generic_id(tray_type, f"{material} {subtype}")
+                    or GENERIC_FILAMENT_IDS.get(material_upper)
                     or GENERIC_FILAMENT_IDS.get(material_upper.split("-")[0].split(" ")[0])
                     or GENERIC_FILAMENT_IDS.get(tray_type.upper())
                     or ""
@@ -1996,6 +2072,31 @@ async def assign_spoolman_slot(
                     "No stored K-profile for Spoolman spool %d — reset slot to Default K (cali_idx=-1)",
                     body.spoolman_spool_id,
                 )
+
+            # Read-back verification, as the built-in assign registers it (#2582):
+            # the AMS pushes that follow confirm the tray took what was sent.
+            # Not for a slot the firmware calls empty, which echoes nothing
+            # back until a spool goes in (the built-in check, inventory.py).
+            from backend.app.api.routes.inventory import _find_tray_in_ams_data  # noqa: PLC0415
+            from backend.app.services.ams_slot_presence import spool_present  # noqa: PLC0415
+
+            live_tray = None
+            if state and state.raw_data:
+                ams_raw = state.raw_data.get("ams", [])
+                if isinstance(ams_raw, dict):
+                    ams_raw = ams_raw.get("ams", [])
+                live_tray = _find_tray_in_ams_data(ams_raw, body.ams_id, body.tray_id)
+            tray_state = (live_tray or {}).get("state")
+            if not (spool_present(live_tray) is not True and tray_state in (9, 10)):
+                mqtt_client.register_assignment_verification(
+                    ams_id=body.ams_id,
+                    tray_id=body.tray_id,
+                    tray_info_idx=effective_tray_info_idx,
+                    tray_color=tray_color,
+                    cali_idx=matching_kp.cali_idx if matching_kp and matching_kp.cali_idx is not None else -1,
+                )
+                # Fresh telemetry for the check to compare against.
+                mqtt_client.request_status_update()
 
             logger.info(
                 "Auto-configured AMS slot ams=%d tray=%d for Spoolman spool %d on printer %d",

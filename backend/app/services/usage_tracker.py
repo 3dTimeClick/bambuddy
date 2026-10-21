@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.spool import Spool
@@ -268,6 +268,35 @@ class PrintSession:
 # context — see ``persist_session`` / ``restore_session``.
 _active_sessions: dict[int, PrintSession] = {}
 
+# Printers whose finished print is being closed out. on_print_complete takes the
+# session first and charges the usage several awaits later; the printer already
+# reports FINISH, so without this mark the AMS remain% weight sync would run in
+# between and the print would be charged twice (WU-3).
+_completing: set[int] = set()
+
+
+def mark_completing(printer_id: int) -> None:
+    """The completion path's first step: hold the weight sync off until the
+    usage is booked (discard_session) or the completion ends."""
+    _completing.add(printer_id)
+
+
+def done_completing(printer_id: int) -> None:
+    _completing.discard(printer_id)
+
+
+def is_completing(printer_id: int) -> bool:
+    """The printer's finished print is being closed out (on_print_complete runs)."""
+    return printer_id in _completing
+
+
+def printer_is_charging(printer_id: int) -> bool:
+    """A print's usage is still to be charged: it runs, or it ended and its
+    completion has not booked it yet. The AMS remain% sync leaves the
+    printer's spools alone meanwhile (#880)."""
+    return printer_id in _active_sessions or printer_id in _completing
+
+
 # Serialises the read-modify-write on the persisted tray-change log, per printer.
 _tray_change_locks: dict[int, asyncio.Lock] = {}
 
@@ -295,6 +324,34 @@ def _tray_map_from_json(mapping: dict | None) -> dict[tuple[int, int], int]:
         if key is not None and isinstance(value, int):
             result[key] = value
     return result
+
+
+async def _charge_spool(db: AsyncSession, spool: Spool, grams: float) -> bool:
+    """Add *grams* to the spool's usage in the database itself (WU-4).
+
+    The spool was loaded several awaits earlier; a weight set by hand or
+    weighed on the scale since then would be lost to a write of the value
+    computed from that copy. The loaded copy is set to the stored result: from
+    this statement until the commit, the transaction holds the row (the write
+    lock on SQLite), so writing it back on flush changes nothing.
+
+    False when the spool was deleted meanwhile: the caller skips it, since a
+    usage row for it would break its foreign key on PostgreSQL and roll back
+    the whole completion.
+    """
+    now = datetime.now(timezone.utc)
+    stored = await db.scalar(
+        update(Spool)
+        .where(Spool.id == spool.id)
+        .values(weight_used=func.coalesce(Spool.weight_used, 0) + grams, last_used=now)
+        .returning(Spool.weight_used)
+        .execution_options(synchronize_session=False)
+    )
+    if stored is None:
+        return False
+    spool.weight_used = stored
+    spool.last_used = now
+    return True
 
 
 async def persist_session(
@@ -419,6 +476,13 @@ async def clear_persisted_session(db: AsyncSession, printer_id: int) -> None:
         await db.commit()
 
 
+def forget_printer(printer_id: int) -> None:
+    """A deleted printer's print-start context in memory (the row goes with the printer)."""
+    _active_sessions.pop(printer_id, None)
+    _completing.discard(printer_id)
+    _tray_change_locks.pop(printer_id, None)
+
+
 async def discard_session(db: AsyncSession, printer_id: int) -> None:
     """Forget a printer's print-start context, in memory and on disk.
 
@@ -427,6 +491,7 @@ async def discard_session(db: AsyncSession, printer_id: int) -> None:
     the internal tracker's ``on_print_complete`` consumes (and pops) it.
     """
     _active_sessions.pop(printer_id, None)
+    _completing.discard(printer_id)
     _tray_change_locks.pop(printer_id, None)
     await clear_persisted_session(db, printer_id)
 
@@ -516,6 +581,8 @@ async def on_print_start(
     (#880); registering a session the internal tracker will never complete
     would suppress a sync those users still need.
     """
+    # A new print: whatever the last completion left marked is over.
+    _completing.discard(printer_id)
     state = printer_manager.get_status(printer_id)
     if not state or not state.raw_data:
         logger.debug("[UsageTracker] No state for printer %d, skipping", printer_id)
@@ -680,7 +747,6 @@ async def on_print_complete(
     """
     from sqlalchemy import select
 
-    from backend.app.api.routes.settings import get_setting
     from backend.app.models.spool_usage_history import SpoolUsageHistory
 
     session = _active_sessions.pop(printer_id, None)
@@ -699,8 +765,9 @@ async def on_print_complete(
     handled_trays: set[tuple[int, int]] = set()
 
     # Fetch default filament cost from settings for fallback
-    default_cost_str = await get_setting(db, "default_filament_cost")
-    default_filament_cost = float(default_cost_str) if default_cost_str else 0.0
+    from backend.app.services.print_cost_estimate import default_cost_per_kg
+
+    default_filament_cost = await default_cost_per_kg(db)
 
     # Fall back to ams_mapping captured at print start (needed when auto-archive is off
     # and the caller can't retrieve the mapping from _print_ams_mappings without archive_id)
@@ -920,8 +987,8 @@ async def on_print_complete(
                 weight_grams = (delta_pct / 100.0) * spool.label_weight
 
                 # Update spool
-                spool.weight_used = (spool.weight_used or 0) + weight_grams
-                spool.last_used = datetime.now(timezone.utc)
+                if not await _charge_spool(db, spool, weight_grams):
+                    continue
 
                 # Calculate cost for this usage
                 cost = None
@@ -983,10 +1050,9 @@ async def on_print_complete(
     # so the overwrite must reconstruct the whole-print cost.
 
     if archive_id and results:
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
         from backend.app.models.archive import PrintArchive
-        from backend.app.models.print_log import PrintLogEntry
 
         archive_result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
         archive = archive_result.scalar_one_or_none()
@@ -1002,11 +1068,14 @@ async def on_print_complete(
                 # live in PrintLogEntry; the archive card keeps the first run's
                 # cost so a failed reprint doesn't visually clobber a successful
                 # 100 g/$X print with a 10 g/$X/10 partial (#1378).
-                _existing_runs_result = await db.execute(
-                    select(func.count(PrintLogEntry.id)).where(PrintLogEntry.archive_id == archive_id)
-                )
-                _existing_runs = _existing_runs_result.scalar()
-                if not _existing_runs:
+                from backend.app.services.print_log import other_runs_of
+
+                # Nor from a run that did not finish: the archive's cost is one
+                # full print of the file -- the queue estimate, plate scaling and
+                # billing read it so -- and a failed run's partial cost already
+                # lands on its own Print Log entry. Spoolman mode never wrote it
+                # either (COST-3).
+                if status == "completed" and not await other_runs_of(db, archive):
                     archive.cost = round(total_cost, 2)
                     await db.commit()
 
@@ -1398,9 +1467,9 @@ async def _track_from_3mf(
         return []
 
     # The queue item carries both the plate and the dispatched mapping; look it
-    # up at most once. ``.first()`` rather than ``.scalar_one_or_none()``
-    # because a batch dispatches one archive as several queue items, and
-    # raising there would cost the print all of its usage tracking.
+    # up at most once. A batch dispatches one archive as several queue items,
+    # on several printers at once: only this printer's newest is this run.
+    # Completion has already closed it, as cancelled for an aborted print.
     _queue_item_lookup: list = []
 
     async def _dispatch_queue_item():
@@ -1411,7 +1480,9 @@ async def _track_from_3mf(
                 queue_result = await db.execute(
                     select(PrintQueueItem)
                     .where(PrintQueueItem.archive_id == archive_id)
-                    .where(PrintQueueItem.status.in_(["printing", "completed", "failed"]))
+                    .where(PrintQueueItem.printer_id == printer_id)
+                    .where(PrintQueueItem.status.in_(["printing", "completed", "failed", "cancelled"]))
+                    .order_by(PrintQueueItem.id.desc())
                 )
                 _queue_item_lookup.append(queue_result.scalars().first())
         return _queue_item_lookup[0]
@@ -1419,20 +1490,21 @@ async def _track_from_3mf(
     # The caller's plate_id comes from the in-memory session, which a restart
     # mid-print destroys. Both the archive and the queue item recorded the
     # plate at dispatch — without falling back to them the parser sums every
-    # plate of a multi-plate file and charges the lot to one spool.
+    # plate of a multi-plate file and charges the lot to one spool. The
+    # newest queue item goes first: the archive keeps the plate of its first
+    # print, so a reprint of another plate is only on the queue item.
     if plate_id is None:
-        if archive is not None and archive.plate_id is not None:
+        plate_queue_item = await _dispatch_queue_item()
+        if plate_queue_item is not None and plate_queue_item.plate_id is not None:
+            plate_id = plate_queue_item.plate_id
+            logger.info(
+                "[UsageTracker] 3MF: plate_id=%s recovered from queue item %s",
+                plate_id,
+                plate_queue_item.id,
+            )
+        elif archive is not None and archive.plate_id is not None:
             plate_id = archive.plate_id
             logger.info("[UsageTracker] 3MF: plate_id=%s recovered from archive %s", plate_id, archive_id)
-        else:
-            plate_queue_item = await _dispatch_queue_item()
-            if plate_queue_item is not None and plate_queue_item.plate_id is not None:
-                plate_id = plate_queue_item.plate_id
-                logger.info(
-                    "[UsageTracker] 3MF: plate_id=%s recovered from queue item %s",
-                    plate_id,
-                    plate_queue_item.id,
-                )
 
     filament_usage = extract_filament_usage_from_3mf(file_path, plate_id)
     if not filament_usage and plate_id is not None:
@@ -1747,8 +1819,8 @@ async def _track_from_3mf(
                 if not spool:
                     continue
 
-                spool.weight_used = (spool.weight_used or 0) + segment_grams
-                spool.last_used = datetime.now(timezone.utc)
+                if not await _charge_spool(db, spool, segment_grams):
+                    continue
 
                 percent = round(segment_grams / (spool.label_weight or 1000) * 100)
 
@@ -1919,8 +1991,8 @@ async def _track_from_3mf(
             continue
 
         # Update spool
-        spool.weight_used = (spool.weight_used or 0) + weight_grams
-        spool.last_used = datetime.now(timezone.utc)
+        if not await _charge_spool(db, spool, weight_grams):
+            continue
 
         percent = round(weight_grams / (spool.label_weight or 1000) * 100)
 

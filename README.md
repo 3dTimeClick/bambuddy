@@ -599,7 +599,7 @@ Optional but recommended — drop the [`slicer-api/` Compose stack](slicer-api/R
 ## 🚀 Quick Start
 
 ### Requirements
-- Python 3.10+ (3.11/3.12 recommended)
+- Python 3.11+ (3.12 or 3.13 recommended)
 - Bambu Lab printer with **Developer Mode** enabled (see below)
 - **"Store sent files on external storage"** enabled in Bambu Studio/OrcaSlicer
 - Same local network as printer
@@ -757,7 +757,7 @@ git clone https://github.com/maziggy/bambuddy.git
 cd bambuddy
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 
 # Run (--loop asyncio avoids a uvloop TLS bug that can truncate VP FTP uploads)
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --loop asyncio

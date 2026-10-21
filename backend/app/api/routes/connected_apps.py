@@ -38,12 +38,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth import (
+    RequireAdminIfAuthEnabled,
     RequirePermissionIfAuthEnabled,
     get_current_user,
     get_password_hash,
     get_user_by_username,
     is_auth_enabled,
     security,
+    session_dated,
+    token_outlived_its_session,
     verify_password,
 )
 from backend.app.core.database import get_db
@@ -129,6 +132,7 @@ async def list_connected_apps(
 async def create_connected_app(
     data: ConnectedAppCreate,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Register an app. The client secret is in this response and nowhere else."""
@@ -157,6 +161,7 @@ async def update_connected_app(
     app_id: int,
     data: ConnectedAppUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     app = await _get_app_or_404(db, app_id)
@@ -175,6 +180,7 @@ async def update_connected_app(
 async def rotate_connected_app_secret(
     app_id: int,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Replace the client secret. The old one stops working immediately."""
@@ -191,6 +197,7 @@ async def rotate_connected_app_secret(
 async def delete_connected_app(
     app_id: int,
     db: AsyncSession = Depends(get_db),
+    _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     app = await _get_app_or_404(db, app_id)
@@ -280,33 +287,32 @@ async def authorize(
         db.add(ConnectedAppGrant(app_id=app.id, user_id=user.id))
 
     code = secrets.token_urlsafe(32)
-    db.add(
-        AuthEphemeralToken.new_connect_code(
+    # Read before the commit: a rollback below expires what this session loaded,
+    # and reading it then raises in async SQLAlchemy.
+    username, user_id, app_id, redirect_uri = user.username, user.id, app.id, app.redirect_uri
+
+    def new_code() -> AuthEphemeralToken:
+        return AuthEphemeralToken.new_connect_code(
             code_hash=_hash_code(code),
-            username=user.username,
-            app_id=app.id,
+            username=username,
+            app_id=app_id,
             code_challenge=data.code_challenge,
             expires_at=now + CODE_TTL,
+            # When the session that consents began (core/auth.session_dated)
+            **session_dated(username),
         )
-    )
+
+    db.add(new_code())
     try:
         await db.commit()
     except IntegrityError:
         # Two tabs consenting at once both inserted the grant; the other one won.
         await db.rollback()
-        db.add(
-            AuthEphemeralToken.new_connect_code(
-                code_hash=_hash_code(code),
-                username=user.username,
-                app_id=app.id,
-                code_challenge=data.code_challenge,
-                expires_at=now + CODE_TTL,
-            )
-        )
+        db.add(new_code())
         await db.commit()
 
-    logger.info("Connected app %s: code issued for user %s", app.id, user.id)
-    return ConnectAuthorizeResponse(code=code, redirect_uri=app.redirect_uri)
+    logger.info("Connected app %s: code issued for user %s", app_id, user_id)
+    return ConnectAuthorizeResponse(code=code, redirect_uri=redirect_uri)
 
 
 # --------------------------------------------------------------------------
@@ -370,13 +376,15 @@ async def exchange_code(
             AuthEphemeralToken.provider_id == app.id,
             AuthEphemeralToken.expires_at > now,
         )
-        .returning(AuthEphemeralToken.username, AuthEphemeralToken.nonce)
+        .returning(AuthEphemeralToken.username, AuthEphemeralToken.nonce, AuthEphemeralToken.created_at)
     )
     row = consumed.one_or_none()
     await db.commit()
     if row is None:
         raise await fail(400, "invalid_grant", "unknown, expired, reused or foreign code")
-    username, code_challenge = row
+    username, code_challenge, minted_at = row
+    if await token_outlived_its_session(db, username, minted_at):
+        raise await fail(400, "invalid_grant", "code from before the user's current session")
 
     if not hmac.compare_digest(app.redirect_uri, data.redirect_uri):
         raise await fail(400, "invalid_grant", "callback URL mismatch")

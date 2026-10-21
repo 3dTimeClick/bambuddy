@@ -35,6 +35,7 @@ from backend.app.core.auth import (
     ApiKeyActor,
     RequestActor,
     RequirePermissionIfAuthEnabled,
+    require_actor_still_exists,
     require_auth_if_enabled,
     require_permission_if_auth_enabled,
     security,
@@ -426,6 +427,8 @@ async def import_instance(
     # there as on the manifest-supplied name.
     filename = suggested_name if suggested_name.endswith(".3mf") else unquote(download.filename)
 
+    # Not saved for a user deleted during the download (SQLite reuses the id).
+    await require_actor_still_exists(db, actor)
     # Credited to the key's owner for an API key. Credential identity is
     # resolved inside the provider.
     library_file, was_existing = await save_3mf_bytes_to_library(

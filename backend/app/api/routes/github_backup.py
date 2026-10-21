@@ -24,8 +24,8 @@ from backend.app.schemas.github_backup import (
     GitHubRestorePreview,
     GitHubRestoreRequest,
     GitHubRestoreResponse,
+    GitHubTestConnectionRequest,
     GitHubTestConnectionResponse,
-    ProviderType,
     RestoreCategory,
 )
 from backend.app.services.github_backup import github_backup_service
@@ -345,13 +345,19 @@ async def delete_config(
 
 @router.post("/test", response_model=GitHubTestConnectionResponse)
 async def test_connection(
-    repo_url: str = Query(..., description="Repository URL"),
-    token: str = Query(..., description="Personal Access Token"),
-    provider: ProviderType = Query(default=ProviderType.GITHUB, description="Git provider key"),
+    body: GitHubTestConnectionRequest,
     _: User | None = RequirePermissionIfAuthEnabled(Permission.GITHUB_BACKUP),
 ):
     """Test Git provider connection with provided credentials."""
-    result = await github_backup_service.test_connection(repo_url, token, provider=provider)
+    from backend.app.api.routes._url_safety import assert_safe_lan_service_url
+
+    # Checked like a saved repository URL (see _enforce_private_repo).
+    try:
+        assert_safe_lan_service_url(body.repo_url, label="Repository URL")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    result = await github_backup_service.test_connection(body.repo_url, body.token, provider=body.provider)
     return GitHubTestConnectionResponse(**result)
 
 
@@ -451,7 +457,7 @@ async def list_commits(
 async def preview_restore(
     ref: str = Query(default="HEAD", pattern=REF_PATTERN),
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.GITHUB_RESTORE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.GITHUB_RESTORE),
 ):
     """Report which categories a given backup commit contains."""
     result = await db.execute(select(GitHubBackupConfig).limit(1))
@@ -460,7 +466,9 @@ async def preview_restore(
     if not config:
         raise HTTPException(status_code=404, detail="No configuration found. Configure backup first.")
 
-    preview = await github_restore_service.preview(db, config, ref=ref)
+    preview = await github_restore_service.preview(
+        db, config, ref=ref, as_admin=current_user is None or current_user.is_admin
+    )
     return GitHubRestorePreview(**preview)
 
 
@@ -513,6 +521,8 @@ async def restore_backup(
         ref=request.ref,
         categories=request.categories,
         overwrite_existing=request.overwrite_existing,
+        # A non-admin's restore keeps the sign-in and mail settings as they are.
+        as_admin=current_user is None or current_user.is_admin,
     )
     return GitHubRestoreResponse(**restore_result)
 

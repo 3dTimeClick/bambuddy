@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from backend.app.core.logging_filters import redact_refused_headers
+
 if TYPE_CHECKING:
     from backend.app.models.smart_plug import SmartPlug
 
@@ -256,7 +258,8 @@ class HomeAssistantService:
         except httpx.ConnectError:
             return {"success": False, "message": None, "error": "Could not connect to Home Assistant"}
         except Exception as e:
-            return {"success": False, "message": None, "error": str(e)}
+            # May be the saved token's test: a refused header's value stays out.
+            return {"success": False, "message": None, "error": redact_refused_headers(str(e))}
 
     async def list_entities(self, url: str, token: str, search: str | None = None) -> list[dict]:
         """List available entities from HA.

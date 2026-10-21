@@ -253,7 +253,7 @@ export function StreamOverlayPage() {
     config.showModel ? mapModelCode(printer?.model ?? null) : null,
   ].filter(Boolean).join(' · ');
   const status = kiosk ? overlay : statusData;
-  const { imageKey, handleStreamError } = useOverlayCameraRecovery(id > 0 && config.showCamera && status != null);
+  const { imageKey, closing, imgRef, handleStreamError } = useOverlayCameraRecovery(id > 0 && config.showCamera && status != null);
   const timeFormat: TimeFormat = (kiosk ? overlay?.time_format : settings?.time_format) || 'system';
 
   // WebSocket for real-time updates (JWT-authenticated; skipped in kiosk mode,
@@ -296,7 +296,11 @@ export function StreamOverlayPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'printer_status' && data.printer_id === id) {
-          queryClient.setQueryData(['printerStatus', id], data.status);
+          // The update is the status itself, under `data`; merge it, as the
+          // app's own socket does, in case it carries only some fields.
+          queryClient.setQueryData(['printerStatus', id], (old: Record<string, unknown> | undefined) =>
+            old ? { ...old, ...data.data } : data.data,
+          );
         }
       } catch {
         // Ignore parse errors
@@ -416,7 +420,7 @@ export function StreamOverlayPage() {
       customLogo={customLogo}
       progressBackground={progressBackground}
       size={config.size}
-      camera={config.showCamera ? { url: streamUrl, rotation: printer?.camera_rotation ?? 0, onError: handleStreamError } : null}
+      camera={config.showCamera ? { url: closing ? undefined : streamUrl, rotation: printer?.camera_rotation ?? 0, onError: handleStreamError, imgRef } : null}
       name={config.showPrinter ? printer?.name ?? null : null}
       model={config.showModel ? mapModelCode(printer?.model ?? null) || null : null}
       filename={config.showFilename && status.current_print ? formatPrintName(status.current_print.replace(/\.gcode\.3mf$|\.3mf$|\.gcode$/i, ''), status.gcode_file, t) : null}
@@ -439,8 +443,9 @@ export function StreamOverlayPage() {
       {/* Camera feed - fullscreen background (optional) */}
       {config.showCamera && (
         <img
+          ref={imgRef}
           key={imageKey}
-          src={streamUrl}
+          src={closing ? undefined : streamUrl}
           alt={t('streamOverlay.cameraStream')}
           className="absolute inset-0 w-full h-full object-contain"
           style={dimensions ? {

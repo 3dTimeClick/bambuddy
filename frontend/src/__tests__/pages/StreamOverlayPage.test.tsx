@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { ToastProvider } from '../../contexts/ToastContext';
 import { AuthProvider } from '../../contexts/AuthContext';
+import { setStreamToken } from '../../api/client';
 
 const mockPrinter = {
   id: 1,
@@ -58,7 +59,11 @@ function renderOverlayPage(printerId: number, queryParams = '') {
     },
   });
 
-  return rtlRender(
+  return rtlRender(overlayTree(printerId, queryParams, queryClient));
+}
+
+function overlayTree(printerId: number, queryParams: string, queryClient: QueryClient) {
+  return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[`/overlay/${printerId}${queryParams}`]}>
         <AuthProvider>
@@ -195,7 +200,8 @@ describe('StreamOverlayPage', () => {
       if (typeof renewal !== 'function') throw new Error('Missing camera renewal timer');
       act(() => renewal());
       const renewed = screen.getByAltText('Camera stream');
-      expect(renewed).not.toBe(image);
+      // Classic remounts the img; version 2 switches the src of the same one.
+      if (!artwork) expect(renewed).not.toBe(image);
       expect(renewed.getAttribute('src')).not.toBe(source);
       expect(renewed.getAttribute('src')).toContain('token=overlay-test');
       expect(renewed.getAttribute('src')).toContain('fps=7');
@@ -203,6 +209,65 @@ describe('StreamOverlayPage', () => {
     } finally {
       view.unmount();
       timers.mockRestore();
+    }
+  });
+
+  // A detached img keeps its MJPEG connection open (measured in Chromium, which
+  // OBS browser sources run on): the old stream is closed before it is replaced.
+  it.each(['', '&artwork=2'])('closes the old camera stream before it is replaced (%s)', async (artwork) => {
+    server.use(http.get('/api/v1/printers/:id/overlay-status', () => HttpResponse.json(mockStatusIdle)));
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const view = renderOverlayPage(1, `?token=overlay-test${artwork}`);
+    try {
+      const image = await screen.findByAltText('Camera stream');
+      const close = timers.mock.calls.find(([, delay]) => delay === 59_800)?.[0];
+      const renewal = timers.mock.calls.find(([, delay]) => delay === 60_000)?.[0];
+      if (typeof close !== 'function' || typeof renewal !== 'function') throw new Error('Missing renewal timers');
+
+      const source = image.getAttribute('src');
+      // Both in one batch: React never renders the closed state in between.
+      act(() => {
+        close();
+        renewal();
+      });
+
+      const renewed = screen.getByAltText('Camera stream');
+      if (artwork) {
+        // Version 2 keeps the img: changing its src is what closes the old stream.
+        expect(renewed).toBe(image);
+        expect(renewed.getAttribute('src')).not.toBe(source);
+        expect(renewed.getAttribute('src')).toContain('/camera/stream');
+      } else {
+        expect(image.getAttribute('src')).toBeNull();
+        expect(renewed).not.toBe(image);
+      }
+    } finally {
+      view.unmount();
+      timers.mockRestore();
+    }
+  });
+
+  it.each(['', '&artwork=2'])('keeps the camera closed while it waits, whatever re-renders the page (%s)', async (artwork) => {
+    // Signed in: a new stream token (minted after a failed stream) changes the
+    // URL; the re-render it causes must not reconnect before the renewal.
+    setStreamToken('first');
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = rtlRender(overlayTree(1, artwork ? `?${artwork.slice(1)}` : '', queryClient));
+    try {
+      await screen.findByAltText('Camera stream');
+      const close = timers.mock.calls.find(([, delay]) => delay === 59_800)?.[0];
+      if (typeof close !== 'function') throw new Error('Missing close timer');
+      act(() => close());
+
+      setStreamToken('second');
+      view.rerender(overlayTree(1, artwork ? `?${artwork.slice(1)}` : '', queryClient));
+
+      expect(screen.getByAltText('Camera stream').getAttribute('src')).toBeNull();
+    } finally {
+      view.unmount();
+      timers.mockRestore();
+      setStreamToken(null);
     }
   });
 
@@ -418,6 +483,35 @@ describe('StreamOverlayPage', () => {
       await waitFor(() => {
         expect(screen.getByText('Printing')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('live updates', () => {
+    // ws-1: the backend sends a status update as `data`; the overlay read
+    // `data.status`, which is undefined, so every websocket update was
+    // dropped and only the 2 s poll moved it.
+    it('applies a websocket status update, keeping fields it does not carry', async () => {
+      const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+      vi.stubGlobal(
+        'WebSocket',
+        vi.fn().mockImplementation(function (this: { close: () => void; onmessage: null; onerror: null }) {
+          this.close = vi.fn();
+          this.onmessage = null;
+          this.onerror = null;
+          sockets.push(this);
+        }),
+      );
+      server.use(http.get('/api/v1/printers/:id/status', () => HttpResponse.json(mockStatusPrinting)));
+      renderOverlayPage(1);
+      expect(await screen.findByText('45%')).toBeInTheDocument();
+      await waitFor(() => expect(sockets[0]?.onmessage).toBeTypeOf('function'));
+
+      act(() => {
+        sockets[0].onmessage!({ data: JSON.stringify({ type: 'printer_status', printer_id: 1, data: { progress: 46 } }) });
+      });
+
+      expect(await screen.findByText('46%')).toBeInTheDocument();
+      expect(screen.getByText('Benchy')).toBeInTheDocument();
     });
   });
 

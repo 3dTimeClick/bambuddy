@@ -817,8 +817,9 @@ class TestTrackFrom3mf:
         assignment = _make_assignment(spool_id=10, ams_id=2, tray_id=1)
         archive = _make_archive(archive_id=50)
 
-        # db: archive, assignment, spool (no queue lookup when ams_mapping provided)
-        db = _mock_db_sequential([archive, assignment, spool])
+        # db: archive, queue item for the plate (None), assignment, spool;
+        # the given ams_mapping skips only the mapping fallback
+        db = _mock_db_sequential([archive, None, assignment, spool])
 
         printer_manager = MagicMock()
         printer_manager.get_status.return_value = SimpleNamespace(
@@ -1127,9 +1128,10 @@ class TestTrayChangeSplit:
         assign_b = _make_assignment(spool_id=20, ams_id=0, tray_id=1)
         archive = _make_archive(archive_id=200)
 
-        # No queue_item placeholder: passing ams_mapping bypasses the queue lookup
+        # The queue lookup runs once, for the plate; the given ams_mapping
+        # skips only the mapping fallback
         # at usage_tracker.py:816 (`if not slot_to_tray and archive_id`).
-        db = _mock_db_sequential([archive, assign_a, spool_a, assign_b, spool_b])
+        db = _mock_db_sequential([archive, None, assign_a, spool_a, assign_b, spool_b])
 
         # Slicer mapping says slot 1 -> tray 0; printer actually swapped to tray 1 at layer 30
         printer_manager = MagicMock()
@@ -1852,8 +1854,9 @@ class TestMqttMappingIntegration:
         assignment = _make_assignment(spool_id=1, ams_id=0, tray_id=2)
         archive = _make_archive(archive_id=10)
 
-        # db: archive, assignment, spool (no queue lookup when ams_mapping provided)
-        db = _mock_db_sequential([archive, assignment, spool])
+        # db: archive, queue item for the plate (None), assignment, spool;
+        # the given ams_mapping skips only the mapping fallback
+        db = _mock_db_sequential([archive, None, assignment, spool])
 
         printer_manager = MagicMock()
         printer_manager.get_status.return_value = SimpleNamespace(

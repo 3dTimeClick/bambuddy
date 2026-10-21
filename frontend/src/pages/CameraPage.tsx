@@ -10,8 +10,12 @@ import { useStreamTokenSync } from '../hooks/useCameraStreamToken';
 import { ChamberLight } from '../components/icons/ChamberLight';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { CameraDiagnoseModal } from '../components/CameraDiagnoseModal';
+import { useStreamImgRef } from '../hooks/useStreamImgRef';
+import { useCameraViewerId } from '../hooks/useCameraViewerId';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+// The server's Retry-After for a snapshot while a live view starts.
+const SNAPSHOT_RETRY_MS = 2000;
 const INITIAL_RECONNECT_DELAY = 2000; // 2 seconds
 const MAX_RECONNECT_DELAY = 30000; // 30 seconds
 const STALL_CHECK_INTERVAL = 5000; // Check every 5 seconds
@@ -56,7 +60,12 @@ export function CameraPage() {
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
   const [lastTouchCenter, setLastTouchCenter] = useState<{ x: number; y: number } | null>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
+  // Every img the page drops (re-keyed by a reconnect or mode switch, left)
+  // has its stream closed.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // On its stream and its /camera/stop: the stop ends this page's stream only.
+  const viewerId = useCameraViewerId();
+  const attachImg = useStreamImgRef(imgRef);
   const containerRef = useRef<HTMLDivElement>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -67,6 +76,11 @@ export function CameraPage() {
   // that's about to deliver frames — the churn that stranded the P1S camera
   // black for ~20 min (#2521).
   const stallStrikesRef = useRef(0);
+  // A failed snapshot is retried once, a moment later: the server answers 503
+  // while a live view of this printer still holds the camera, e.g. the one
+  // this page just switched away from.
+  const snapshotRetriedRef = useRef(false);
+  const snapshotRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch printer info for the title
   const { data: printer } = useQuery({
@@ -123,7 +137,7 @@ export function CameraPage() {
   const stopSentRef = useRef(false);
 
   useEffect(() => {
-    const stopUrl = `/api/v1/printers/${id}/camera/stop`;
+    const stopUrl = `/api/v1/printers/${id}/camera/stop?viewer=${viewerId}`;
     stopSentRef.current = false;
 
     const sendStopOnce = () => {
@@ -143,20 +157,12 @@ export function CameraPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
 
-    // Store ref value for cleanup - ref may change by cleanup time
-    const imgElement = imgRef.current;
-
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-
-      // Clear the image source first to stop the stream
-      if (imgElement) {
-        imgElement.src = '';
-      }
       // Send stop signal only once
       sendStopOnce();
     };
-  }, [id]);
+  }, [id, viewerId]);
 
   // Auto-hide loading after timeout
   useEffect(() => {
@@ -230,6 +236,9 @@ export function CameraPage() {
       }
       if (stallCheckIntervalRef.current) {
         clearInterval(stallCheckIntervalRef.current);
+      }
+      if (snapshotRetryTimerRef.current) {
+        clearTimeout(snapshotRetryTimerRef.current);
       }
     };
   }, []);
@@ -329,18 +338,28 @@ export function CameraPage() {
     };
   }, [streamMode, streamLoading, streamError, isReconnecting, transitioning, id, attemptReconnect]);
 
-  const handleStreamError = () => {
+  const handleStreamError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    // Clearing the src (reconnect, restart, mode switch) fires error with an empty src.
+    if (!e.currentTarget.getAttribute('src')) return;
     setStreamLoading(false);
 
     // Only auto-reconnect for live stream mode
     if (streamMode === 'stream' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       attemptReconnect();
+    } else if (streamMode === 'snapshot' && !snapshotRetriedRef.current) {
+      snapshotRetriedRef.current = true;
+      if (snapshotRetryTimerRef.current) clearTimeout(snapshotRetryTimerRef.current);
+      snapshotRetryTimerRef.current = setTimeout(() => {
+        snapshotRetryTimerRef.current = null;
+        setImageKey(Date.now());
+      }, SNAPSHOT_RETRY_MS);
     } else {
       setStreamError(true);
     }
   };
 
   const handleStreamLoad = () => {
+    snapshotRetriedRef.current = false;
     setStreamLoading(false);
     setStreamError(false);
     // Reset reconnect attempts on successful connection
@@ -387,7 +406,7 @@ export function CameraPage() {
       const headers: Record<string, string> = {};
       const token = getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(`/api/v1/printers/${id}/camera/stop`, { method: 'POST', headers }).catch(() => {});
+      fetch(`/api/v1/printers/${id}/camera/stop?viewer=${viewerId}`, { method: 'POST', headers }).catch(() => {});
     }
   };
 
@@ -398,6 +417,7 @@ export function CameraPage() {
     setStreamError(false);
     // Reset reconnect state on mode switch
     setReconnectAttempts(0);
+    snapshotRetriedRef.current = false;
     setIsReconnecting(false);
     // Reset zoom on mode switch
     setZoomLevel(1);
@@ -427,6 +447,7 @@ export function CameraPage() {
 
   const refresh = () => {
     if (transitioning) return;
+    snapshotRetriedRef.current = false;
     setTransitioning(true);
     setStreamLoading(true);
     setStreamError(false);
@@ -633,7 +654,7 @@ export function CameraPage() {
   const currentUrl = transitioning || waitingForStreamToken
     ? ''
     : streamMode === 'stream'
-      ? appendToken(`/api/v1/printers/${id}/camera/stream?fps=${fps}&t=${imageKey}`)
+      ? appendToken(`/api/v1/printers/${id}/camera/stream?fps=${fps}&t=${imageKey}&viewer=${viewerId}`)
       : appendToken(`/api/v1/printers/${id}/camera/snapshot?t=${imageKey}`);
 
   const isDisabled = streamLoading || transitioning || isReconnecting;
@@ -797,7 +818,7 @@ export function CameraPage() {
             </div>
           )}
           <img
-            ref={imgRef}
+            ref={attachImg}
             key={imageKey}
             src={currentUrl}
             alt={t('camera.cameraStream')}

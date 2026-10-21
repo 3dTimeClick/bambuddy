@@ -64,7 +64,6 @@ import type {
   LibraryFolderCreate,
   LibraryFolderUpdate,
   ExternalFolderCreate,
-  AppSettings,
   Archive,
   Permission,
 } from '../api/client';
@@ -90,6 +89,7 @@ import { formatFileSize } from '../utils/file';
 import { assignableProjects } from '../utils/projectTree';
 import { openInSlicer, resolveDesktopSlicer, type SlicerType } from '../utils/slicer';
 import { isSlicedLibraryFile, isSliceableLibraryFile } from '../utils/libraryFiles';
+import { useUiSettings } from '../hooks/useUiSettings';
 
 type SortField = 'name' | 'date' | 'size' | 'type' | 'prints';
 type SortDirection = 'asc' | 'desc';
@@ -1746,10 +1746,7 @@ export function FileManagerPage() {
   }, [searchParams]);
 
   // Queries
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings() as Promise<AppSettings>,
-  });
+  const { data: settings } = useUiSettings();
 
   const preferredSlicer: SlicerType = resolveDesktopSlicer(settings?.open_in_slicer, settings?.preferred_slicer);
 

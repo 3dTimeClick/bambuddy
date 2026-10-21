@@ -31,6 +31,31 @@ def _may_receive(connection: WebSocket, printer_id: int | None) -> bool:
     return scope is not None and scope.allows(printer_id)
 
 
+# A printer id no limited scope holds: what an archive event carries when its
+# printer cannot be told, so only sockets that see every printer receive it.
+_UNKNOWN_PRINTER = -1
+
+
+async def _archive_printer_id(archive_id: Any) -> int | None:
+    """The printer an archive belongs to (None: printer-less, seen by everyone)."""
+    from sqlalchemy import select
+
+    from backend.app.core.database import async_session
+    from backend.app.models.archive import PrintArchive
+
+    if not isinstance(archive_id, int):
+        return _UNKNOWN_PRINTER
+    try:
+        async with async_session() as db:
+            row = (await db.execute(select(PrintArchive.printer_id).where(PrintArchive.id == archive_id))).first()
+    except Exception:
+        logger.exception("Could not look up the printer of archive %s for a live update", archive_id)
+        return _UNKNOWN_PRINTER
+    if row is None:
+        return _UNKNOWN_PRINTER
+    return row[0]
+
+
 class ConnectionManager:
     """Manages WebSocket connections and broadcasts."""
 
@@ -109,6 +134,41 @@ class ConnectionManager:
                 if conn in self.active_connections:
                     self.active_connections.remove(conn)
 
+    async def close_user(self, user_id: int):
+        """Close a deleted user's sockets, which would otherwise keep receiving
+        the messages of whoever is given their id next."""
+        await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) == user_id)
+
+    async def close_signed_in(self):
+        """Close every signed-in user's socket, after everyone is signed out (a
+        backup restore). API-key and anonymous sockets stay: nothing ended
+        theirs."""
+        await self._close(lambda c: getattr(c.state, "bambuddy_principal_user_id", None) is not None)
+
+    async def close_anonymous(self):
+        """Close the sockets opened while authentication was off, which have
+        every printer, once it is turned on."""
+        await self._close(
+            lambda c: getattr(c.state, "bambuddy_scope_principal", (None, None)) in ((None, None), ("", None))
+        )
+
+    async def close_api_keys(self, key_ids):
+        """Close the sockets opened with deleted API keys. Their scope is looked
+        up by key id on every refresh: SQLite gives the id to the next key."""
+        key_ids = set(key_ids)
+        await self._close(lambda c: getattr(c.state, "bambuddy_scope_principal", (None, None))[1] in key_ids)
+
+    async def _close(self, matches):
+        async with self._lock:
+            theirs = [c for c in self.active_connections if matches(c)]
+            for connection in theirs:
+                self.active_connections.remove(connection)
+        for connection in theirs:
+            try:
+                await connection.close(code=4401)
+            except Exception:  # noqa: BLE001 -- already gone
+                pass
+
     async def refresh_printer_scopes(self):
         """Recompute every connection's printer scope (#1727).
 
@@ -116,7 +176,12 @@ class ConnectionManager:
         is in a group, so open dashboards stop (or start) receiving those
         printers' events without a reconnect.
         """
-        from backend.app.core.auth import is_auth_enabled, principal_printer_scope
+        from backend.app.core.auth import (
+            is_auth_enabled,
+            principal_may_connect,
+            principal_printer_scope,
+            usable_api_key_prefix,
+        )
         from backend.app.core.database import async_session
         from backend.app.core.printer_scope import ALL_PRINTERS, PrinterScope
 
@@ -124,6 +189,8 @@ class ConnectionManager:
             connections = list(self.active_connections)
         if not connections:
             return
+
+        orphaned = []
         try:
             async with async_session() as db:
                 auth_enabled = await is_auth_enabled(db)
@@ -132,6 +199,22 @@ class ConnectionManager:
                         connection.state.bambuddy_printer_scope = ALL_PRINTERS
                         continue
                     username, api_key_id = getattr(connection.state, "bambuddy_scope_principal", (None, None))
+                    if api_key_id is not None:
+                        # The key is looked up by id, which SQLite gives to the
+                        # next key created: a socket whose key is gone, or whose
+                        # id another key now has, is closed, not re-scoped (a key
+                        # rotated from the command line, which can't close it).
+                        # Disabled or expired counts as gone: REST refuses it.
+                        prefix = await usable_api_key_prefix(db, api_key_id)
+                        if prefix is None or prefix != getattr(connection.state, "bambuddy_api_key_prefix", prefix):
+                            connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
+                            orphaned.append(connection)
+                            continue
+                    if not await principal_may_connect(db, username, api_key_id):
+                        # websocket:connect was taken away (a group or key change)
+                        connection.state.bambuddy_printer_scope = PrinterScope(frozenset())
+                        orphaned.append(connection)
+                        continue
                     connection.state.bambuddy_printer_scope = await principal_printer_scope(db, username, api_key_id)
         except Exception:  # SEC-AUTH-EXC: refresh failed → fail closed (empty scope, then disconnect to re-auth)
             # The old scopes may be wider than what was just granted, so they
@@ -145,6 +228,9 @@ class ConnectionManager:
                     await connection.close(code=4401)
                 except Exception:  # noqa: BLE001 -- already gone; disconnect() cleans it up
                     pass
+            return
+        if orphaned:
+            await self._close(lambda c: c in orphaned)
 
     async def send_printer_status(self, printer_id: int, status: dict):
         """Send printer status update to all clients."""
@@ -196,13 +282,15 @@ class ConnectionManager:
         )
 
     async def send_archive_updated(self, archive: dict):
-        """Notify clients that an archive was updated."""
-        await self.broadcast(
-            {
-                "type": "archive_updated",
-                "data": archive,
-            }
-        )
+        """Notify clients that an archive was updated.
+
+        Only sockets that may see the archive's printer receive it: callers send
+        just the changed fields, so the printer is looked up here when missing.
+        """
+        message: dict[str, Any] = {"type": "archive_updated", "data": archive}
+        if _message_printer_id(message) is None:
+            message["printer_id"] = await _archive_printer_id(archive.get("id"))
+        await self.broadcast(message)
 
     async def send_queue_item_uploading(
         self,

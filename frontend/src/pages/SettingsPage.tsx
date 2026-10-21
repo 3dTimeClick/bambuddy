@@ -17,6 +17,7 @@ import {
   useLocationSensorColorPrefs,
 } from '../utils/locationSensorDefaults';
 import { describeHASensorReading, iconForHASensor } from '../utils/haSensorDisplay';
+import { SECRET_PLACEHOLDER, secretsToReenter, selectPlaceholderOnFocus } from '../utils/secrets';
 import { PreheatFilamentTargetsEditor } from '../components/PreheatFilamentTargetsEditor';
 import type { Printer as PrinterInfo, APIKey, AppSettings, AppSettingsUpdate, PrinterHASensor, LocationHASensor, LocationHASensorReading, SmartPlug, SmartPlugStatus, NotificationProvider, NotificationTemplate, UpdateStatus, GitHubBackupStatus, CloudAuthStatus, UserCreate, UserUpdate, UserResponse, StorageUsageResponse, CalibrationMode } from '../api/client';
 import { Card, CardContent, CardDensityProvider, CardHeader } from '../components/Card';
@@ -52,6 +53,8 @@ import { EmailSettings } from '../components/EmailSettings';
 import { LDAPSettings } from '../components/LDAPSettings';
 import { PrinterAccessSettings } from '../components/PrinterAccessSettings';
 import { TwoFactorSettings } from '../components/TwoFactorSettings';
+import { AdminDisableTwoFactor } from '../components/AdminDisableTwoFactor';
+import { cameraTestSuccessMessage } from '../utils/cameraTestMessage';
 import { OIDCProviderSettings } from '../components/OIDCProviderSettings';
 import { SecurityStatusCard } from '../components/SecurityStatusCard';
 import { APIBrowser } from '../components/APIBrowser';
@@ -67,6 +70,7 @@ import type { UsersSubTab } from '../lib/settingsSearch';
 import { availableEngines, hasEngineChoice, resolveEngine, type SliceEngineId } from '../lib/sliceEngines';
 import { NumberInput } from '../components/NumberInput';
 import { PrinterSearchPicker } from '../components/PrinterSearchPicker';
+import { UsbCameraDevicePicker } from '../components/UsbCameraDevicePicker';
 
 const validTabs = ['general', 'plugs', 'sensors', 'notifications', 'queue', 'filament', 'camera', 'network', 'apikeys', 'virtual-printer', 'spoolbuddy', 'failure-detection', 'users', 'backup'] as const;
 type TabType = typeof validTabs[number];
@@ -220,6 +224,28 @@ function externalCameraSummary(printer: PrinterInfo): string {
   return `${type} · ${where}`;
 }
 
+// The settings that decide where each saved secret is sent. A Home Assistant
+// token from the HA_TOKEN environment variable is the deployment's own and has
+// none: the URL may change without it.
+function settingsSecretDestinations(settings: { ha_token_from_env?: boolean }): Record<string, readonly string[]> {
+  return {
+    mqtt_password: ['mqtt_broker', 'mqtt_port', 'mqtt_use_tls'],
+    ...(settings.ha_token_from_env ? {} : { ha_token: ['ha_url'] }),
+  };
+}
+
+/** Under a secret input showing the placeholder: kept, or to be entered again. */
+function SecretHint({ name, value, reenter }: { name: string; value: unknown; reenter: string[] }) {
+  const { t } = useTranslation();
+  if (value !== SECRET_PLACEHOLDER) return null;
+  const again = reenter.includes(name);
+  return (
+    <p className={`text-xs mt-1 ${again ? 'text-yellow-400' : 'text-bambu-gray'}`}>
+      {t(again ? 'common.secretReenter' : 'common.secretKept')}
+    </p>
+  );
+}
+
 export function SettingsPage() {
   const [cameraTokenRevision, setCameraTokenRevision] = useState(0);
   const queryClient = useQueryClient();
@@ -301,8 +327,12 @@ export function SettingsPage() {
     setSearchParams(searchParams, { replace: true });
   };
   // A link to Printer access lands non-admins on the Users sub-tab instead
+  // and the sign-in configuration sub-tabs, whose settings only an admin may change.
   const shownUsersSubTab: UsersSubTab =
-    usersSubTab === 'printer-access' && !(authEnabled && isAdmin) ? 'users' : usersSubTab;
+    (usersSubTab === 'printer-access' && !(authEnabled && isAdmin)) ||
+    ((usersSubTab === 'email' || usersSubTab === 'ldap') && !isAdmin)
+      ? 'users'
+      : usersSubTab;
   // Workflow tab sub-tabs (#1425): 'dispatch' = current Workflow content,
   // 'pipelines' = Slicer Pipelines management. URL: ?tab=queue&sub=pipelines.
   const initialQueueSub: 'dispatch' | 'pipelines' =
@@ -977,7 +1007,8 @@ export function SettingsPage() {
     const updateData: UserUpdate = {
       username: userFormData.username || undefined,
       password: userFormData.password || undefined,
-      email: userFormData.email || undefined,
+      // Empty removes the email; the backend reads null as "unchanged".
+      email: userFormData.email,
       role: userFormData.role,
       group_ids: userFormData.group_ids,
     };
@@ -1103,10 +1134,11 @@ export function SettingsPage() {
   // Sync local state when settings load
   useEffect(() => {
     if (settings && !localSettings) {
-      // Auto-detect external_url from browser if not set
+      // Auto-detect external_url from browser if not set. Admins only: only an
+      // admin may change it, and the detected value is saved like an edit.
       const settingsWithExternalUrl = {
         ...settings,
-        external_url: settings.external_url || window.location.origin,
+        external_url: settings.external_url || (isAdmin ? window.location.origin : settings.external_url),
       };
       // The baseline is the raw server row, not this adjusted copy: a detected
       // external_url has to read as a local change so it still gets persisted.
@@ -1117,7 +1149,7 @@ export function SettingsPage() {
         isInitialLoadRef.current = false;
       }, 100);
     }
-  }, [settings, localSettings]);
+  }, [settings, localSettings, isAdmin]);
 
   // #2716: reconcile a moved server snapshot into the local copy. A field the
   // user has not touched since the last reconcile takes the server's value; a
@@ -1165,6 +1197,7 @@ export function SettingsPage() {
       // cannot read /settings. Nothing invalidated it, so a currency change
       // sat behind that query's own staleTime instead of showing up (#3123).
       queryClient.invalidateQueries({ queryKey: ['ui-flags'] });
+      queryClient.invalidateQueries({ queryKey: ['ui-settings'] });
       // Switching announcements off (or to all users) changes who sees the
       // sidebar entry and the banner; don't wait for the next poll.
       queryClient.invalidateQueries({ queryKey: ['announcements'] });
@@ -1214,10 +1247,15 @@ export function SettingsPage() {
       return;
     }
 
+    // A saved secret does not follow a changed address: hold the save until it
+    // is entered again (the field says so), instead of failing on every pause.
+    if (secretsToReenter(baseline, localSettings, settingsSecretDestinations(baseline)).length > 0) {
+      return;
+    }
+
     // Check if there are actual changes
     const hasChanges =
       baseline.auto_archive !== localSettings.auto_archive ||
-      baseline.save_thumbnails !== localSettings.save_thumbnails ||
       baseline.capture_finish_photo !== localSettings.capture_finish_photo ||
       (baseline.finish_photo_restore_plate ?? true) !== (localSettings.finish_photo_restore_plate ?? true) ||
       baseline.default_filament_cost !== localSettings.default_filament_cost ||
@@ -1233,7 +1271,6 @@ export function SettingsPage() {
       (baseline.announcements_enabled ?? true) !== (localSettings.announcements_enabled ?? true) ||
       (baseline.announcements_all_users ?? false) !== (localSettings.announcements_all_users ?? false) ||
       (baseline.local_login_enabled ?? true) !== (localSettings.local_login_enabled ?? true) ||
-      baseline.notification_language !== localSettings.notification_language ||
       (baseline.bed_cooled_threshold ?? 35) !== (localSettings.bed_cooled_threshold ?? 35) ||
       baseline.ams_humidity_good !== localSettings.ams_humidity_good ||
       baseline.ams_humidity_fair !== localSettings.ams_humidity_fair ||
@@ -1241,6 +1278,7 @@ export function SettingsPage() {
       baseline.ams_temp_fair !== localSettings.ams_temp_fair ||
       (baseline.ams_temp_alarm ?? null) !== (localSettings.ams_temp_alarm ?? null) ||
       baseline.ams_history_retention_days !== localSettings.ams_history_retention_days ||
+      baseline.printer_sensor_history_retention_days !== localSettings.printer_sensor_history_retention_days ||
       baseline.disable_filament_warnings !== localSettings.disable_filament_warnings ||
       baseline.prefer_lowest_filament !== localSettings.prefer_lowest_filament ||
       (baseline.queue_drying_enabled ?? false) !== (localSettings.queue_drying_enabled ?? false) ||
@@ -1254,6 +1292,8 @@ export function SettingsPage() {
       baseline.date_format !== localSettings.date_format ||
       baseline.time_format !== localSettings.time_format ||
       baseline.default_printer_id !== localSettings.default_printer_id ||
+      (baseline.pipeline_max_copies ?? 50) !== (localSettings.pipeline_max_copies ?? 50) ||
+      (baseline.docker_compose_dir ?? '') !== (localSettings.docker_compose_dir ?? '') ||
       baseline.ftp_retry_enabled !== localSettings.ftp_retry_enabled ||
       baseline.ftp_retry_count !== localSettings.ftp_retry_count ||
       baseline.ftp_retry_delay !== localSettings.ftp_retry_delay ||
@@ -1269,7 +1309,6 @@ export function SettingsPage() {
       baseline.ha_enabled !== localSettings.ha_enabled ||
       baseline.ha_url !== localSettings.ha_url ||
       baseline.ha_token !== localSettings.ha_token ||
-      (baseline.library_archive_mode ?? 'ask') !== (localSettings.library_archive_mode ?? 'ask') ||
       Number(baseline.library_disk_warning_gb ?? 5) !== Number(localSettings.library_disk_warning_gb ?? 5) ||
       (baseline.camera_light_mode ?? 'off') !== (localSettings.camera_light_mode ?? 'off') ||
       Number(baseline.camera_light_delay ?? 2) !== Number(localSettings.camera_light_delay ?? 2) ||
@@ -1337,7 +1376,6 @@ export function SettingsPage() {
       // Only send the fields we manage on this page (exclude virtual_printer_* which are managed separately)
       const settingsToSave: AppSettingsUpdate = {
         auto_archive: localSettings.auto_archive,
-        save_thumbnails: localSettings.save_thumbnails,
         capture_finish_photo: localSettings.capture_finish_photo,
         // #2547: `?? true` mirrors the toggle's own default, so an install
         // whose settings payload predates this field saves what the user is
@@ -1361,7 +1399,6 @@ export function SettingsPage() {
         announcements_enabled: localSettings.announcements_enabled ?? true,
         announcements_all_users: localSettings.announcements_all_users ?? false,
         local_login_enabled: localSettings.local_login_enabled,
-        notification_language: localSettings.notification_language,
         bed_cooled_threshold: localSettings.bed_cooled_threshold,
         ams_humidity_good: localSettings.ams_humidity_good,
         ams_humidity_fair: localSettings.ams_humidity_fair,
@@ -1369,6 +1406,7 @@ export function SettingsPage() {
         ams_temp_fair: localSettings.ams_temp_fair,
         ams_temp_alarm: localSettings.ams_temp_alarm ?? null,
         ams_history_retention_days: localSettings.ams_history_retention_days,
+        printer_sensor_history_retention_days: localSettings.printer_sensor_history_retention_days,
         disable_filament_warnings: localSettings.disable_filament_warnings,
         prefer_lowest_filament: localSettings.prefer_lowest_filament,
         queue_drying_enabled: localSettings.queue_drying_enabled,
@@ -1382,6 +1420,8 @@ export function SettingsPage() {
         date_format: localSettings.date_format,
         time_format: localSettings.time_format,
         default_printer_id: localSettings.default_printer_id,
+        pipeline_max_copies: localSettings.pipeline_max_copies ?? 50,
+        docker_compose_dir: localSettings.docker_compose_dir ?? '',
         ftp_retry_enabled: localSettings.ftp_retry_enabled,
         ftp_retry_count: localSettings.ftp_retry_count,
         ftp_retry_delay: localSettings.ftp_retry_delay,
@@ -1397,7 +1437,6 @@ export function SettingsPage() {
         ha_enabled: localSettings.ha_enabled,
         ha_url: localSettings.ha_url,
         ha_token: localSettings.ha_token,
-        library_archive_mode: localSettings.library_archive_mode,
         library_disk_warning_gb: localSettings.library_disk_warning_gb,
         camera_light_mode: localSettings.camera_light_mode,
         camera_light_delay: localSettings.camera_light_delay,
@@ -1452,6 +1491,9 @@ export function SettingsPage() {
     };
   }, [localSettings, settings, updateMutation, authEnabled, hasPermission, showToast, t]);
 
+  const secretsPendingReentry =
+    settings && localSettings ? secretsToReenter(settings, localSettings, settingsSecretDestinations(settings)) : [];
+
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     // Gate at the point of user interaction (not in the debounced-save effect —
     // that runs on every render and would fire the toast repeatedly). One toast
@@ -1474,15 +1516,7 @@ export function SettingsPage() {
       const result = await api.testExternalCamera(printerId, url, cameraType);
       setExtCameraTestResults(prev => ({ ...prev, [printerId]: result }));
       if (result.success) {
-        // A shared capture means the frame is real but was not fetched over a
-        // connection this test opened, so say so rather than implying the
-        // camera was just reached.
-        showToast(
-          result.coalesced
-            ? t('settings.toast.cameraConnectedCoalesced', { resolution: result.resolution || '' })
-            : t('settings.toast.cameraConnected', { resolution: result.resolution || '' }),
-          'success'
-        );
+        showToast(cameraTestSuccessMessage(result, t), 'success');
       } else {
         showToast(result.error || t('settings.toast.connectionFailed'), 'error');
       }
@@ -1502,6 +1536,8 @@ export function SettingsPage() {
   const [localSnapshotUrls, setLocalSnapshotUrls] = useState<Record<number, string>>({});
   const snapshotUrlSaveTimeoutRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const [openCameraPrinterId, setOpenCameraPrinterId] = useState<number | null>(null);
+  // USB cameras whose device path is typed instead of picked from the list.
+  const [usbManualEntry, setUsbManualEntry] = useState<Record<number, boolean>>({});
   const initializedPrinterSnapshotUrlsRef = useRef<Set<number>>(new Set());
 
   // Initialize local camera URLs from printer data
@@ -2081,23 +2117,6 @@ export function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-white">{t('settings.saveThumbnails')}</p>
-                  <p className="text-sm text-bambu-gray">
-                    {t('settings.saveThumbnailsDescription')}
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={localSettings.save_thumbnails}
-                    onChange={(e) => updateSetting('save_thumbnails', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green"></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
                   <p className="text-white">{t('settings.captureFinishPhoto')}</p>
                   <p className="text-sm text-bambu-gray">
                     {t('settings.captureFinishPhotoDescription')}
@@ -2496,25 +2515,6 @@ export function SettingsPage() {
               </h2>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Archive Mode */}
-              <div>
-                <label className="block text-sm text-bambu-gray mb-1">
-                  {t('settings.createArchiveEntry')}
-                </label>
-                <select
-                  value={localSettings.library_archive_mode ?? 'ask'}
-                  onChange={(e) => updateSetting('library_archive_mode', e.target.value as 'always' | 'never' | 'ask')}
-                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
-                >
-                  <option value="always">{t('settings.archiveMode.always')}</option>
-                  <option value="never">{t('settings.archiveMode.never')}</option>
-                  <option value="ask">{t('settings.archiveMode.ask')}</option>
-                </select>
-                <p className="text-xs text-bambu-gray mt-1">
-                  {t('settings.createArchiveEntryDescription')}
-                </p>
-              </div>
-
               {/* Disk Space Warning Threshold */}
               <div>
                 <label className="block text-sm text-bambu-gray mb-1">
@@ -3058,8 +3058,11 @@ export function SettingsPage() {
                   value={localSettings.external_url ?? ''}
                   onChange={(e) => updateSetting('external_url', e.target.value)}
                   placeholder="http://192.168.1.100:8000"
-                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                  disabled={!isAdmin}
+                  title={!isAdmin ? t('settings.adminOnlySetting') : undefined}
+                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none disabled:opacity-50"
                 />
+                {!isAdmin && <p className="text-xs text-bambu-gray mt-1">{t('settings.adminOnlySetting')}</p>}
                 <p className="text-xs text-bambu-gray mt-1">
                   {t('settings.externalUrlHint')}
                 </p>
@@ -3260,6 +3263,7 @@ export function SettingsPage() {
                         type="password"
                         value={localSettings.ha_token ?? ''}
                         onChange={(e) => updateSetting('ha_token', e.target.value)}
+                        onFocus={selectPlaceholderOnFocus}
                         placeholder="eyJ0eXAiOiJKV1QiLC..."
                         disabled={localSettings.ha_token_from_env}
                         className={`w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none ${
@@ -3270,6 +3274,7 @@ export function SettingsPage() {
                         <Lock className="absolute right-3 top-2.5 w-4 h-4 text-bambu-gray" />
                       )}
                     </div>
+                    {!localSettings.ha_token_from_env && <SecretHint name="ha_token" value={localSettings.ha_token} reenter={secretsPendingReentry} />}
                     {localSettings.ha_token_from_env ? (
                       <p className="text-xs text-bambu-gray mt-1">
                         {t('settings.tokenFromEnvReadOnly')}
@@ -3425,9 +3430,11 @@ export function SettingsPage() {
                       type="password"
                       value={localSettings.mqtt_password ?? ''}
                       onChange={(e) => updateSetting('mqtt_password', e.target.value)}
+                      onFocus={selectPlaceholderOnFocus}
                       placeholder={t('settings.leaveEmptyForAnonymous')}
                       className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
                     />
+                    <SecretHint name="mqtt_password" value={localSettings.mqtt_password} reenter={secretsPendingReentry} />
                   </div>
 
                   <div>
@@ -3485,12 +3492,19 @@ export function SettingsPage() {
                 <div>
                   <p className="text-white">{t('settings.enableMetricsEndpoint')}</p>
                   <p className="text-xs text-bambu-gray">{t('settings.prometheusDescription')}</p>
+                  {!isAdmin && (
+                    <p id="prometheus-admin-only" className="text-xs text-bambu-gray mt-1">
+                      {t('settings.adminOnlySetting')}
+                    </p>
+                  )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
                     checked={localSettings.prometheus_enabled ?? false}
                     onChange={(e) => updateSetting('prometheus_enabled', e.target.checked)}
+                    disabled={!isAdmin}
+                    aria-describedby={!isAdmin ? 'prometheus-admin-only' : undefined}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green"></div>
@@ -3507,9 +3521,12 @@ export function SettingsPage() {
                       type="password"
                       value={localSettings.prometheus_token ?? ''}
                       onChange={(e) => updateSetting('prometheus_token', e.target.value)}
+                      disabled={!isAdmin}
+                      onFocus={selectPlaceholderOnFocus}
                       placeholder={t('settings.leaveEmptyForNoAuth')}
                       className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
                     />
+                    <SecretHint name="prometheus_token" value={localSettings.prometheus_token} reenter={secretsPendingReentry} />
                     <p className="text-xs text-bambu-gray mt-1">
                       {t('settings.bearerTokenHint')}
                     </p>
@@ -4058,29 +4075,6 @@ export function SettingsPage() {
               </div>
             </div>
 
-            {/* Notification Language Setting */}
-            <Card className="mb-4">
-              <CardContent className="py-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm font-medium">{t('settings.notificationLanguage')}</p>
-                    <p className="text-xs text-bambu-gray">{t('settings.notificationLanguageDescription')}</p>
-                  </div>
-                  <select
-                    value={localSettings.notification_language || 'en'}
-                    onChange={(e) => updateSetting('notification_language', e.target.value)}
-                    className="px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-bambu-green"
-                  >
-                    {availableLanguages.map((lang) => (
-                      <option key={lang.code} value={lang.code}>
-                        {lang.nativeName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Bed Cooled Threshold Setting */}
             <Card className="mb-4">
               <CardContent className="py-3">
@@ -4443,14 +4437,34 @@ export function SettingsPage() {
 
                             {isOpen && (
                           <div className="space-y-2 px-2 pb-3 pt-1 bg-bambu-dark/40">
-                            <input
-                              type="text"
-                              aria-label={`${t('settings.cameraPlaceholderUrl')}: ${printer.name}`}
-                              placeholder={printer.external_camera_type === 'usb' ? t('settings.cameraPlaceholderUsb') : t('settings.cameraPlaceholderUrl')}
-                              value={localCameraUrls[printer.id] ?? printer.external_camera_url ?? ''}
-                              onChange={(e) => handleCameraUrlChange(printer.id, e.target.value)}
-                              className="w-full px-2 py-1.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-white text-sm focus:border-bambu-green focus:outline-none"
-                            />
+                            {printer.external_camera_type === 'usb' && !usbManualEntry[printer.id] ? (
+                              <UsbCameraDevicePicker
+                                printerName={printer.name}
+                                value={localCameraUrls[printer.id] ?? printer.external_camera_url ?? ''}
+                                onSelect={(device) => handleCameraUrlChange(printer.id, device)}
+                                onEnterManually={() => setUsbManualEntry(prev => ({ ...prev, [printer.id]: true }))}
+                              />
+                            ) : (
+                              <>
+                                <input
+                                  type="text"
+                                  aria-label={`${t('settings.cameraPlaceholderUrl')}: ${printer.name}`}
+                                  placeholder={printer.external_camera_type === 'usb' ? t('settings.cameraPlaceholderUsb') : t('settings.cameraPlaceholderUrl')}
+                                  value={localCameraUrls[printer.id] ?? printer.external_camera_url ?? ''}
+                                  onChange={(e) => handleCameraUrlChange(printer.id, e.target.value)}
+                                  className="w-full px-2 py-1.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-white text-sm focus:border-bambu-green focus:outline-none"
+                                />
+                                {printer.external_camera_type === 'usb' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setUsbManualEntry(prev => ({ ...prev, [printer.id]: false }))}
+                                    className="text-xs text-bambu-green hover:underline"
+                                  >
+                                    {t('settings.usbCameraPickFromList')}
+                                  </button>
+                                )}
+                              </>
+                            )}
                             <div className="flex flex-wrap items-center gap-2">
                               <select
                                 value={printer.external_camera_type || 'mjpeg'}
@@ -4984,34 +4998,34 @@ export function SettingsPage() {
                 </p>
                 <div className="space-y-2 font-mono text-xs">
                   <div className="p-2 bg-bambu-dark rounded">
-                    <span className="text-blue-700 dark:text-blue-400">GET</span>{' '}
-                    <span className="text-white">/api/v1/webhook/status</span>
-                    <span className="text-bambu-gray"> - {t('settings.webhook.getAllStatus')}</span>
-                  </div>
-                  <div className="p-2 bg-bambu-dark rounded">
-                    <span className="text-blue-700 dark:text-blue-400">GET</span>{' '}
-                    <span className="text-white">/api/v1/webhook/status/:id</span>
-                    <span className="text-bambu-gray"> - {t('settings.webhook.getSpecificStatus')}</span>
-                  </div>
-                  <div className="p-2 bg-bambu-dark rounded">
                     <span className="text-green-700 dark:text-green-400">POST</span>{' '}
-                    <span className="text-white">/api/v1/webhook/queue</span>
+                    <span className="text-white">/api/v1/webhook/queue/add</span>
                     <span className="text-bambu-gray"> - {t('settings.webhook.addToQueue')}</span>
                   </div>
                   <div className="p-2 bg-bambu-dark rounded">
                     <span className="text-orange-700 dark:text-orange-400">POST</span>{' '}
-                    <span className="text-white">/api/v1/webhook/printer/:id/pause</span>
-                    <span className="text-bambu-gray"> - {t('settings.webhook.pausePrint')}</span>
-                  </div>
-                  <div className="p-2 bg-bambu-dark rounded">
-                    <span className="text-orange-700 dark:text-orange-400">POST</span>{' '}
-                    <span className="text-white">/api/v1/webhook/printer/:id/resume</span>
-                    <span className="text-bambu-gray"> - {t('settings.webhook.resumePrint')}</span>
+                    <span className="text-white">/api/v1/webhook/printer/:id/start</span>
+                    <span className="text-bambu-gray"> - {t('settings.webhook.startNext')}</span>
                   </div>
                   <div className="p-2 bg-bambu-dark rounded">
                     <span className="text-red-700 dark:text-red-400">POST</span>{' '}
                     <span className="text-white">/api/v1/webhook/printer/:id/stop</span>
                     <span className="text-bambu-gray"> - {t('settings.webhook.stopPrint')}</span>
+                  </div>
+                  <div className="p-2 bg-bambu-dark rounded">
+                    <span className="text-red-700 dark:text-red-400">POST</span>{' '}
+                    <span className="text-white">/api/v1/webhook/printer/:id/cancel</span>
+                    <span className="text-bambu-gray"> - {t('settings.webhook.cancelPrint')}</span>
+                  </div>
+                  <div className="p-2 bg-bambu-dark rounded">
+                    <span className="text-blue-700 dark:text-blue-400">GET</span>{' '}
+                    <span className="text-white">/api/v1/webhook/printer/:id/status</span>
+                    <span className="text-bambu-gray"> - {t('settings.webhook.getSpecificStatus')}</span>
+                  </div>
+                  <div className="p-2 bg-bambu-dark rounded">
+                    <span className="text-blue-700 dark:text-blue-400">GET</span>{' '}
+                    <span className="text-white">/api/v1/webhook/queue</span>
+                    <span className="text-bambu-gray"> - {t('settings.webhook.queueStatus')}</span>
                   </div>
                 </div>
               </CardContent>
@@ -5020,7 +5034,8 @@ export function SettingsPage() {
 
             {/* Connected apps: "Sign in with Bambuddy" for external applications.
                 Admin-only, like the settings it sits between. */}
-            {hasPermission('settings:update') && (
+            {/* Admin-only: an app's redirect address decides where an admin's sign-in goes. */}
+            {isAdmin && (
               <Card className="mt-6">
                 <CardHeader>
                   <h3 className="text-base font-semibold text-white flex items-center gap-2" id="card-connected-apps">
@@ -6508,6 +6523,23 @@ export function SettingsPage() {
                       <span className="text-bambu-gray">{t('common.days')}</span>
                     </div>
                   </div>
+                  <div>
+                    <label htmlFor="printer-sensor-history-retention" className="block text-sm text-bambu-gray mb-1">
+                      {t('settings.keepPrinterTemperatureHistory')}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <NumberInput
+                        id="printer-sensor-history-retention"
+                        min={1}
+                        max={365}
+                        value={localSettings.printer_sensor_history_retention_days ?? 30}
+                        onChange={(v) => updateSetting('printer_sensor_history_retention_days', v)}
+                        fallback={30}
+                        className="w-24 px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                      />
+                      <span className="text-bambu-gray">{t('common.days')}</span>
+                    </div>
+                  </div>
                   <p className="text-xs text-bambu-gray">
                     {t('settings.historyRetentionDescription')}
                   </p>
@@ -6754,34 +6786,38 @@ export function SettingsPage() {
                 {t('printerAccess.tab')}
               </button>
             )}
-            <button
-              onClick={() => selectUsersSubTab('email')}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px lg:border-b-0 lg:border-l-2 lg:-ml-px lg:mb-0 lg:justify-start flex items-center gap-2 ${
-                shownUsersSubTab === 'email'
-                  ? 'text-bambu-green border-bambu-green'
-                  : 'text-bambu-gray hover:text-gray-900 dark:hover:text-white border-transparent'
-              }`}
-            >
-              <Mail className="w-4 h-4" />
-              {t('settings.tabs.emailAuth') || 'Email Authentication'}
-              {advancedAuthStatus?.advanced_auth_enabled && (
-                <span className="w-2 h-2 rounded-full bg-green-400" />
-              )}
-            </button>
-            <button
-              onClick={() => selectUsersSubTab('ldap')}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px lg:border-b-0 lg:border-l-2 lg:-ml-px lg:mb-0 lg:justify-start flex items-center gap-2 ${
-                shownUsersSubTab === 'ldap'
-                  ? 'text-bambu-green border-bambu-green'
-                  : 'text-bambu-gray hover:text-gray-900 dark:hover:text-white border-transparent'
-              }`}
-            >
-              <Shield className="w-4 h-4" />
-              {t('settings.tabs.ldap') || 'LDAP'}
-              {ldapStatus?.ldap_enabled && (
-                <span className="w-2 h-2 rounded-full bg-green-400" />
-              )}
-            </button>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => selectUsersSubTab('email')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px lg:border-b-0 lg:border-l-2 lg:-ml-px lg:mb-0 lg:justify-start flex items-center gap-2 ${
+                    shownUsersSubTab === 'email'
+                      ? 'text-bambu-green border-bambu-green'
+                      : 'text-bambu-gray hover:text-gray-900 dark:hover:text-white border-transparent'
+                  }`}
+                >
+                  <Mail className="w-4 h-4" />
+                  {t('settings.tabs.emailAuth') || 'Email Authentication'}
+                  {advancedAuthStatus?.advanced_auth_enabled && (
+                    <span className="w-2 h-2 rounded-full bg-green-400" />
+                  )}
+                </button>
+                <button
+                  onClick={() => selectUsersSubTab('ldap')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px lg:border-b-0 lg:border-l-2 lg:-ml-px lg:mb-0 lg:justify-start flex items-center gap-2 ${
+                    shownUsersSubTab === 'ldap'
+                      ? 'text-bambu-green border-bambu-green'
+                      : 'text-bambu-gray hover:text-gray-900 dark:hover:text-white border-transparent'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  {t('settings.tabs.ldap') || 'LDAP'}
+                  {ldapStatus?.ldap_enabled && (
+                    <span className="w-2 h-2 rounded-full bg-green-400" />
+                  )}
+                </button>
+              </>
+            )}
             <button
               onClick={() => selectUsersSubTab('twofa')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
@@ -6908,6 +6944,7 @@ export function SettingsPage() {
                   <CardContent>
                     <p className="text-sm text-bambu-gray mb-4">
                       {t('settings.sessionPolicy.description')}
+                      {!isAdmin && <> {t('settings.adminOnlySetting')}</>}
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
                       {[
@@ -6922,7 +6959,7 @@ export function SettingsPage() {
                             key={preset.hours}
                             type="button"
                             onClick={() => updateSetting('session_max_hours', preset.hours)}
-                            disabled={authEnabled && !hasPermission('settings:update')}
+                            disabled={!isAdmin}
                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                               isActive
                                 ? 'bg-bambu-green text-white'
@@ -6944,7 +6981,7 @@ export function SettingsPage() {
                             if (Number.isNaN(raw)) return;
                             updateSetting('session_max_hours', Math.max(1, Math.min(720, raw)));
                           }}
-                          disabled={authEnabled && !hasPermission('settings:update')}
+                          disabled={!isAdmin}
                           aria-label={t('settings.sessionPolicy.customHoursLabel')}
                           className="w-20 px-2 py-2 bg-bambu-dark-tertiary text-white text-sm rounded-lg border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none disabled:opacity-50"
                         />
@@ -7592,7 +7629,7 @@ export function SettingsPage() {
                 {advancedAuthStatus?.advanced_auth_enabled && (
                   <div className="bg-bambu-dark-secondary/50 border border-bambu-green/20 rounded-lg p-3 space-y-3">
                     <p className="text-sm text-bambu-gray">
-                      {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
+                      {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to email the user a link to set a new password.'}
                     </p>
                     <Button
                       variant="secondary"
@@ -7615,6 +7652,12 @@ export function SettingsPage() {
                     </Button>
                   </div>
                 )}
+
+                {/* Two-factor authentication: admin removal for a locked-out user */}
+                <AdminDisableTwoFactor
+                  userId={editingUserId}
+                  username={usersData.find(u => u.id === editingUserId)?.username ?? userFormData.username}
+                />
 
                 {/* Groups Field */}
                 <div>

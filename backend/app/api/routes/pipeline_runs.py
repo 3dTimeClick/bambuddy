@@ -40,6 +40,7 @@ from backend.app.core.auth import (
     RequestActor,
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
+    is_auth_enabled,
 )
 from backend.app.core.config import settings as app_settings
 from backend.app.core.database import async_session, get_db
@@ -69,6 +70,8 @@ from backend.app.services.pipeline_eligibility import (
     check_pipeline_eligibility,
 )
 from backend.app.services.print_confirmation import confirm_outcome_for_new_queue_item
+from backend.app.services.print_defaults import default_print_options
+from backend.app.services.queue_announcements import announce_queue_jobs_added
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +190,10 @@ def _compute_job_status(
     if persisted in ("failed", "cancelled", "completed"):
         return persisted
     if queue_entry is None:
-        return persisted
+        # Dispatched, but its queue entry is gone without a final status stored
+        # (deleted before jobs stored it, or removed by the database itself):
+        # printed or not cannot be told, so neither failed nor cancelled.
+        return "unknown" if persisted in ("queued", "printing") else persisted
     qs = queue_entry.status
     if qs == "completed":
         return "completed"
@@ -220,19 +226,21 @@ def _roll_up_run_status(
         return persisted
 
     completed = sum(1 for s in job_statuses if s == "completed")
+    # A copy whose outcome is unknown ended without failing anything to retry.
+    unknown = sum(1 for s in job_statuses if s == "unknown")
     failed = sum(1 for s in job_statuses if s == "failed")
     cancelled = sum(1 for s in job_statuses if s == "cancelled")
     in_flight = sum(1 for s in job_statuses if s in ("printing", "queued", "awaiting_printer", "pending"))
     total = len(job_statuses)
 
-    if completed == total:
+    if completed + unknown == total:
         return "completed"
     if in_flight > 0:
         return "in_progress" if persisted not in ("queued", "slicing", "dispatching") else persisted
     # All copies are in terminal states.
     if failed == 0 and cancelled == total:
         return "cancelled"
-    if completed > 0 and (failed > 0 or cancelled > 0):
+    if completed + unknown > 0 and (failed > 0 or cancelled > 0):
         return "partial_failure"
     if failed > 0:
         return "failed"
@@ -293,16 +301,6 @@ async def _materialise_run(db: AsyncSession, run: PipelineRun) -> PipelineRunRes
             printer_name = p.name if p else None
 
         live_job_status = _compute_job_status(job.status, queue_entry)
-        # If the job WAS dispatched (had a queue_entry_id) but the entry has
-        # since been deleted from the queue page, the user's intent was
-        # cancellation. Otherwise the run would stay forever showing as
-        # ``queued`` because the persisted job.status hasn't been updated.
-        if (
-            job.queue_entry_id is not None
-            and queue_entry is None
-            and live_job_status not in ("completed", "failed", "cancelled")
-        ):
-            live_job_status = "cancelled"
         job_live_statuses.append(live_job_status)
         job_responses.append(
             PipelineJobResponse(
@@ -356,8 +354,12 @@ async def _materialise_run(db: AsyncSession, run: PipelineRun) -> PipelineRunRes
 async def _publish_run_event(db: AsyncSession, run: PipelineRun) -> None:
     """Broadcast a ``pipeline_run_updated`` event with the full materialised
     run. Per-user routing via ``broadcast_to_user`` falls back to a global
-    broadcast when ``created_by`` is None (auth-disabled installs)."""
+    broadcast when ``created_by`` is None on auth-disabled installs."""
     try:
+        # Without a user, broadcast_to_user would send it to everyone. With auth
+        # on, a run whose user was deleted is nobody's to watch (the runs page polls).
+        if run.created_by is None and await is_auth_enabled(db):
+            return
         payload = await _materialise_run(db, run)
         await ws_manager.broadcast_to_user(
             run.created_by,
@@ -410,6 +412,11 @@ async def _resolve_source(
     arc = (await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))).scalar_one_or_none()
     can_read_all = user is None or user.has_permission(Permission.ARCHIVES_READ_ALL.value)
     arc = _ensure_archive_visible(arc, user, can_read_all, printer_scope)
+    # Running a pipeline on an archive prints it again: the same rules as
+    # queueing it, including the right to reprint it.
+    from backend.app.api.routes.print_queue import _assert_can_queue_archive
+
+    _assert_can_queue_archive(arc, user, printer_scope)
     rel = arc.source_3mf_path or arc.file_path
     if not rel:
         raise HTTPException(400, "Archive has no source file to slice")
@@ -443,7 +450,7 @@ async def _pick_assignments(
         (
             await db.execute(
                 select(Printer)
-                .where(Printer.model == pipeline.target_model_class)
+                .where(func.lower(Printer.model) == (pipeline.target_model_class or "").lower())
                 .where(Printer.is_active.is_(True))
                 .order_by(Printer.id)
             )
@@ -468,8 +475,9 @@ async def _pick_assignments(
         # ``matching[i % len(matching)]``. Each item gets a fixed printer_id.
         return [(matching[i % len(matching)].id, None) for i in range(copies)]
     # max_parallel — leave printer_id=None, set target_model so the scheduler
-    # picks any free X1C / P1S / … for each item independently.
-    return [(None, pipeline.target_model_class)] * copies
+    # picks any free X1C / P1S / … for each item independently. In the
+    # printers' own spelling: the class is matched without regard to case.
+    return [(None, matching[0].model)] * copies
 
 
 def _make_orchestration_callable(
@@ -587,17 +595,32 @@ def _make_orchestration_callable(
 
             # No per-job ask-for-outcome toggle on a pipeline run either (#1898).
             confirm_outcome = await confirm_outcome_for_new_queue_item(session)
+            # Nor print options: the install's defaults.
+            print_options = await default_print_options(session)
 
             for job, (printer_id, target_model) in zip(jobs, assignments, strict=False):
                 queue_item = PrintQueueItem(
                     printer_id=printer_id,
                     target_model=target_model,
                     library_file_id=slice_response.library_file_id,
-                    created_by_id=creator_user_id,
+                    # From the run as refreshed after the slice, not the id the
+                    # request started with: a user deleted meanwhile is gone
+                    # from it, and SQLite may have given the id to someone else.
+                    created_by_id=run.created_by,
                     status="pending",
                     confirm_outcome=confirm_outcome,
                     # The copies wait for review like any other job of theirs (#1620)
-                    manual_start=review_required,
+                    # A restricted user deleted while it sliced: as delete_user
+                    # stages their ownerless "any model" jobs, or these would run
+                    # on every printer of the model, not only on theirs (#1727).
+                    manual_start=review_required
+                    or (
+                        run.created_by is None
+                        and creator_user_id is not None
+                        and printer_id is None
+                        and not printer_scope.is_unrestricted
+                    ),
+                    **print_options,
                 )
                 session.add(queue_item)
                 await session.flush()
@@ -629,6 +652,7 @@ def _make_orchestration_callable(
                         ).scalar_one_or_none()
                         if qe is not None and qe.status in ("pending", "queued"):
                             qe.status = "cancelled"
+                            qe.completed_at = datetime.now(timezone.utc)
                     if job.status not in ("completed", "failed", "cancelled"):
                         job.status = "cancelled"
                         job.completed_at = datetime.now(timezone.utc)
@@ -640,6 +664,7 @@ def _make_orchestration_callable(
                 job.status = "queued"
             run.status = "dispatching"
             await session.commit()
+            await announce_queue_jobs_added(session, [job.queue_entry_id for job in jobs if job.queue_entry_id])
             await _publish_run_event(session, run)
 
             return slice_response.model_dump()
@@ -974,19 +999,42 @@ async def cancel_run(
     if not run.error_message:
         run.error_message = "Cancelled by user"
 
+    from backend.app.services.finance_budget import release_budget_reservation
+
+    cancelled_entries: list[int] = []
     job_rows = (await db.execute(select(PipelineJob).where(PipelineJob.pipeline_run_id == run.id))).scalars().all()
     for job in job_rows:
+        queue_entry = None
         if job.queue_entry_id:
             queue_entry = (
                 await db.execute(select(PrintQueueItem).where(PrintQueueItem.id == job.queue_entry_id))
             ).scalar_one_or_none()
             if queue_entry is not None and queue_entry.status in ("pending", "queued"):
                 queue_entry.status = "cancelled"
+                queue_entry.completed_at = datetime.now(timezone.utc)
+                # As a cancel from the queue does: its budget hold is freed
+                await release_budget_reservation(
+                    db, source_type="print_queue", source_id=queue_entry.id, status="released"
+                )
+                cancelled_entries.append(queue_entry.id)
+        if job.status in ("queued", "printing") and queue_entry is None:
+            # Dispatched, its entry gone: whether it printed is unknown, and
+            # calling it cancelled would make retry print it again.
+            continue
         if job.status not in ("completed", "failed", "cancelled"):
             job.status = "cancelled"
             job.completed_at = datetime.now(timezone.utc)
 
     await db.commit()
+    if cancelled_entries:
+        from backend.app.services.print_batch import refresh_batches_after
+        from backend.app.services.print_scheduler import scheduler
+
+        await refresh_batches_after(cancelled_entries)
+        # A preheating entry's dispatch is parked in a sleep and cannot see the
+        # status written above (#2727): told, it stops heating the printer.
+        for entry_id in cancelled_entries:
+            scheduler.notify_dispatch_cancelled(entry_id)
     await db.refresh(run)
     await _publish_run_event(db, run)
     return await _materialise_run(db, run)

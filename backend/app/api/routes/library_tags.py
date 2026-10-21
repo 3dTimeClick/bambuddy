@@ -35,7 +35,7 @@ from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import require_ownership_permission, require_permission_if_auth_enabled
+from backend.app.core.auth import ApiKeyActor, require_ownership_permission, require_permission_if_auth_enabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.library import LibraryFile, LibraryFileTag, LibraryTag
@@ -68,7 +68,7 @@ def _name_key(name: str) -> str:
 @router.get("/", response_model=list[TagResponse])
 async def list_tags(
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_READ_ALL,
             Permission.LIBRARY_READ_OWN,
@@ -209,7 +209,7 @@ async def delete_tag(
 async def bulk_assign(
     payload: TagBulkAssignRequest,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_UPDATE_ALL,
             Permission.LIBRARY_UPDATE_OWN,

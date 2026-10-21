@@ -498,7 +498,7 @@ async def get_all_transactions(
     )
 
 
-async def _rebuild_wallet_ledger_for_user(db: AsyncSession, user_id: int) -> None:
+async def _rebuild_wallet_ledger_for_user(db: AsyncSession, user_id: int | None) -> None:
     """Rebuild through the same canonical ledger repair used at startup."""
     from backend.app.core.database import repair_wallet_ledger_internal
 

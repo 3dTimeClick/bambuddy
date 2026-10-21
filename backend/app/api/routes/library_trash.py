@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import require_ownership_permission, require_permission_if_auth_enabled
+from backend.app.core.auth import ApiKeyActor, require_ownership_permission, require_permission_if_auth_enabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.library import LibraryFile, LibraryFolder
@@ -90,7 +90,7 @@ async def list_trash(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_DELETE_ALL,
             Permission.LIBRARY_DELETE_OWN,
@@ -153,7 +153,7 @@ async def list_trash(
 async def _load_trashed_file(
     db: AsyncSession,
     file_id: int,
-    user: User | None,
+    user: User | ApiKeyActor | None,
     can_modify_all: bool,
 ) -> LibraryFile:
     """Fetch a trashed file, enforcing ownership for non-admins."""
@@ -176,7 +176,7 @@ async def _load_trashed_file(
 async def restore_from_trash(
     file_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_DELETE_ALL,
             Permission.LIBRARY_DELETE_OWN,
@@ -193,7 +193,7 @@ async def restore_from_trash(
 async def hard_delete_from_trash(
     file_id: int,
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_DELETE_ALL,
             Permission.LIBRARY_DELETE_OWN,
@@ -210,7 +210,7 @@ async def hard_delete_from_trash(
 @router.delete("/trash", response_model=EmptyTrashResponse)
 async def empty_trash(
     db: AsyncSession = Depends(get_db),
-    auth_result: tuple[User | None, bool] = Depends(
+    auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_DELETE_ALL,
             Permission.LIBRARY_DELETE_OWN,

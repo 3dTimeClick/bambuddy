@@ -16,6 +16,7 @@ every way a job can be created or set going:
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -132,7 +133,8 @@ class TestQueueing:
     async def test_library_add_to_queue_waits(self, async_client, setup, db_session):
         from backend.app.models.library import LibraryFile
 
-        rel_path = "archive/library/files/review_probe.gcode.3mf"
+        # Unique: the checkout's library folder is shared by every xdist worker.
+        rel_path = f"archive/library/files/review_probe_{uuid4().hex}.gcode.3mf"
         abs_path = Path(app_settings.base_dir) / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_bytes(b"probe")

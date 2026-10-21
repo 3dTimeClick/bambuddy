@@ -8,10 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, require_ownership_permission
+from backend.app.core.auth import ApiKeyActor, RequirePermissionIfAuthEnabled, require_ownership_permission
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.pending_upload import PendingUpload
+from backend.app.models.project import Project
 from backend.app.models.user import User
 from backend.app.services.archive import ArchiveService, resolve_display_stem
 
@@ -91,7 +92,7 @@ async def _augment_with_display_name(
 @router.get("/", response_model=list[PendingUploadResponse])
 async def list_pending_uploads(
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -109,7 +110,7 @@ async def list_pending_uploads(
 @router.get("/count")
 async def get_pending_count(
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -218,7 +219,7 @@ async def discard_all_pending(
 async def get_pending_upload(
     upload_id: int,
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.QUEUE_READ_ALL,
             Permission.QUEUE_READ_OWN,
@@ -256,6 +257,11 @@ async def archive_pending_upload(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Upload file not found on disk")
 
+    # The project must exist before anything is archived; 0 means none.
+    project_id = (request.project_id or None) if request else None
+    if project_id is not None and await db.get(Project, project_id) is None:
+        raise HTTPException(status_code=400, detail="Project not found")
+
     # Archive the file
     from backend.app.api.routes.settings import get_setting
 
@@ -281,8 +287,8 @@ async def archive_pending_upload(
             archive.tags = request.tags
         if request.notes:
             archive.notes = request.notes
-        if request.project_id:
-            archive.project_id = request.project_id
+        if project_id is not None:
+            archive.project_id = project_id
 
     # Update pending record
     pending.status = "archived"
@@ -291,7 +297,7 @@ async def archive_pending_upload(
     if request:
         pending.tags = request.tags
         pending.notes = request.notes
-        pending.project_id = request.project_id
+        pending.project_id = project_id
 
     await db.commit()
 

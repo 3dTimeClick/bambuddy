@@ -552,6 +552,9 @@ export const handlers = [
   // Per-file project print progress (#1897) — empty means "no completed runs"
   http.get('/api/v1/projects/:id/file-progress', () => HttpResponse.json([])),
   http.get('/api/v1/printers/:id/current-print-user', () => HttpResponse.json(null)),
+  // What a user who may not read /settings gets instead (useUiSettings).
+  http.get('/api/v1/settings/ui-flags', () => HttpResponse.json({})),
+  http.get('/api/v1/settings/ui-preferences', () => HttpResponse.json({})),
   http.get('/api/v1/settings/check-ffmpeg', () =>
     HttpResponse.json({ available: false, version: null })
   ),

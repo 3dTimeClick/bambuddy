@@ -76,7 +76,7 @@ class _StubArchiveService:
         return archive
 
 
-async def _drive_print_start(test_engine, printer, *, download_ok: bool, extra_patches=()) -> dict:
+async def _drive_print_start(test_engine, printer, *, download_ok: bool, extra_patches=(), state_fields=None) -> dict:
     """Run ``on_print_start`` against the test database.
 
     ``download_ok`` picks the branch: False leaves the 3MF unreachable and the
@@ -88,7 +88,10 @@ async def _drive_print_start(test_engine, printer, *, download_ok: bool, extra_p
         current_project_url=f"ftp://{SUBTASK}.gcode.3mf",
         sdcard=True,
         sdcard_reported=True,
+        subtask_id="",  # a local print; a bare mock attribute would be stored as its repr
     )
+    for name, value in (state_fields or {}).items():
+        setattr(state, name, value)
 
     patches = [
         patch("backend.app.main.async_session", session_maker),
@@ -135,6 +138,7 @@ async def _drive_print_start(test_engine, printer, *, download_ok: bool, extra_p
         relay.on_archive_created = AsyncMock()
         pm.get_status = MagicMock(return_value=state)
         pm.get_printer = MagicMock(return_value=MagicMock(serial_number="TEST1898"))
+        pm.get_client = MagicMock(return_value=None)  # else its mock dispatch id is stored
 
         from backend.app.main import on_print_start
 

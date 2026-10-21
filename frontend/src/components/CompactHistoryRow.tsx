@@ -12,7 +12,7 @@ import {
   AlertCircle,
   Weight,
 } from 'lucide-react';
-import { api } from '../api/client';
+import { queueItemThumbnailUrl } from '../utils/queueItemThumbnail';
 import { type TimeFormat, formatDuration, formatRelativeTime } from '../utils/date';
 import type { PrintQueueItem, Permission } from '../api/client';
 import { Button } from './Button';
@@ -57,11 +57,7 @@ export function CompactHistoryRow({
   const StatusIcon = config.icon;
   const displayName = queueItemDisplayName(item);
 
-  const thumbnailUrl = item.archive_thumbnail
-    ? api.getArchiveThumbnail(item.archive_id!)
-    : item.library_file_thumbnail
-      ? api.getLibraryFileThumbnailUrl(item.library_file_id!)
-      : null;
+  const thumbnailUrl = queueItemThumbnailUrl(item);
 
   const completedTime = item.completed_at || item.created_at;
   const filamentColor = normalizeFilamentColor(item.filament_color);

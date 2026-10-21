@@ -153,6 +153,7 @@ class TestPrintStartSkipsTheCalibration:
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock()
+            mock_session.scalar = AsyncMock(return_value=None)  # no queue job of Bambuddy's printing
             mock_session.execute = AsyncMock(
                 return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_printer))
             )
@@ -169,6 +170,33 @@ class TestPrintStartSkipsTheCalibration:
 
         skipped = [r for r in capture_logs.records if "internal printer job" in str(r.message)]
         assert skipped, "Should log that the calibration run was skipped"
+
+    @pytest.mark.asyncio
+    async def test_archiving_off_does_not_notify_it_either(self):
+        """The auto-archive "off" path sends a print-start notification of its
+        own, so the calibration check has to come first."""
+        sess, notif, plug, ws, pm, relay = _mocked_print_start()
+        with sess as mock_session_maker, notif as mock_notif, plug as mock_plug, ws as mock_ws, pm as mock_pm, relay:
+            mock_notif.on_print_start = AsyncMock()
+            mock_plug.on_print_start = AsyncMock()
+            mock_ws.send_print_start = AsyncMock()
+            mock_pm.get_printer = MagicMock(return_value=MagicMock(name="Test", serial_number="TEST123"))
+            mock_printer = MagicMock(auto_archive=False, id=1)
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock()
+            mock_session.scalar = AsyncMock(return_value=None)  # no queue job of Bambuddy's printing
+            mock_session.execute = AsyncMock(
+                return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_printer))
+            )
+            mock_session_maker.return_value = mock_session
+
+            with patch("backend.app.main._send_print_start_notification", new_callable=AsyncMock) as mock_notify:
+                from backend.app.main import on_print_start
+
+                await on_print_start(1, {"filename": "", "subtask_name": "auto_pa_line_calib_mode"})
+
+                mock_notify.assert_not_called()
 
 
 class TestPrintCompleteStaysQuiet:
@@ -250,3 +278,10 @@ class TestPrintCompleteStaysQuiet:
 
             spawned = [c for c in mock_spawn.call_args_list if "notify-no-archive" in str(c)]
             assert spawned, "An unmatched real print must still notify"
+
+
+def test_the_a1_built_in_calibration_reported_as_a_bare_name_is_internal():
+    """A1/P1S report it without the /usr/ path (support bundle, A1 01.08)."""
+    from backend.app.utils.print_jobs import is_internal_printer_job
+
+    assert is_internal_printer_job("auto_cali_for_user_param.gcode", "auto_cali_for_user_param.gcode")

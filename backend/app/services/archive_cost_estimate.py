@@ -26,6 +26,7 @@ Strictly best-effort. Nothing here may fail a print start.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 
@@ -183,10 +184,38 @@ def schedule_archive_cost_estimate(
             await estimate_archive_cost_at_start(db, printer_id, archive_id, printer_manager, mapping, plate_id)
 
     try:
-        return spawn_background_task(_run(), name=f"archive-cost-estimate-{archive_id}")
+        task = spawn_background_task(_run(), name=f"archive-cost-estimate-{archive_id}")
     except Exception:  # noqa: BLE001 -- an estimate must never fail a print start
         logger.warning("[COST] Archive %s: could not schedule the cost estimate", archive_id, exc_info=True)
         return None
+    _running_estimates[archive_id] = task
+
+    def _forget(done: asyncio.Task, archive_id: int = archive_id) -> None:
+        if _running_estimates.get(archive_id) is done:
+            del _running_estimates[archive_id]
+
+    task.add_done_callback(_forget)
+    return task
+
+
+# Estimates still running, by archive: completion stops its archive's before
+# writing the real cost (COST-4).
+_running_estimates: dict[int, asyncio.Task] = {}
+
+
+async def settle_archive_cost_estimate(archive_id: int) -> None:
+    """Stop the archive's start estimate, if still running, before the real cost.
+
+    Completion commits the measured cost before it marks the archive ended; an
+    estimate still waiting on Spoolman then saw a printing archive with no runs
+    logged, and wrote its figure over the real one on a very short print.
+    """
+    task = _running_estimates.pop(archive_id, None)
+    if task is None or task.done():
+        return
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await task
 
 
 async def estimate_archive_cost_at_start(

@@ -9,6 +9,7 @@ import {
   findNearestSimilar,
   formatSlotLabel,
   getGlobalTrayId,
+  isAmsHtUnit,
   preferLowestSortKey,
   compareSortKeys,
 } from '../utils/amsHelpers';
@@ -66,7 +67,7 @@ export function buildLoadedFilaments(
 
   // Add filaments from all AMS units (regular and HT)
   printerStatus?.ams?.forEach((amsUnit) => {
-    const isHt = amsUnit.tray.length === 1; // AMS-HT has single tray
+    const isHt = isAmsHtUnit(amsUnit.id);
     amsUnit.tray.forEach((tray) => {
       if (tray.tray_type) {
         const color = normalizeColor(tray.tray_color);

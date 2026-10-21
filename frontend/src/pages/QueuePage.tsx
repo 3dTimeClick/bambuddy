@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { bulkUpdateToast } from '../utils/queueBulkUpdate';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -20,6 +21,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { queueItemDisplayName } from '../utils/queueItemName';
+import { queueItemThumbnailUrl } from '../utils/queueItemThumbnail';
 import {
   Clock,
   Trash2,
@@ -69,6 +71,7 @@ import { PipelineRunsView } from './PipelineRunsPage';
 import { type TimeFormat, formatETA, formatDuration, formatRelativeTime, parseUTCDate } from '../utils/date';
 import { getBedTypeInfo } from '../utils/bedType';
 import { getColorName } from '../utils/colors';
+import { productLineOf, useFilamentNameByIdx } from '../components/PrintModal/useFilamentLabels';
 import type { PrintQueueItem, PrintQueueBulkUpdate, Permission, CalibrationMode, PrinterStatus, SlotSpoolIdentity } from '../api/client';
 import { formatSlotLabel, getEmptySlotKind } from '../utils/amsHelpers';
 import type { PlateMetadata } from '../types/plates';
@@ -85,6 +88,10 @@ import { QueueTimelineView } from '../components/QueueTimelineView';
 import { compareQueueOrder } from '../utils/queueOrder';
 import { BatchOrdersView } from '../components/BatchOrdersView';
 import { buildLoadedFilaments, type LoadedFilament } from '../hooks/useFilamentMapping';
+import { hasGcodeSnippets, useUiSettings } from '../hooks/useUiSettings';
+
+// The scheduler's MODEL_GATE_WAIT_REASON (print_scheduler.py).
+const MODEL_GATE_WAIT_REASON = 'The last print failed on every free matching printer';
 
 type QueueFilamentDisplay = {
   slotId: number;
@@ -175,6 +182,7 @@ function resolveQueueFilaments(
   loadedFilaments: LoadedFilament[] = [],
   status?: PrinterStatus,
   emptyLabel = 'Empty',
+  filamentNameByIdx: Record<string, string> = {},
 ): QueueFilamentDisplay[] {
   // A stored AMS mapping names the physical tray that will actually feed a 3MF
   // slot. Once its live tray data is available, that is more specific than
@@ -226,12 +234,16 @@ function resolveQueueFilaments(
         const override = overrides.get(filament.slot_id);
         const color = override?.color ?? filament.color;
         const type = override?.type ?? filament.type;
+        // An override is another filament: the plate's preset is not its own.
+        const productLine = override
+          ? productLineOf(override.tray_info_idx, override.type, filamentNameByIdx)
+          : productLineOf(filament.tray_info_idx, filament.type, filamentNameByIdx);
 
         return resolveSlot({
           slotId: filament.slot_id,
           type,
           color,
-          colorName: override?.color_name?.trim() || getColorName(color, type),
+          colorName: override?.color_name?.trim() || getColorName(color, productLine),
         });
       });
   }
@@ -247,7 +259,7 @@ function resolveQueueFilaments(
         color: override.color,
         colorName:
           override.color_name?.trim() ||
-          getColorName(override.color, override.type),
+          getColorName(override.color, productLineOf(override.tray_info_idx, override.type, filamentNameByIdx)),
       }),
     );
   }
@@ -653,7 +665,15 @@ function SortableQueueItem({
   // Combine plates data from either source
   const platesData = isLibraryFile ? libraryPlatesData : archivePlatesData;
   const plates = platesData?.plates ?? [];
-  const queueFilaments = resolveQueueFilaments(item, plates, loadedFilaments, status, t('ams.empty'));
+  const filamentNameByIdx = useFilamentNameByIdx();
+  const queueFilaments = resolveQueueFilaments(
+    item,
+    plates,
+    loadedFilaments,
+    status,
+    t('ams.empty'),
+    filamentNameByIdx,
+  );
 
   const canReorder = hasPermission('queue:reorder');
   const {
@@ -685,6 +705,7 @@ function SortableQueueItem({
       : null;
 
   const isMobileSelectable = isPending && onToggleSelect;
+  const thumbnailUrl = queueItemThumbnailUrl(item);
 
   return (
     <div
@@ -784,26 +805,8 @@ function SortableQueueItem({
 
         {/* Thumbnail - use plate-specific thumbnail if plate_id is set */}
         <div className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden">
-          {item.archive_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getArchivePlateThumbnail(item.archive_id!, item.plate_id)
-                  : api.getArchiveThumbnail(item.archive_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : item.library_file_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getLibraryFilePlateThumbnail(item.library_file_id!, item.plate_id)
-                  : api.getLibraryFileThumbnailUrl(item.library_file_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
+          {thumbnailUrl ? (
+            <img src={thumbnailUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-bambu-gray">
               <Layers className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -1494,7 +1497,6 @@ type HistoryRow =
 
 interface HistorySectionProps {
   items: PrintQueueItem[];
-  collapsed: boolean;
   visibleCount: number;
   onShowMore: () => void;
   sortBy: 'date' | 'name' | 'printer';
@@ -1736,6 +1738,8 @@ export function QueuePage() {
     printerName: string;
     skippedCount: number;
   } | null>(null);
+  // Same for a model whose waiting jobs are held by failed last prints.
+  const [resumeModelConfirm, setResumeModelConfirm] = useState<string | null>(null);
   const [historySortBy, setHistorySortBy] = useState<'date' | 'name' | 'printer'>(() => {
     const saved = localStorage.getItem('queue.historySortBy');
     return (saved as 'date' | 'name' | 'printer') || 'date';
@@ -1844,10 +1848,7 @@ export function QueuePage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: api.getSettings,
-  });
+  const { data: settings } = useUiSettings();
 
   const timeFormat: TimeFormat = settings?.time_format || 'system';
 
@@ -1877,6 +1878,7 @@ export function QueuePage() {
     mutationFn: (enabled: boolean) => api.updateSettings({ queue_shortest_first: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['ui-settings'] });
     },
   });
 
@@ -2004,7 +2006,8 @@ export function QueuePage() {
       queryClient.invalidateQueries({ queryKey: ['queue'] });
       setSelectedItems([]);
       setShowBulkEditModal(false);
-      showToast(result.message);
+      const toast = bulkUpdateToast(result);
+      showToast(t(toast.key, toast.params), toast.type);
     },
     onError: () => showToast(t('queue.toast.updateFailed'), 'error'),
   });
@@ -2035,6 +2038,16 @@ export function QueuePage() {
           acknowledged: result.acknowledged,
         }),
       );
+    },
+    onError: () => showToast(t('queue.toast.resumeAfterFailureFailed'), 'error'),
+  });
+
+  const resumeModelMutation = useMutation({
+    mutationFn: (model: string) => api.resumeModelQueueAfterFailure(model),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+      setResumeModelConfirm(null);
+      showToast(t('queue.toast.resumedModelAfterFailure', { count: result.acknowledged }));
     },
     onError: () => showToast(t('queue.toast.resumeAfterFailureFailed'), 'error'),
   });
@@ -2623,6 +2636,25 @@ export function QueuePage() {
       .sort((a, b) => a.printerName.localeCompare(b.printerName));
   }, [queue]);
 
+  // Models whose "any printer" jobs wait because the last print failed on
+  // every free printer of the model (the scheduler's MODEL_GATE_WAIT_REASON).
+  const gateBlockedModels = useMemo<Array<{ model: string; waitingCount: number }>>(() => {
+    const counts = new Map<string, number>();
+    queue?.forEach((item) => {
+      if (
+        item.status === 'pending' &&
+        !item.printer_id &&
+        item.target_model &&
+        item.waiting_reason === MODEL_GATE_WAIT_REASON
+      ) {
+        counts.set(item.target_model, (counts.get(item.target_model) ?? 0) + 1);
+      }
+    });
+    return Array.from(counts.entries())
+      .map(([model, waitingCount]) => ({ model, waitingCount }))
+      .sort((a, b) => a.model.localeCompare(b.model));
+  }, [queue]);
+
   const aggregateForRows = (rows: QueueRow[]) => {
     let count = 0;
     let time = 0;
@@ -2723,6 +2755,34 @@ export function QueuePage() {
                 onClick={() =>
                   setResumeConfirm({ printerId, printerName, skippedCount })
                 }
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 dark:bg-orange-500/20 hover:bg-orange-200 dark:hover:bg-orange-500/30 text-orange-900 dark:text-orange-100 text-sm rounded-md border border-orange-300 dark:border-orange-500/40 transition-colors flex-shrink-0"
+              >
+                <PlayCircle className="w-4 h-4" />
+                {t('queue.resumeAfterFailure.button')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'queue' && gateBlockedModels.length > 0 && hasPermission('queue:update_all' as Permission) && (
+        <div className="mb-4 space-y-2">
+          {gateBlockedModels.map(({ model, waitingCount }) => (
+            <div
+              key={model}
+              className="flex items-center gap-3 px-4 py-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-300 dark:border-orange-500/30 rounded-lg"
+            >
+              <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-orange-800 dark:text-orange-200">
+                  {t('queue.resumeModelAfterFailure.banner', { model, count: waitingCount })}
+                </div>
+                <div className="text-xs text-orange-800/80 dark:text-orange-200/70 mt-0.5">
+                  {t('queue.resumeModelAfterFailure.bannerHint', { model })}
+                </div>
+              </div>
+              <button
+                onClick={() => setResumeModelConfirm(model)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 dark:bg-orange-500/20 hover:bg-orange-200 dark:hover:bg-orange-500/30 text-orange-900 dark:text-orange-100 text-sm rounded-md border border-orange-300 dark:border-orange-500/40 transition-colors flex-shrink-0"
               >
                 <PlayCircle className="w-4 h-4" />
@@ -2881,7 +2941,6 @@ export function QueuePage() {
       ) : activeTab === 'history' ? (
         <HistorySection
           items={historyItems}
-          collapsed={false}
           visibleCount={historyVisibleCount}
           onShowMore={() => setHistoryVisibleCount((c) => c + HISTORY_PAGE_SIZE)}
           sortBy={historySortBy}
@@ -3261,6 +3320,17 @@ export function QueuePage() {
         />
       )}
 
+      {resumeModelConfirm && (
+        <ConfirmModal
+          title={t('queue.resumeAfterFailure.confirmTitle')}
+          message={t('queue.resumeModelAfterFailure.confirmMessage', { model: resumeModelConfirm })}
+          confirmText={t('queue.resumeAfterFailure.button')}
+          variant="warning"
+          onConfirm={() => resumeModelMutation.mutate(resumeModelConfirm)}
+          onCancel={() => setResumeModelConfirm(null)}
+        />
+      )}
+
       {/* Clear History Confirm Modal */}
       {showClearHistoryConfirm && (
         <ConfirmModal
@@ -3289,7 +3359,7 @@ export function QueuePage() {
           onClose={() => setShowBulkEditModal(false)}
           isSaving={bulkUpdateMutation.isPending}
           canControlPrinter={hasPermission('printers:control')}
-          hasGcodeSnippets={!!settings?.gcode_snippets}
+          hasGcodeSnippets={hasGcodeSnippets(settings)}
           t={t}
         />
       )}

@@ -27,6 +27,7 @@ from backend.app.api.routes.orca_cloud import (
     _load_credentials as _load_orca_credentials,
 )
 from backend.app.core.auth import (
+    ApiKeyActor,
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     is_auth_enabled,
@@ -788,8 +789,8 @@ async def list_loaded_spools(
                 _loaded_spool_tray(t, ams_id, int(t.get("id", 0)), saved.get((printer.id, ams_id, int(t.get("id", 0)))))
                 for t in raw_trays
             ]
-            # Same rule as the printer status: an AMS-HT reports a single tray.
-            units.append(LoadedSpoolUnit(id=ams_id, is_ams_ht=len(trays) == 1, trays=trays))
+            # Same rule as the printer status: an AMS-HT is a unit id 128-135.
+            units.append(LoadedSpoolUnit(id=ams_id, is_ams_ht=128 <= ams_id <= 135, trays=trays))
 
         external: list[LoadedSpoolTray] = []
         holders = [vt for vt in raw_data.get("vt_tray") or [] if isinstance(vt, dict)]
@@ -818,7 +819,7 @@ async def list_loaded_spools(
 async def get_preview_slice_progress(
     request_id: str,
     db: AsyncSession = Depends(get_db),
-    _: tuple[User | None, bool] = Depends(
+    _: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
             Permission.LIBRARY_READ_ALL,
             Permission.LIBRARY_READ_OWN,
@@ -848,6 +849,10 @@ async def get_preview_slice_progress(
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(url)
+    except httpx.TimeoutException:
+        # Busy, not gone: a heavy slice can hold the progress answer past 5 s
+        # (TO-C14). Still 503, so the poller keeps trying.
+        raise HTTPException(status_code=503, detail="Slicer sidecar did not answer in time") from None
     except httpx.RequestError:
         # Sidecar unreachable: surface as 503 instead of 500 so the
         # frontend's poller can keep trying without flagging a hard error.

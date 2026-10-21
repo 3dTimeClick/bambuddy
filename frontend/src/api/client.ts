@@ -1,3 +1,4 @@
+import type { KProfileWriteResult } from '../utils/kprofileWrite';
 import type { ArchivePlatesResponse, LibraryFilePlatesResponse } from '../types/plates';
 
 const API_BASE = '/api/v1';
@@ -621,6 +622,15 @@ export interface ExtruderSlot {
 // Which FTS inlet an AMS is plumbed into: 'A' | 'B'.
 export type FtsInlet = 'A' | 'B';
 
+// A video device the server can see, for a USB camera (GET /printers/usb-cameras).
+export interface UsbCamera {
+  device: string;
+  name: string;
+  capabilities: string[];
+  driver?: string;
+  formats?: string[];
+}
+
 export interface PrinterStatus {
   id: number;
   name: string;
@@ -651,7 +661,8 @@ export interface PrinterStatus {
   } | null;
   cover_url: string | null;
   hms_errors: HMSError[];
-  ams: AMSUnit[];
+  // Live updates send null when no AMS is attached; the REST status sends [].
+  ams: AMSUnit[] | null;
   ams_exists: boolean;
   vt_tray: AMSTray[];  // Virtual tray / external spool(s)
   store_to_sdcard: boolean;  // Store sent files on SD card
@@ -838,6 +849,16 @@ export interface ArchivePrinterMedia {
   warnings: Array<'printer_missing' | 'timelapse_unavailable' | 'ipcam_unavailable' | 'printer_files_forbidden'>;
 }
 
+/** A timelapse editor re-encode, run in the background. */
+export interface TimelapseJob {
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Share done, 0 to 1; null before ffmpeg's first report. */
+  progress: number | null;
+  output_path: string | null;
+  message: string | null;
+  error: string | null;
+}
+
 /** How a post-print outcome verdict reached the archive (#1898). */
 export type VerdictSource = 'dialog' | 'link' | 'plate_clear' | 'printer_card' | 'api' | 'reaction';
 
@@ -1017,11 +1038,27 @@ export interface FailureAnalysis {
   }>;
 }
 
+/**
+ * Send the browser's zone with calendar dates: the server reads a date as a
+ * day in it, else in its own TZ, which shifted every day for a browser away
+ * from the server (DB-C12). Only when a date is set.
+ */
+function addDayZone(params: URLSearchParams): void {
+  if (!params.has('date_from') && !params.has('date_to')) return;
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone) params.set('tz', zone);
+  } catch {
+    // No Intl zone: the server's TZ applies.
+  }
+}
+
 export interface BulkUploadResult {
   uploaded: number;
   failed: number;
-  results: Array<{ filename: string; id: number; status: string }>;
-  errors: Array<{ filename: string; error: string }>;
+  /** `index` is the file's position in the request. */
+  results: Array<{ index: number; filename: string; id: number; status: string }>;
+  errors: Array<{ index: number; filename: string; error: string }>;
 }
 
 // Archive Comparison types
@@ -1066,17 +1103,6 @@ export interface ArchiveComparison {
   comparison: ComparisonField[];
   differences: ComparisonField[];
   success_correlation: SuccessCorrelation;
-}
-
-export interface SimilarArchive {
-  archive: {
-    id: number;
-    print_name: string;
-    status: string;
-    created_at: string | null;
-  };
-  match_reason: string;
-  match_score: number;
 }
 
 // Project types
@@ -1375,24 +1401,6 @@ export interface APIKeyCreateResponse extends APIKey {
   key: string;  // Full key, only shown on creation
 }
 
-export interface APIKeyUpdate {
-  name?: string;
-  can_queue?: boolean;
-  can_control_printer?: boolean;
-  can_read_status?: boolean;
-  can_manage_library?: boolean;
-  can_manage_inventory?: boolean;
-  can_manage_maintenance?: boolean;
-  can_manage_archives?: boolean;
-  can_manage_projects?: boolean;
-  can_access_cloud?: boolean;
-  can_update_energy_cost?: boolean;
-  can_send_notifications?: boolean;
-  printer_ids?: number[] | null;
-  enabled?: boolean;
-  expires_at?: string | null;
-}
-
 /**
  * Tri-state calibration option (BambuStudio parity): "off" never runs it,
  * "on" forces it every print, "auto" lets the printer skip it if it was done
@@ -1435,6 +1443,7 @@ export interface AppSettings {
   // resolves to ams_temp_fair so existing installs are unaffected.
   ams_temp_alarm: number | null;
   ams_history_retention_days: number;  // days to keep AMS sensor history
+  printer_sensor_history_retention_days?: number;  // days to keep printer heater history
   // Queue auto-drying settings
   queue_drying_enabled: boolean;  // Auto-dry AMS between queued prints
   queue_drying_block: boolean;  // Block queue until drying completes
@@ -1497,7 +1506,6 @@ export interface AppSettings {
   ha_token_from_env: boolean;
   ha_env_managed: boolean;
   // File Manager / Library settings
-  library_archive_mode: 'always' | 'never' | 'ask';
   library_disk_warning_gb: number;
   // Camera view settings
   camera_view_mode: 'window' | 'embedded';
@@ -1611,6 +1619,11 @@ export interface AppSettings {
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>;
+
+// Settings as a page sees them: everything from GET /settings for a user who
+// may read it, otherwise the subset /settings/ui-preferences and
+// /settings/ui-flags serve, which reports G-code snippets only as set or not.
+export type UiSettings = Partial<AppSettings> & { has_gcode_snippets?: boolean };
 
 // MQTT relay status
 export interface MQTTStatus {
@@ -1839,12 +1852,6 @@ export interface ColorCatalogEntry {
   // #1154: optional multi-colour gradient stops + visual effect.
   extra_colors?: string | null;
   effect_type?: string | null;
-}
-
-export interface ColorLookupResult {
-  found: boolean;
-  hex_color: string | null;
-  material: string | null;
 }
 
 export interface SlicerSettingsResponse {
@@ -2142,7 +2149,8 @@ export interface PipelineJob {
     | 'printing'
     | 'completed'
     | 'failed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'unknown';
   error_message: string | null;
   dispatched_at: string | null;
   completed_at: string | null;
@@ -3610,6 +3618,8 @@ export interface NotificationTestRequest {
   provider_type: ProviderType;
   config: Record<string, unknown>;
   attach_photo?: boolean;
+  /** The saved provider being edited: its stored secrets fill in the placeholders. */
+  provider_id?: number;
 }
 
 export interface NotificationTestResponse {
@@ -3897,6 +3907,9 @@ export interface InventorySpool {
   created_at: string;
   updated_at: string;
   cost_per_kg: number | null;
+  // Spoolman mode: what prints are charged per kg, the spool's own price or
+  // else its filament's. Display only; the form edits cost_per_kg.
+  effective_cost_per_kg?: number | null;
   last_scale_weight: number | null;
   last_weighed_at: string | null;
   // User-defined category + per-spool low-stock threshold override (#729).
@@ -4021,7 +4034,8 @@ export interface CsvImportResult {
 
 export interface SpoolUsageRecord {
   id: number;
-  spool_id: number;
+  // null: the spool was deleted, its usage kept
+  spool_id: number | null;
   printer_id: number | null;
   print_name: string | null;
   weight_used: number;
@@ -4105,6 +4119,9 @@ export interface SlotMaterial {
    *  third-party spool, so this is the only place a slot's real identity
    *  exists. Null when the binding resolves to a spool we cannot describe. */
   spool?: SlotSpoolIdentity | null;
+  /** Per-kg rate a print off this spool is charged at; null when unpriced,
+   *  which is charged at the default rate. Optional for an older backend. */
+  cost_per_kg?: number | null;
 }
 
 /** Display identity of an inventory-bound slot. See `SlotMaterial.spool`. */
@@ -4270,25 +4287,6 @@ export interface PrinterMaintenanceOverview {
   warning_count: number;
 }
 
-export interface MaintenanceHistory {
-  id: number;
-  printer_maintenance_id: number;
-  performed_at: string;
-  hours_at_maintenance: number;
-  notes: string | null;
-}
-
-export interface MaintenanceSummary {
-  total_due: number;
-  total_warning: number;
-  printers_with_issues: Array<{
-    printer_id: number;
-    printer_name: string;
-    due_count: number;
-    warning_count: number;
-  }>;
-}
-
 // External Links (sidebar)
 export interface ExternalLink {
   id: number;
@@ -4378,7 +4376,7 @@ export type WalletTransactionType = 'print_charge' | 'deposit' | 'withdraw' | 'm
 
 export interface WalletTransaction {
   id: number;
-  user_id: number;
+  user_id: number | null; // null once the user is deleted
   cost_center_id: number | null;
   transaction_type: WalletTransactionType;
   amount: number;
@@ -4738,6 +4736,9 @@ export interface OIDCLink {
 
 export interface TestSMTPRequest {
   test_recipient: string;
+  // The form's settings, tested before they are saved. An empty password
+  // keeps the saved one.
+  smtp?: SMTPSettings;
 }
 
 export interface TestSMTPResponse {
@@ -4776,6 +4777,15 @@ export interface EncryptionStatus {
   // B2: count of rows skipped during the last legacy re-encryption migration.
   // Surfaced via a yellow secondary banner in SecurityStatusCard.
   migration_error_count: number;
+}
+
+export interface LDAPTestRequest {
+  ldap_server_url?: string;
+  ldap_bind_dn?: string;
+  ldap_bind_password?: string;
+  ldap_search_base?: string;
+  ldap_user_filter?: string;
+  ldap_security?: string;
 }
 
 export interface LDAPTestResponse {
@@ -4876,9 +4886,12 @@ export const api = {
   // LDAP Authentication
   getLDAPStatus: () => request<LDAPStatus>('/auth/ldap/status'),
   getEncryptionStatus: () => request<EncryptionStatus>('/auth/encryption-status'),
-  testLDAP: () =>
+  // form: the settings being edited, tested before they are saved. An empty
+  // bind password keeps the saved one.
+  testLDAP: (form?: LDAPTestRequest) =>
     request<LDAPTestResponse>('/auth/ldap/test', {
       method: 'POST',
+      ...(form ? { body: JSON.stringify(form) } : {}),
     }),
   searchLDAPDirectory: (q: string) =>
     request<LDAPSearchResult[]>(`/auth/ldap/search?q=${encodeURIComponent(q)}`),
@@ -4955,8 +4968,13 @@ export const api = {
     }),
 
   // 2FA - admin
-  admin2FADisable: (userId: number) =>
-    request<{ message: string }>(`/auth/2fa/admin/${userId}`, { method: 'DELETE' }),
+  // adminPassword: the calling admin's own password; null for an admin
+  // without one (LDAP / OIDC accounts usually), whom the route does not ask.
+  admin2FADisable: (userId: number, adminPassword: string | null) =>
+    request<{ message: string; had_2fa: boolean }>(`/auth/2fa/admin/${userId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ admin_password: adminPassword }),
+    }),
 
   // OIDC providers (public list)
   getOIDCProviders: () => request<OIDCProviderPublic[]>('/auth/oidc/providers'),
@@ -5006,7 +5024,6 @@ export const api = {
   // Users
   getUsers: () => request<UserResponse[]>('/users/'),
   getUsersSlim: () => request<UserSlim[]>('/users/slim'),
-  getUser: (id: number) => request<UserResponse>(`/users/${id}`),
   createUser: (data: UserCreate) =>
     request<UserResponse>('/users/', {
       method: 'POST',
@@ -5054,14 +5071,6 @@ export const api = {
     }),
   deleteGroup: (id: number) =>
     request<void>(`/groups/${id}`, {
-      method: 'DELETE',
-    }),
-  addUserToGroup: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/users/${userId}`, {
-      method: 'POST',
-    }),
-  removeUserFromGroup: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/users/${userId}`, {
       method: 'DELETE',
     }),
 
@@ -5115,18 +5124,19 @@ export const api = {
     request<{ connected: boolean }>(`/printers/${id}/connect`, {
       method: 'POST',
     }),
-  disconnectPrinter: (id: number) =>
-    request<{ connected: boolean }>(`/printers/${id}/disconnect`, {
-      method: 'POST',
-    }),
+  getUsbCameras: () => request<{ cameras: UsbCamera[] }>('/printers/usb-cameras'),
   testExternalCamera: (printerId: number, url: string, cameraType: string) =>
     // `coalesced` is true when the frame came from a capture that was already
     // running (Obico polling, a snapshot) rather than a connection this test
     // opened — a single-reader camera is shared rather than opened twice, so
     // the result is real but says nothing about reaching the camera just now.
-    request<{ success: boolean; error?: string; resolution?: string; coalesced?: boolean }>(
-      `/printers/${printerId}/camera/external/test?url=${encodeURIComponent(url)}&camera_type=${encodeURIComponent(cameraType)}`,
-      { method: 'POST' }
+    // `live_view` is true when the tested camera is the one a viewer is
+    // watching: the answer comes from the live frame, not a test of its own.
+    // In the body: the URL may carry the camera login, and a query string
+    // ends up in the server's access log.
+    request<{ success: boolean; error?: string; resolution?: string; coalesced?: boolean; live_view?: boolean }>(
+      `/printers/${printerId}/camera/external/test`,
+      { method: 'POST', body: JSON.stringify({ url, camera_type: cameraType }) }
     ),
 
   // Print Control
@@ -5302,7 +5312,8 @@ export const api = {
       { method: 'POST' }
     ),
 
-  // Load filament from a tray. trayId: 0-15 for AMS (amsId*4+slotId), 254 for external spool.
+  // Load filament from a tray. trayId: 0-15 for AMS (amsId*4+slotId), 128-135 for an
+  // AMS-HT (its unit id), 254 for external spool.
   // extruderId (0 = right, 1 = left) names the hotend to feed. Pass it only on a
   // printer with a Filament Track Switch — there the AMS is bound to a switch
   // inlet rather than a hotend, so the firmware cannot work the target out and
@@ -5350,7 +5361,7 @@ export const api = {
         path: string;
         mtime?: string;
       }>;
-      warnings: Array<'printer_unavailable'>;
+      warnings: Array<'printer_unavailable' | 'listing_timed_out'>;
     }>(`/printers/${printerId}/files?path=${encodeURIComponent(path)}`),
   getPrinterFileDownloadUrl: (printerId: number, path: string) =>
     `${API_BASE}/printers/${printerId}/files/download?path=${encodeURIComponent(path)}`,
@@ -5473,6 +5484,7 @@ export const api = {
     params.set('offset', String(offset));
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     return request<Archive[]>(`/archives/?${params}`);
   },
   // Latest archive of every printer in one request, for the printer cards.
@@ -5481,6 +5493,7 @@ export const api = {
     const params = new URLSearchParams();
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     if (createdById !== undefined) params.set('created_by_id', String(createdById));
     const qs = params.toString();
     return request<ArchiveSlim[]>(`/archives/slim${qs ? `?${qs}` : ''}`);
@@ -5496,23 +5509,6 @@ export const api = {
     request<{ related_queue_items: number; currently_printing: number }>(
       `/archives/${id}/delete-impact`
     ),
-  searchArchives: (query: string, options?: {
-    printerId?: number;
-    projectId?: number;
-    status?: string;
-    limit?: number;
-    offset?: number;
-  }) => {
-    const params = new URLSearchParams();
-    params.set('q', query);
-    if (options?.printerId) params.set('printer_id', String(options.printerId));
-    if (options?.projectId) params.set('project_id', String(options.projectId));
-    if (options?.status) params.set('status', options.status);
-    if (options?.limit) params.set('limit', String(options.limit));
-    if (options?.offset) params.set('offset', String(options.offset));
-    return request<Archive[]>(`/archives/search?${params}`);
-  },
-  rebuildSearchIndex: () => request<{ message: string }>('/archives/search/rebuild-index', { method: 'POST' }),
   getNo3MFWarning: () =>
     request<{
       has_fallback: boolean;
@@ -5584,6 +5580,7 @@ export const api = {
     const params = new URLSearchParams();
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.createdById !== undefined) params.set('created_by_id', String(options.createdById));
     const qs = params.toString();
     return request<ArchiveStats>(`/archives/stats${qs ? `?${qs}` : ''}`);
@@ -5606,6 +5603,7 @@ export const api = {
     if (options?.days) params.set('days', String(options.days));
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.printerId) params.set('printer_id', String(options.printerId));
     if (options?.projectId) params.set('project_id', String(options.projectId));
     if (options?.createdById !== undefined) params.set('created_by_id', String(options.createdById));
@@ -5614,8 +5612,6 @@ export const api = {
   },
   compareArchives: (archiveIds: number[]) =>
     request<ArchiveComparison>(`/archives/compare?archive_ids=${archiveIds.join(',')}`),
-  findSimilarArchives: (archiveId: number, limit = 10) =>
-    request<SimilarArchive[]>(`/archives/${archiveId}/similar?limit=${limit}`),
   exportArchives: async (options?: {
     format?: 'csv' | 'xlsx';
     fields?: string[];
@@ -5634,6 +5630,7 @@ export const api = {
     if (options?.status) params.set('status', options.status);
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     if (options?.search) params.set('search', options.search);
 
     const headers: Record<string, string> = {};
@@ -5690,12 +5687,6 @@ export const api = {
     const blob = await response.blob();
     return { blob, filename };
   },
-  getArchiveDuplicates: (id: number) =>
-    request<{ duplicates: ArchiveDuplicate[]; count: number }>(`/archives/${id}/duplicates`),
-  backfillContentHashes: () =>
-    request<{ updated: number; errors: Array<{ id: number; error: string }> }>('/archives/backfill-hashes', {
-      method: 'POST',
-    }),
   getArchiveThumbnail: (id: number) => withMediaToken(`${API_BASE}/archives/${id}/thumbnail?v=${Date.now()}`),
   getArchivePlateThumbnail: (id: number, plateIndex: number) =>
     withMediaToken(`${API_BASE}/archives/${id}/plate-thumbnail/${plateIndex}`),
@@ -5723,7 +5714,6 @@ export const api = {
     window.URL.revokeObjectURL(url);
   },
   getArchiveGcode: (id: number) => `${API_BASE}/archives/${id}/gcode`,
-  getArchivePlatePreview: (id: number) => withMediaToken(`${API_BASE}/archives/${id}/plate-preview`),
   getArchiveTimelapse: (id: number) => withMediaToken(`${API_BASE}/archives/${id}/timelapse?v=${Date.now()}`),
   downloadArchiveTimelapse: async (id: number, filename: string): Promise<void> => {
     const prepared = await request<{ token: string; filename: string }>(
@@ -5797,17 +5787,22 @@ export const api = {
       trimStart?: number;
       trimEnd?: number;
       speed?: number;
+      /** Music volume, 0 to 1. */
+      audioVolume?: number;
       saveMode: 'replace' | 'new';
       outputFilename?: string;
     },
     audioFile?: File
-  ): Promise<{ status: string; output_path: string | null; message: string }> => {
+  ): Promise<TimelapseJob> => {
     const formData = new FormData();
     formData.append('trim_start', String(params.trimStart ?? 0));
     if (params.trimEnd !== undefined) {
       formData.append('trim_end', String(params.trimEnd));
     }
     formData.append('speed', String(params.speed ?? 1));
+    if (params.audioVolume !== undefined) {
+      formData.append('audio_volume', String(params.audioVolume));
+    }
     formData.append('save_mode', params.saveMode);
     if (params.outputFilename) {
       formData.append('output_filename', params.outputFilename);
@@ -5830,6 +5825,17 @@ export const api = {
     }
     return response.json();
   },
+  // The archive's running or last re-encode; null when there has been none.
+  getTimelapseJob: async (archiveId: number): Promise<TimelapseJob | null> => {
+    try {
+      return await request<TimelapseJob>(`/archives/${archiveId}/timelapse/job`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  },
+  cancelTimelapseJob: (archiveId: number) =>
+    request<TimelapseJob>(`/archives/${archiveId}/timelapse/job`, { method: 'DELETE' }),
   // Photos
   getArchivePhotoUrl: (archiveId: number, filename: string) =>
     withMediaToken(`${API_BASE}/archives/${archiveId}/photos/${encodeURIComponent(filename)}`),
@@ -5914,8 +5920,6 @@ export const api = {
       method: 'DELETE',
     }),
   // F3D (Fusion 360 design file)
-  getF3dDownloadUrl: (archiveId: number) =>
-    `${API_BASE}/archives/${archiveId}/f3d`,
   downloadF3d: async (archiveId: number): Promise<void> => {
     const headers: Record<string, string> = {};
     if (authToken) {
@@ -6009,8 +6013,6 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
-  getArchiveProjectImageUrl: (archiveId: number, imagePath: string) =>
-    withMediaToken(`${API_BASE}/archives/${archiveId}/project-image/${encodeURIComponent(imagePath)}`),
   getArchiveForSlicer: (id: number, filename: string) => {
     const safe = filename.replace(/[/\\?#]/g, '_');
     return `${API_BASE}/archives/${id}/file/${encodeURIComponent(safe.endsWith('.3mf') ? safe : safe + '.3mf')}`;
@@ -6051,27 +6053,6 @@ export const api = {
         used_in_plate?: boolean;
       }>;
     }>(`/archives/${archiveId}/filament-requirements${qs.toString() ? `?${qs}` : ''}`);
-  },
-  uploadArchive: async (file: File, printerId?: number): Promise<Archive> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const url = printerId
-      ? `${API_BASE}/archives/upload?printer_id=${printerId}`
-      : `${API_BASE}/archives/upload`;
-    const headers: Record<string, string> = {};
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
-    }
-    return response.json();
   },
   uploadArchivesBulk: async (files: File[], printerId?: number): Promise<BulkUploadResult> => {
     const formData = new FormData();
@@ -6174,21 +6155,19 @@ export const api = {
   // non-admin reading GET /settings gets a 403 and every gate that consults it
   // silently takes its fallback (#3023). Keep in sync with _UI_FLAG_FIELDS in
   // backend/app/api/routes/settings.py.
-  getUiFlags: () =>
-    request<{
-      billing_enabled?: boolean;
-      user_notifications_enabled?: boolean;
-      currency?: string;
-      check_updates?: boolean;
-    }>('/settings/ui-flags'),
+  getUiFlags: () => request<UiSettings>('/settings/ui-flags'),
+  // The two above together: what a page needs from the settings when its user
+  // may not read GET /settings. See useUiSettings.
+  getUiSettings: async (): Promise<UiSettings> => {
+    const [preferences, flags] = await Promise.all([api.getUiPreferences(), api.getUiFlags()]);
+    return { ...(preferences as UiSettings), ...flags };
+  },
   updateSettings: (data: AppSettingsUpdate) =>
     request<AppSettings>('/settings/', {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
   getMQTTStatus: () => request<MQTTStatus>('/settings/mqtt/status'),
-  resetSettings: () =>
-    request<AppSettings>('/settings/reset', { method: 'POST' }),
   exportBackup: async (): Promise<{ blob: Blob; filename: string }> => {
     // New simplified backup - complete database + all files
     const url = `${API_BASE}/settings/backup`;
@@ -6384,11 +6363,8 @@ export const api = {
     request<SlicerSettingDeleteResponse>(`/cloud/settings/${settingId}`, {
       method: 'DELETE',
     }),
-  getCloudDevices: () => request<CloudDevice[]>('/cloud/devices'),
   getCloudFields: (presetType: 'filament' | 'print' | 'process' | 'printer') =>
     request<FieldDefinitionsResponse>(`/cloud/fields/${presetType}`),
-  getAllCloudFields: () =>
-    request<Record<string, FieldDefinitionsResponse>>('/cloud/fields'),
   getFilamentInfo: (settingIds: string[]) =>
     request<Record<string, { name: string; k: number | null }>>('/cloud/filament-info', {
       method: 'POST',
@@ -6397,7 +6373,6 @@ export const api = {
 
   // Smart Plugs
   getSmartPlugs: () => request<SmartPlug[]>('/smart-plugs/'),
-  getSmartPlug: (id: number) => request<SmartPlug>(`/smart-plugs/${id}`),
   getSmartPlugByPrinter: (printerId: number) => request<SmartPlug | null>(`/smart-plugs/by-printer/${printerId}`),
   getScriptPlugsByPrinter: (printerId: number) => request<SmartPlug[]>(`/smart-plugs/by-printer/${printerId}/scripts`),
   createSmartPlug: (data: SmartPlugCreate) =>
@@ -6419,10 +6394,11 @@ export const api = {
     }),
   getSmartPlugStatus: (id: number) =>
     request<SmartPlugStatus>(`/smart-plugs/${id}/status`),
-  testSmartPlugConnection: (ip_address: string, username?: string | null, password?: string | null) =>
+  // plug_id: the saved plug being edited, whose stored password fills in the placeholder.
+  testSmartPlugConnection: (ip_address: string, username?: string | null, password?: string | null, plug_id?: number) =>
     request<SmartPlugTestResult>('/smart-plugs/test-connection', {
       method: 'POST',
-      body: JSON.stringify({ ip_address, username, password }),
+      body: JSON.stringify({ ip_address, username, password, plug_id }),
     }),
 
   // Tasmota Discovery (auto-detects network)
@@ -6482,10 +6458,11 @@ export const api = {
     request<{ message: string }>(`/location-ha-sensors/${id}`, { method: 'DELETE' }),
 
   // REST smart plug
-  testRESTConnection: (url: string, method: string = 'GET', headers?: string | null) =>
+  // plug_id: the saved plug being edited, whose stored headers fill in the placeholder.
+  testRESTConnection: (url: string, method: string = 'GET', headers?: string | null, plug_id?: number) =>
     request<{ success: boolean; error: string | null }>('/smart-plugs/rest/test-connection', {
       method: 'POST',
-      body: JSON.stringify({ url, method, headers }),
+      body: JSON.stringify({ url, method, headers, plug_id }),
     }),
 
   // Print Queue
@@ -6496,7 +6473,6 @@ export const api = {
     if (targetModel) params.set('target_model', targetModel);
     return request<PrintQueueItem[]>(`/queue/?${params}`);
   },
-  getQueueItem: (id: number) => request<PrintQueueItem>(`/queue/${id}`),
   addToQueue: (data: PrintQueueItemCreate) =>
     request<PrintQueueItem>('/queue/', {
       method: 'POST',
@@ -6536,6 +6512,13 @@ export const api = {
    * restores skipped items whose error_message matches the gate string
    * back to pending. Returns counts so the UI can render a precise toast.
    */
+  // A job for any printer of a model waits when the last print failed on every
+  // free one; this clears the gate on the model's printers.
+  resumeModelQueueAfterFailure: (model: string) =>
+    request<{ acknowledged: number; printers: number }>(
+      `/queue/model/${encodeURIComponent(model)}/resume`,
+      { method: 'POST' },
+    ),
   resumeQueueAfterFailure: (printerId: number) =>
     request<{ acknowledged: number; restored: number }>(
       `/queue/printer/${printerId}/resume`,
@@ -6551,17 +6534,11 @@ export const api = {
     const params = status ? `?status=${status}` : '';
     return request<PrintBatch[]>(`/queue/batches${params}`);
   },
-  getBatch: (id: number) => request<PrintBatch>(`/queue/batches/${id}`),
   cancelBatch: (id: number) =>
     request<{ message: string }>(`/queue/batches/${id}`, { method: 'DELETE' }),
   createBatch: (data: PrintBatchCreate) =>
     request<PrintBatch>('/queue/batches', {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateBatch: (id: number, data: PrintBatchUpdate) =>
-    request<PrintBatch>(`/queue/batches/${id}`, {
-      method: 'PATCH',
       body: JSON.stringify(data),
     }),
   dispatchBatch: (id: number, data: PrintBatchDispatchRequest = {}) =>
@@ -6579,17 +6556,17 @@ export const api = {
   getKProfiles: (printerId: number, nozzleDiameter = '0.4') =>
     request<KProfilesResponse>(`/printers/${printerId}/kprofiles/?nozzle_diameter=${nozzleDiameter}`),
   setKProfile: (printerId: number, profile: KProfileCreate) =>
-    request<{ success: boolean; message: string }>(`/printers/${printerId}/kprofiles/`, {
+    request<KProfileWriteResult>(`/printers/${printerId}/kprofiles/`, {
       method: 'POST',
       body: JSON.stringify(profile),
     }),
   deleteKProfile: (printerId: number, profile: KProfileDelete) =>
-    request<{ success: boolean; message: string }>(`/printers/${printerId}/kprofiles/`, {
+    request<KProfileWriteResult>(`/printers/${printerId}/kprofiles/`, {
       method: 'DELETE',
       body: JSON.stringify(profile),
     }),
   setKProfilesBatch: (printerId: number, profiles: KProfileCreate[]) =>
-    request<{ success: boolean; message: string }>(`/printers/${printerId}/kprofiles/batch`, {
+    request<KProfileWriteResult>(`/printers/${printerId}/kprofiles/batch`, {
       method: 'POST',
       body: JSON.stringify(profiles),
     }),
@@ -6675,23 +6652,13 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ setting_id: settingId, note }),
     }),
-  deleteKProfileNote: (printerId: number, settingId: string) =>
-    request<{ success: boolean; message: string }>(`/printers/${printerId}/kprofiles/notes/${encodeURIComponent(settingId)}`, {
-      method: 'DELETE',
-    }),
 
   // Slot Preset Mappings
   getSlotPresets: (printerId: number) =>
     request<Record<number, SlotPresetMapping>>(`/printers/${printerId}/slot-presets`),
-  getSlotPreset: (printerId: number, amsId: number, trayId: number) =>
-    request<SlotPresetMapping | null>(`/printers/${printerId}/slot-presets/${amsId}/${trayId}`),
   saveSlotPreset: (printerId: number, amsId: number, trayId: number, presetId: string, presetName: string, presetSource = 'cloud', trayInfoIdx?: string) =>
     request<SlotPresetMapping>(`/printers/${printerId}/slot-presets/${amsId}/${trayId}?preset_id=${encodeURIComponent(presetId)}&preset_name=${encodeURIComponent(presetName)}&preset_source=${encodeURIComponent(presetSource)}${trayInfoIdx ? `&tray_info_idx=${encodeURIComponent(trayInfoIdx)}` : ''}`, {
       method: 'PUT',
-    }),
-  deleteSlotPreset: (printerId: number, amsId: number, trayId: number) =>
-    request<{ success: boolean }>(`/printers/${printerId}/slot-presets/${amsId}/${trayId}`, {
-      method: 'DELETE',
     }),
 
   // AMS Labels (user-defined friendly names)
@@ -6764,6 +6731,8 @@ export const api = {
       tray_info_idx?: string;
       // Why an Orca profile went out as the generic for its material, or "".
       orca_fallback_reason?: '' | 'no_filament_id' | 'lookup_failed' | 'no_permission';
+      /** A manual K value could not be sent; the filament setting was. */
+      k_value_unsent?: boolean;
     }>(
       `/printers/${printerId}/slots/${amsId}/${trayId}/configure?${params}`,
       { method: 'POST' }
@@ -6775,14 +6744,8 @@ export const api = {
       { method: 'POST' }
     ),
 
-  // Filament Catalog (material types with cost/temp data)
-  listFilaments: () => request<Filament[]>('/filament-catalog/'),
-  getFilament: (id: number) => request<Filament>(`/filament-catalog/${id}`),
-  getFilamentsByType: (type: string) => request<Filament[]>(`/filament-catalog/by-type/${type}`),
-
   // Notification Providers
   getNotificationProviders: () => request<NotificationProvider[]>('/notifications/'),
-  getNotificationProvider: (id: number) => request<NotificationProvider>(`/notifications/${id}`),
   createNotificationProvider: (data: NotificationProviderCreate) =>
     request<NotificationProvider>('/notifications/', {
       method: 'POST',
@@ -6818,7 +6781,6 @@ export const api = {
 
   // Notification Templates
   getNotificationTemplates: () => request<NotificationTemplate[]>('/notification-templates'),
-  getNotificationTemplate: (id: number) => request<NotificationTemplate>(`/notification-templates/${id}`),
   updateNotificationTemplate: (id: number, data: NotificationTemplateUpdate) =>
     request<NotificationTemplate>(`/notification-templates/${id}`, {
       method: 'PUT',
@@ -6871,10 +6833,6 @@ export const api = {
     request<{ success: boolean; message: string }>('/spoolman/connect', {
       method: 'POST',
     }),
-  disconnectSpoolman: () =>
-    request<{ success: boolean; message: string }>('/spoolman/disconnect', {
-      method: 'POST',
-    }),
   syncPrinterAms: (printerId: number) =>
     request<SpoolmanSyncResult>(`/spoolman/sync/${printerId}`, {
       method: 'POST',
@@ -6883,21 +6841,8 @@ export const api = {
     request<SpoolmanSyncResult>('/spoolman/sync-all', {
       method: 'POST',
     }),
-  getSpoolmanSpools: () =>
-    request<{ spools: unknown[] }>('/spoolman/spools'),
-  /** @deprecated Use getSpoolmanInventoryFilaments() — this endpoint has no SSRF guard */
-  getSpoolmanFilaments: () =>
-    request<{ filaments: unknown[] }>('/spoolman/filaments'),
   getSpoolmanInventoryFilaments: () =>
     request<SpoolmanFilamentEntry[]>('/spoolman/inventory/filaments'),
-  patchSpoolmanFilament: (
-    filamentId: number,
-    data: { name?: string; spool_weight?: number | null; keep_existing_spools?: boolean },
-  ) =>
-    request<SpoolmanFilamentEntry>(`/spoolman/inventory/filaments/${filamentId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
   getUnlinkedSpools: () =>
     request<UnlinkedSpool[]>('/spoolman/spools/unlinked'),
   getLinkedSpools: () =>
@@ -6995,7 +6940,7 @@ export const api = {
   resetSpoolConsumedCounter: (id: number) =>
     request<InventorySpool>(`/inventory/spools/${id}/reset-consumed-counter`, { method: 'POST' }),
   bulkResetSpoolConsumedCounter: (spoolIds: number[]) =>
-    request<{ reset: number }>(`/inventory/spools/reset-consumed-counter-bulk`, {
+    request<{ reset: number; not_found?: number[]; errors?: Array<{ id: number; status: number; detail: string }> }>(`/inventory/spools/reset-consumed-counter-bulk`, {
       method: 'POST',
       body: JSON.stringify({ spool_ids: spoolIds }),
     }),
@@ -7099,6 +7044,7 @@ export const api = {
     const params = new URLSearchParams();
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    addDayZone(params);
     const qs = params.toString();
     return request<SupplierStats[]>(`/inventory/stats/suppliers${qs ? `?${qs}` : ''}`);
   },
@@ -7144,8 +7090,6 @@ export const api = {
     request<{ deleted: number }>('/inventory/colors/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   resetColorCatalog: () =>
     request<{ status: string }>('/inventory/colors/reset', { method: 'POST' }),
-  lookupColor: (manufacturer: string, colorName: string, material?: string) =>
-    request<ColorLookupResult>(`/inventory/colors/lookup?manufacturer=${encodeURIComponent(manufacturer)}&color_name=${encodeURIComponent(colorName)}${material ? `&material=${encodeURIComponent(material)}` : ''}`),
   searchColors: (manufacturer?: string, material?: string) =>
     request<ColorCatalogEntry[]>(`/inventory/colors/search?${manufacturer ? `manufacturer=${encodeURIComponent(manufacturer)}` : ''}${manufacturer && material ? '&' : ''}${material ? `material=${encodeURIComponent(material)}` : ''}`),
   linkTagToSpool: (spoolId: number, data: { tag_uid?: string; tray_uuid?: string; tag_type?: string; data_origin?: string }) =>
@@ -7159,6 +7103,7 @@ export const api = {
     const params = new URLSearchParams();
     if (options?.dateFrom) params.set('date_from', options.dateFrom);
     if (options?.dateTo) params.set('date_to', options.dateTo);
+    addDayZone(params);
     const qs = params.toString();
     return request<MaterialNumberStats[]>(`/inventory/stats/material-numbers${qs ? `?${qs}` : ''}`);
   },
@@ -7169,7 +7114,7 @@ export const api = {
   clearSpoolUsageHistory: (spoolId: number) =>
     request<{ status: string }>(`/inventory/spools/${spoolId}/usage`, { method: 'DELETE' }),
   syncWeightsFromAms: () =>
-    request<{ synced: number; skipped: number }>('/inventory/sync-ams-weights', { method: 'POST' }),
+    request<{ synced: number; skipped: number; printing?: number }>('/inventory/sync-ams-weights', { method: 'POST' }),
   getSkuSettings: () =>
     request<FilamentSkuSettings[]>('/inventory/sku-settings'),
   upsertSkuSettings: (data: Omit<FilamentSkuSettings, 'id'>) =>
@@ -7231,7 +7176,7 @@ export const api = {
   resetSpoolmanInventorySpoolConsumedCounter: (id: number) =>
     request<InventorySpool>(`/spoolman/inventory/spools/${id}/reset-consumed-counter`, { method: 'POST' }),
   bulkResetSpoolmanInventorySpoolConsumedCounter: (spoolIds: number[]) =>
-    request<{ reset: number }>(`/spoolman/inventory/spools/reset-consumed-counter-bulk`, {
+    request<{ reset: number; not_found?: number[]; errors?: Array<{ id: number; status: number; detail: string }> }>(`/spoolman/inventory/spools/reset-consumed-counter-bulk`, {
       method: 'POST',
       body: JSON.stringify({ spool_ids: spoolIds }),
     }),
@@ -7272,10 +7217,6 @@ export const api = {
     }),
   unassignSpoolmanSlot: (spoolmanSpoolId: number) =>
     request<InventorySpool>(`/spoolman/inventory/slot-assignments/${spoolmanSpoolId}`, { method: 'DELETE' }),
-  getSpoolmanSlotAssignment: (printerId: number, amsId: number, trayId: number) =>
-    request<InventorySpool | null>(
-      `/spoolman/inventory/slot-assignments?printer_id=${printerId}&ams_id=${amsId}&tray_id=${trayId}`,
-    ),
   getSpoolmanSlotAssignments: (printerId?: number) =>
     request<Array<{
       printer_id: number;
@@ -7290,10 +7231,7 @@ export const api = {
         : '/spoolman/inventory/slot-assignments/all',
     ),
   syncSpoolmanAmsWeights: () =>
-    request<{ synced: number; skipped: number }>('/spoolman/inventory/sync-ams-weights', { method: 'POST' }),
-
-  getSpoolmanKProfiles: (spoolId: number) =>
-    request<SpoolKProfile[]>(`/spoolman/inventory/spools/${spoolId}/k-profiles`),
+    request<{ synced: number; skipped: number; printing?: number }>('/spoolman/inventory/sync-ams-weights', { method: 'POST' }),
 
   saveSpoolmanKProfiles: (spoolId: number, profiles: SpoolKProfileInput[]) =>
     request<SpoolKProfile[]>(`/spoolman/inventory/spools/${spoolId}/k-profiles`, {
@@ -7336,8 +7274,6 @@ export const api = {
   restoreDefaultMaintenanceTypes: () =>
     request<{ restored: number }>(`/maintenance/types/restore-defaults`, { method: 'POST' }),
   getMaintenanceOverview: () => request<PrinterMaintenanceOverview[]>('/maintenance/overview'),
-  getPrinterMaintenance: (printerId: number) =>
-    request<PrinterMaintenanceOverview>(`/maintenance/printers/${printerId}`),
   updateMaintenanceItem: (itemId: number, data: { custom_interval_hours?: number | null; custom_interval_type?: 'hours' | 'days' | null; enabled?: boolean }) =>
     request<MaintenanceStatus>(`/maintenance/items/${itemId}`, {
       method: 'PATCH',
@@ -7348,9 +7284,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ notes }),
     }),
-  getMaintenanceHistory: (itemId: number) =>
-    request<MaintenanceHistory[]>(`/maintenance/items/${itemId}/history`),
-  getMaintenanceSummary: () => request<MaintenanceSummary>('/maintenance/summary'),
   setPrinterHours: (printerId: number, totalHours: number) =>
     request<{ printer_id: number; total_hours: number; archive_hours: number; offset_hours: number }>(
       `/maintenance/printers/${printerId}/hours?total_hours=${totalHours}`,
@@ -7419,8 +7352,6 @@ export const api = {
     request<LongLivedCameraToken[]>('/auth/tokens'),
   listAllLongLivedCameraTokens: () =>
     request<LongLivedCameraToken[]>('/auth/tokens/all'),
-  listLongLivedCameraTokensForUser: (userId: number) =>
-    request<LongLivedCameraToken[]>(`/auth/tokens?user_id=${userId}`),
   revokeLongLivedCameraToken: (tokenId: number) =>
     request<void>(`/auth/tokens/${tokenId}`, { method: 'DELETE' }),
   // Token-authenticated Cam Wall feed (#2531). `token` is omitted only when
@@ -7438,12 +7369,6 @@ export const api = {
         ? `/printers/${printerId}/overlay-status?token=${encodeURIComponent(token)}`
         : `/printers/${printerId}/overlay-status`,
     ),
-  getCameraStreamUrl: (printerId: number, fps = 10) =>
-    withStreamToken(`${API_BASE}/printers/${printerId}/camera/stream?fps=${fps}`),
-  getCameraSnapshotUrl: (printerId: number) =>
-    withStreamToken(`${API_BASE}/printers/${printerId}/camera/snapshot`),
-  testCameraConnection: (printerId: number) =>
-    request<{ success: boolean; message?: string; error?: string }>(`/printers/${printerId}/camera/test`),
   getCameraStatus: (printerId: number) =>
     request<{ active: boolean; stalled: boolean }>(`/printers/${printerId}/camera/status`),
   diagnoseCamera: (printerId: number) =>
@@ -7474,11 +7399,6 @@ export const api = {
       `/printers/${printerId}/camera/check-plate?${params.toString()}`
     );
   },
-  getPlateDetectionStatus: (printerId: number) => {
-    return request<PlateDetectionStatus & { chamber_light?: boolean }>(
-      `/printers/${printerId}/camera/plate-detection/status`
-    );
-  },
   calibratePlateDetection: (printerId: number, options?: { label?: string; useExternal?: boolean }) => {
     const params = new URLSearchParams();
     if (options?.label) params.set('label', options.label);
@@ -7488,12 +7408,6 @@ export const api = {
     return request<CalibrationResult & { index: number }>(
       `/printers/${printerId}/camera/plate-detection/calibrate?${params.toString()}`,
       { method: 'POST' }
-    );
-  },
-  deletePlateCalibration: (printerId: number) => {
-    return request<CalibrationResult>(
-      `/printers/${printerId}/camera/plate-detection/calibrate`,
-      { method: 'DELETE' }
     );
   },
   getPlateReferences: (printerId: number) => {
@@ -7534,11 +7448,6 @@ export const api = {
     }),
   deleteExternalLink: (id: number) =>
     request<{ message: string }>(`/external-links/${id}`, { method: 'DELETE' }),
-  reorderExternalLinks: (ids: number[]) =>
-    request<ExternalLink[]>('/external-links/reorder', {
-      method: 'PUT',
-      body: JSON.stringify({ ids }),
-    }),
   uploadExternalLinkIcon: async (id: number, file: File): Promise<ExternalLink> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -7586,52 +7495,10 @@ export const api = {
   getProjectFileProgress: (id: number) =>
     request<ProjectFileProgress[]>(`/projects/${id}/file-progress`),
   addArchivesToProject: (projectId: number, archiveIds: number[]) =>
-    request<{ message: string }>(`/projects/${projectId}/add-archives`, {
+    request<{ message: string; count: number }>(`/projects/${projectId}/add-archives`, {
       method: 'POST',
       body: JSON.stringify({ archive_ids: archiveIds }),
     }),
-  removeArchivesFromProject: (projectId: number, archiveIds: number[]) =>
-    request<{ message: string }>(`/projects/${projectId}/remove-archives`, {
-      method: 'POST',
-      body: JSON.stringify({ archive_ids: archiveIds }),
-    }),
-  addQueueItemsToProject: (projectId: number, queueItemIds: number[]) =>
-    request<{ message: string }>(`/projects/${projectId}/add-queue`, {
-      method: 'POST',
-      body: JSON.stringify({ queue_item_ids: queueItemIds }),
-    }),
-
-  // Project Attachments
-  uploadProjectAttachment: async (projectId: number, file: File): Promise<{
-    status: string;
-    filename: string;
-    original_name: string;
-    attachments: ProjectAttachment[];
-  }> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const headers: Record<string, string> = {};
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
-    const response = await fetch(`${API_BASE}/projects/${projectId}/attachments`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
-    }
-    return response.json();
-  },
-  getProjectAttachmentUrl: (projectId: number, filename: string) =>
-    `${API_BASE}/projects/${projectId}/attachments/${encodeURIComponent(filename)}`,
-  deleteProjectAttachment: (projectId: number, filename: string) =>
-    request<{ status: string; message: string; attachments: ProjectAttachment[] | null }>(
-      `/projects/${projectId}/attachments/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    ),
 
   // #1155: Cover image
   // Browsers can't attach `Authorization: Bearer ...` to `<img src>`, so we
@@ -7750,11 +7617,6 @@ export const api = {
   createAPIKey: (data: APIKeyCreate) =>
     request<APIKeyCreateResponse>('/api-keys/', {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateAPIKey: (id: number, data: APIKeyUpdate) =>
-    request<APIKey>(`/api-keys/${id}`, {
-      method: 'PATCH',
       body: JSON.stringify(data),
     }),
   deleteAPIKey: (id: number) =>
@@ -7885,35 +7747,6 @@ export const api = {
     }),
   getVariantGroup: (groupId: number) =>
     request<VariantGroup>(`/library/variant-groups/${groupId}`),
-  /** Returns null when the file is not grouped, rather than throwing on the 404. */
-  getVariantGroupForFile: async (fileId: number): Promise<VariantGroup | null> => {
-    try {
-      return await request<VariantGroup>(`/library/variant-groups/by-file/${fileId}`);
-    } catch {
-      return null;
-    }
-  },
-  updateVariantGroup: (groupId: number, body: { name?: string; member_file_ids?: number[] }) =>
-    request<VariantGroup>(`/library/variant-groups/${groupId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-  addVariantGroupMember: (
-    groupId: number,
-    libraryFileId: number,
-    targetModel?: string,
-  ) =>
-    request<VariantGroup>(`/library/variant-groups/${groupId}/members`, {
-      method: 'POST',
-      body: JSON.stringify({
-        library_file_id: libraryFileId,
-        ...(targetModel ? { target_model: targetModel } : {}),
-      }),
-    }),
-  removeVariantGroupMember: (groupId: number, fileId: number) =>
-    request<void>(`/library/variant-groups/${groupId}/members/${fileId}`, { method: 'DELETE' }),
-  deleteVariantGroup: (groupId: number) =>
-    request<void>(`/library/variant-groups/${groupId}`, { method: 'DELETE' }),
 
   getLibraryFile: (id: number) => request<LibraryFile>(`/library/files/${id}`),
   uploadLibraryFile: async (
@@ -8104,11 +7937,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ items, filename, folder_id: folderId }),
     }),
-  addLibraryFilesToQueue: (fileIds: number[]) =>
-    request<AddToQueueResponse>('/library/files/add-to-queue', {
-      method: 'POST',
-      body: JSON.stringify({ file_ids: fileIds }),
-    }),
   getLibraryFilePlates: (fileId: number) =>
     request<LibraryFilePlatesResponse>(`/library/files/${fileId}/plates`),
   getLibraryFileFilamentRequirements: (
@@ -8173,14 +8001,11 @@ export const api = {
       body: JSON.stringify(config),
     }),
 
-  deleteGitHubBackupConfig: () =>
-    request<{ message: string }>('/github-backup/config', { method: 'DELETE' }),
-
   testGitHubConnection: (repoUrl: string, token: string, provider: GitProviderType = 'github') =>
-    request<GitHubTestConnectionResponse>(
-      `/github-backup/test?repo_url=${encodeURIComponent(repoUrl)}&token=${encodeURIComponent(token)}&provider=${encodeURIComponent(provider)}`,
-      { method: 'POST' }
-    ),
+    request<GitHubTestConnectionResponse>('/github-backup/test', {
+      method: 'POST',
+      body: JSON.stringify({ repo_url: repoUrl, token, provider }),
+    }),
 
   testGitHubStoredConnection: () =>
     request<GitHubTestConnectionResponse>('/github-backup/test-stored', { method: 'POST' }),
@@ -8283,8 +8108,6 @@ export const api = {
   // one click. CRUD is gated on PIPELINES_READ / PIPELINES_WRITE.
   listSlicerPipelines: () =>
     request<SlicerPipelinesListResponse>('/slicer-pipelines/'),
-  getSlicerPipeline: (id: number) =>
-    request<SlicerPipeline>(`/slicer-pipelines/${id}`),
   createSlicerPipeline: (data: SlicerPipelineCreateRequest) =>
     request<SlicerPipeline>('/slicer-pipelines/', {
       method: 'POST',
@@ -8355,8 +8178,6 @@ export const api = {
   // runs are preserved.
   clearTerminalPipelineRuns: () =>
     request<{ deleted: number }>('/pipeline-runs/clear', { method: 'POST' }),
-  getPipelineRun: (runId: number) =>
-    request<PipelineRun>(`/pipeline-runs/${runId}`),
   cancelPipelineRun: (runId: number) =>
     request<PipelineRun>(`/pipeline-runs/${runId}/cancel`, { method: 'POST' }),
   retryFailedPipelineRun: (runId: number) =>
@@ -8389,8 +8210,6 @@ export const api = {
   // Local Presets (OrcaSlicer imports)
   getLocalPresets: () =>
     request<LocalPresetsResponse>('/local-presets/'),
-  getLocalPresetDetail: (id: number) =>
-    request<LocalPresetDetail>(`/local-presets/${id}`),
   importLocalPresets: (formData: FormData) =>
     fetch(`${API_BASE}/local-presets/import`, {
       method: 'POST',
@@ -8403,20 +8222,8 @@ export const api = {
       }
       return res.json() as Promise<ImportResponse>;
     }),
-  createLocalPreset: (data: { name: string; preset_type: string; setting: Record<string, unknown> }) =>
-    request<LocalPreset>('/local-presets/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateLocalPreset: (id: number, data: { name?: string; setting?: Record<string, unknown> }) =>
-    request<LocalPreset>(`/local-presets/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
   deleteLocalPreset: (id: number) =>
     request<{ success: boolean }>(`/local-presets/${id}`, { method: 'DELETE' }),
-  refreshBaseProfileCache: () =>
-    request<{ refreshed: number; failed: number; total: number }>('/local-presets/base-cache/refresh', { method: 'POST' }),
 };
 
 // AMS History types
@@ -8870,25 +8677,6 @@ export interface BatchThumbnailResponse {
   results: BatchThumbnailResult[];
 }
 
-// Library Queue types
-export interface AddToQueueResult {
-  file_id: number;
-  filename: string;
-  queue_item_id: number;
-  archive_id: number;
-}
-
-export interface AddToQueueError {
-  file_id: number;
-  filename: string;
-  error: string;
-}
-
-export interface AddToQueueResponse {
-  added: AddToQueueResult[];
-  errors: AddToQueueError[];
-}
-
 // Discovery types
 export interface DiscoveredPrinter {
   serial: string;
@@ -8918,8 +8706,6 @@ export interface SubnetScanStatus {
 // Discovery API
 export const discoveryApi = {
   getInfo: () => request<DiscoveryInfo>('/discovery/info'),
-
-  getStatus: () => request<DiscoveryStatus>('/discovery/status'),
 
   startDiscovery: (duration: number = 10) =>
     request<DiscoveryStatus>(`/discovery/start?duration=${duration}`, { method: 'POST' }),
@@ -8973,12 +8759,6 @@ export interface VirtualPrinterStatus {
 }
 
 export interface VirtualPrinterSettings {
-  enabled: boolean;
-  access_code_set: boolean;
-  mode: VirtualPrinterMode;
-  model: string;
-  target_printer_id: number | null;  // For proxy mode
-  remote_interface_ip: string | null;  // For SSDP proxy across networks
   tailscale_disabled: boolean;
   archive_name_source: 'metadata' | 'filename';  // Source for archive's display name
   status: VirtualPrinterStatus;
@@ -8991,11 +8771,6 @@ export interface NetworkInterface {
   subnet: string;
   is_alias?: boolean;
   label?: string;
-}
-
-export interface VirtualPrinterModels {
-  models: Record<string, string>;  // SSDP code -> display name
-  default: string;
 }
 
 export interface PendingUpload {
@@ -9019,25 +8794,11 @@ export interface PendingUpload {
 export const virtualPrinterApi = {
   getSettings: () => request<VirtualPrinterSettings>('/settings/virtual-printer'),
 
-  getModels: () => request<VirtualPrinterModels>('/settings/virtual-printer/models'),
-
   updateSettings: (data: {
-    enabled?: boolean;
-    access_code?: string;
-    mode?: 'archive' | 'review' | 'queue' | 'proxy';
-    model?: string;
-    target_printer_id?: number;
-    remote_interface_ip?: string;
     tailscale_disabled?: boolean;
     archive_name_source?: 'metadata' | 'filename';
   }) => {
     const params = new URLSearchParams();
-    if (data.enabled !== undefined) params.set('enabled', String(data.enabled));
-    if (data.access_code !== undefined) params.set('access_code', data.access_code);
-    if (data.mode !== undefined) params.set('mode', data.mode);
-    if (data.model !== undefined) params.set('model', data.model);
-    if (data.target_printer_id !== undefined) params.set('target_printer_id', String(data.target_printer_id));
-    if (data.remote_interface_ip !== undefined) params.set('remote_interface_ip', data.remote_interface_ip);
     if (data.tailscale_disabled !== undefined) params.set('tailscale_disabled', String(data.tailscale_disabled));
     if (data.archive_name_source !== undefined) params.set('archive_name_source', data.archive_name_source);
 
@@ -9394,9 +9155,6 @@ export const spoolbuddyApi = {
       method: 'POST',
       body: '{}',
     }),
-
-  getCalibration: (deviceId: string) =>
-    request<{ tare_offset: number; calibration_factor: number }>(`/spoolbuddy/devices/${deviceId}/calibration`),
 
   setCalibrationFactor: (deviceId: string, knownWeightGrams: number, rawAdc: number, tareRawAdc?: number) =>
     request<{ tare_offset: number; calibration_factor: number }>(`/spoolbuddy/devices/${deviceId}/calibration/set-factor`, {

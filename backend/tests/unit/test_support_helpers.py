@@ -790,46 +790,6 @@ class TestParseObicoEnabledPrinters:
         assert _parse_obico_enabled_printers('{"1": true}') == set()
 
 
-class TestCheckUrlReachable:
-    """Tests for the slicer-API reachability ping."""
-
-    @pytest.mark.asyncio
-    async def test_empty_url_returns_none(self):
-        from backend.app.api.routes.support import _check_url_reachable
-
-        assert await _check_url_reachable("") is None
-        assert await _check_url_reachable("   ") is None
-
-    @pytest.mark.asyncio
-    async def test_successful_response_is_reachable_even_on_404(self):
-        # A 404 means the API is up; we want to separate network failure from
-        # configuration mistakes, so non-empty status counts as reachable.
-        from backend.app.api.routes.support import _check_url_reachable
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__.return_value = mock_client
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_response = MagicMock()
-            mock_response.status_code = 404
-            mock_client.get = AsyncMock(return_value=mock_response)
-
-            result = await _check_url_reachable("http://localhost:3001/api")
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_connection_error_returns_false(self):
-        from backend.app.api.routes.support import _check_url_reachable
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client_cls.return_value.__aenter__.side_effect = ConnectionError("boom")
-
-            result = await _check_url_reachable("http://nowhere:9999")
-
-        assert result is False
-
-
 class TestFetchSlicerHealth:
     """Tests for the slicer-API health probe that extracts the bundled CLI
     version. Knowing the version in the support bundle lets the reviewer
