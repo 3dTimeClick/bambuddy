@@ -419,6 +419,14 @@ async def get_persisted_print_name(db: AsyncSession, printer_id: int) -> str | N
     return row.print_name if row is not None else None
 
 
+async def get_persisted_ams_mapping(db: AsyncSession, printer_id: int) -> list[int] | None:
+    """AMS mapping on the persisted row: the one captured from the print command."""
+    from backend.app.models.active_print_session import ActivePrintSession
+
+    row = await db.get(ActivePrintSession, printer_id)
+    return list(row.ams_mapping) if row is not None and row.ams_mapping else None
+
+
 async def restore_session(db: AsyncSession, printer_id: int, register_active: bool = True) -> list[list[int]] | None:
     """Rebuild the in-memory session for ``printer_id`` from the persisted row.
 

@@ -624,6 +624,7 @@ class TestRestoreOnRestartRecovery:
             tray_now=3,
             layer_num=700,
             last_loaded_tray=-1,
+            print_ams_mapping=None,
         )
         for key, value in overrides.items():
             setattr(state, key, value)
@@ -654,6 +655,36 @@ class TestRestoreOnRestartRecovery:
         assert _active_sessions[printer.id].plate_id == 1
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("spoolman", [False, True])
+    async def test_the_print_s_slot_mapping_comes_back_onto_the_printer_state(self, db_session, printer, spoolman):
+        """The slot pills (#1762) read the mapping captured from the print
+        command, which dies with the process; with Spoolman too, which gets no
+        in-memory session."""
+        from backend.app.main import _restore_usage_tracking_session
+        from backend.app.models.settings import Settings
+
+        if spoolman:
+            db_session.add(Settings(key="spoolman_enabled", value="true"))
+            await db_session.commit()
+        await persist_session(db_session, self._session(printer.id), [(2, 0)])
+        state = self._state()
+
+        await _restore_usage_tracking_session(printer.id, state, db_session, MagicMock())
+
+        assert state.print_ams_mapping == [2]
+
+    @pytest.mark.asyncio
+    async def test_a_mapping_this_process_captured_is_kept(self, db_session, printer):
+        from backend.app.main import _restore_usage_tracking_session
+
+        await persist_session(db_session, self._session(printer.id), [(2, 0)])
+        state = self._state(print_ams_mapping=[5, 10])
+
+        await _restore_usage_tracking_session(printer.id, state, db_session, MagicMock())
+
+        assert state.print_ams_mapping == [5, 10]
+
+    @pytest.mark.asyncio
     async def test_entries_seen_by_this_process_are_kept_after_the_persisted_ones(self, db_session, printer):
         from backend.app.main import _restore_usage_tracking_session
 
@@ -676,6 +707,8 @@ class TestRestoreOnRestartRecovery:
 
         assert state.tray_change_log == [(3, 700)]
         assert state.last_loaded_tray == 3
+        # And no slot pills: nothing says how the print's filaments were mapped.
+        assert state.print_ams_mapping is None
 
     @pytest.mark.asyncio
     async def test_unloaded_tray_seeds_nothing(self, db_session, printer):
@@ -703,6 +736,8 @@ class TestRestoreOnRestartRecovery:
         assert await restore_session(db_session, printer.id) is None
         # Still seeded, so the rest of the running print stays attributable.
         assert state.tray_change_log == [(3, 700)]
+        # Nor do its slot pills show on the running print.
+        assert state.print_ams_mapping is None
 
     @pytest.mark.asyncio
     async def test_an_unloaded_tray_does_not_clobber_last_loaded_tray(self, db_session, printer):

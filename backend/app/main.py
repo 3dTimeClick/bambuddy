@@ -6797,6 +6797,7 @@ async def _restore_usage_tracking_session(printer_id: int, state, db, logger) ->
         from backend.app.api.routes.settings import get_setting
         from backend.app.services.usage_tracker import (
             clear_persisted_session,
+            get_persisted_ams_mapping,
             get_persisted_print_name,
             restore_session,
         )
@@ -6824,6 +6825,11 @@ async def _restore_usage_tracking_session(printer_id: int, state, db, logger) ->
                 printer_id,
                 register_active=not (bool(_spoolman_on) and _spoolman_on.lower() == "true"),
             )
+            # The slot pills (#1762) read the mapping captured from the print
+            # command, which dies with the process as well. One this process
+            # has captured since is newer.
+            if state.print_ams_mapping is None:
+                state.print_ams_mapping = await get_persisted_ams_mapping(db, printer_id)
         if persisted_log:
             restored = [tuple(entry) for entry in persisted_log if isinstance(entry, (list, tuple)) and len(entry) == 2]
             # Anything this process already observed goes after the persisted
