@@ -417,6 +417,24 @@ async def _finish_query_cancellations() -> None:
         await asyncio.wait(pending, timeout=5)
 
 
+async def _stop_background_tasks() -> None:
+    """Cancel the background tasks this test's code spawned, and wait for them.
+
+    A task still in a query when the loop closes gets its answer from
+    aiosqlite's worker thread into the closed loop ("Event loop is closed"),
+    reported as a thread exception in whatever test runs next on the worker.
+    Cancelled here, its session closes while the loop still runs.
+    """
+    from backend.app.core.tasks import _background_tasks
+
+    loop = asyncio.get_running_loop()
+    pending = [task for task in _background_tasks if not task.done() and task.get_loop() is loop]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.wait(pending, timeout=5)
+
+
 async def _release_app_engine() -> None:
     """Close the app engine's pooled connections before this test's loop ends.
 
@@ -427,18 +445,24 @@ async def _release_app_engine() -> None:
     PostgreSQL that leaves asyncpg's cleanup unawaited, reported as an
     unraisable "Connection._cancel" coroutine in some later test.
     """
+    # First: a task still holding a connection would return it to the pool
+    # after the dispose below has replaced that pool, and it is never closed.
+    await _stop_background_tasks()
     await _finish_query_cancellations()
     await _app_engine.dispose()
 
 
-if TEST_PG_URL is not None:
+@pytest.fixture(autouse=True)
+async def _app_engine_released_after_each_test():
+    """Every test, not only those with test_engine: any of them can reach
+    the app engine through code that opens its own session.
 
-    @pytest.fixture(autouse=True)
-    async def _app_engine_released_after_each_test():
-        """Every test, not only those with test_engine: any of them can reach
-        the app engine through code that opens its own session."""
-        yield
-        await _release_app_engine()
+    On SQLite too: an aiosqlite connection belongs to the loop it was opened
+    in, so one kept in the pool answers the next test's query into a closed
+    loop ("Event loop is closed" from aiosqlite's worker thread).
+    """
+    yield
+    await _release_app_engine()
 
 
 @pytest.fixture
@@ -536,11 +560,9 @@ async def async_client(test_engine, db_session) -> AsyncGenerator[AsyncClient, N
             yield client
 
         # The app lifespan called init_db() which used the module-level engine
-        # (not the test engine), creating aiosqlite connections. Dispose those
-        # connections so their background threads finish before the event loop closes.
-        from backend.app.core.database import engine as real_engine
-
-        await real_engine.dispose()
+        # (not the test engine), creating aiosqlite connections. Close those,
+        # and stop background work still using them, before the loop closes.
+        await _release_app_engine()
 
     app.dependency_overrides.clear()
 
