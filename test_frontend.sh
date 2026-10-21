@@ -22,7 +22,8 @@ knip_rc=$?
 cat /tmp/bambuddy-typecheck.$$ /tmp/bambuddy-lint.$$ /tmp/bambuddy-knip.$$
 rm -f /tmp/bambuddy-typecheck.$$ /tmp/bambuddy-lint.$$ /tmp/bambuddy-knip.$$
 
-npm run test:run
+# Console output of passing tests is hidden; a failing test still shows its own.
+npx vitest run --silent=passed-only && npm run check:i18n
 test_rc=$?
 
 # The production build and its browser baseline check, into a temporary
