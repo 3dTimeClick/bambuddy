@@ -626,6 +626,31 @@ def _is_unmatched_hold_reason(reason: str | None) -> bool:
     return bool(reason) and reason.startswith(_UNMATCHED_HOLD_PREFIX)
 
 
+def _forced_override_requirements(item: PrintQueueItem) -> list[dict]:
+    """The item's force_color_match overrides as filament requirements (#3280).
+
+    What ``_build_override_direct_mapping`` matches when the 3MF cannot be
+    read, so the checks after it judge the same list.
+    """
+    try:
+        overrides = json.loads(item.filament_overrides) if item.filament_overrides else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(overrides, list):
+        return []
+    return [
+        {
+            "slot_id": o.get("slot_id"),
+            "type": o.get("type", ""),
+            "color": o.get("color", ""),
+            "tray_info_idx": o.get("tray_info_idx", ""),
+            "force_color_match": True,
+        }
+        for o in overrides
+        if isinstance(o, dict) and o.get("force_color_match") and isinstance(o.get("slot_id"), int)
+    ]
+
+
 def _unresolved_required(required: list[dict], mapping: list) -> list[dict]:
     """The requirements in ``required`` that ``mapping`` gives no tray (#2799).
 
@@ -3511,24 +3536,36 @@ class PrintScheduler:
             for tray in ams_unit.get("tray", []):
                 tray_type = tray.get("tray_type")
                 if tray_type:
-                    color_norm = (tray.get("tray_color", "") or "").replace("#", "").lower()[:6]
+                    color_norm = self._normalize_color_for_compare(self._normalize_color(tray.get("tray_color")))
                     loaded.append((canonical_filament_type(tray_type), color_norm, tray.get("tray_info_idx", "") or ""))
         for vt in raw_data.get("vt_tray") or []:
             vt_type = vt.get("tray_type")
             if vt_type:
-                color_norm = (vt.get("tray_color", "") or "").replace("#", "").lower()[:6]
+                color_norm = self._normalize_color_for_compare(self._normalize_color(vt.get("tray_color")))
                 loaded.append((canonical_filament_type(vt_type), color_norm, vt.get("tray_info_idx", "") or ""))
 
+        # One spool per slot, the way the matcher assigns them: two slots asking
+        # for the same filament need two spools of it (#3280). Slots naming a
+        # variant go first and take that variant before a spool naming none, so
+        # a slot open to any variant cannot use up the one a later slot needs.
         missing = []
-        for o in force_overrides:
+        taken: set[int] = set()
+        for o in sorted(force_overrides, key=lambda o: not o.get("tray_info_idx")):
             o_type = canonical_filament_type(o.get("type") or "")
             o_color = (o.get("color") or "").replace("#", "").lower()[:6]
             o_idx = o.get("tray_info_idx") or ""
-            satisfied = any(
-                t_type == o_type and t_color == o_color and (not o_idx or not t_idx or o_idx == t_idx)
-                for t_type, t_color, t_idx in loaded
-            )
-            if not satisfied:
+            fits = [
+                i
+                for i, (t_type, t_color, t_idx) in enumerate(loaded)
+                if i not in taken
+                and t_type == o_type
+                and t_color == o_color
+                and (not o_idx or not t_idx or o_idx == t_idx)
+            ]
+            pick = next((i for i in fits if o_idx and loaded[i][2] == o_idx), fits[0] if fits else None)
+            if pick is not None:
+                taken.add(pick)
+            else:
                 color_label = o.get("color_name") or o.get("color", "?")
                 missing.append(f"{o_type} ({color_label})")
         return missing
@@ -4000,9 +4037,14 @@ class PrintScheduler:
             mapping = await self._compute_ams_mapping_for_printer(db, item.printer_id, item) or []
 
         required = await self._get_filament_requirements(db, item)
-        if not required:
-            return None
-        self._apply_filament_overrides(item, required)
+        if required:
+            self._apply_filament_overrides(item, required)
+        else:
+            # The same fallback the hold uses, or Start would release a job the
+            # next pass holds again (#3280).
+            required = _forced_override_requirements(item)
+            if not required:
+                return None
         missing = _unresolved_required(required, mapping)
         return [_describe_filament(req, "nozzle_id") for req in missing] or None
 
@@ -4140,6 +4182,18 @@ class PrintScheduler:
             if want and have and want != have:
                 return f"slot {slot_id} needs {req.get('type')} but tray {tray} holds {loaded_tray.get('type')}"
 
+            # A forced slot fits only a tray the matcher would give it (#3280).
+            if req.get("force_color_match"):
+                want_idx = req.get("tray_info_idx") or ""
+                have_idx = loaded_tray.get("tray_info_idx") or ""
+                if self._normalize_color_for_compare(req.get("color")) != self._normalize_color_for_compare(
+                    loaded_tray.get("color")
+                ) or (want_idx and have_idx and want_idx != have_idx):
+                    return (
+                        f"slot {slot_id} is forced to {req.get('type')} {req.get('color')} "
+                        f"but tray {tray} holds {loaded_tray.get('type')} {loaded_tray.get('color')}"
+                    )
+
         return None
 
     async def _unmappable_without_ams_message(
@@ -4194,6 +4248,10 @@ class PrintScheduler:
             # item on stale evidence.
             return None
         self._apply_filament_overrides(item, required)
+        if any(r.get("force_color_match") for r in required):
+            # A forced colour is a spool the user can load on the external
+            # holder, so the unmatched hold stages the job instead (#3280).
+            return None
         return _unmatched_filament_message(required, loaded)
 
     async def _fail_unmappable_item(
@@ -4372,11 +4430,15 @@ class PrintScheduler:
                     # intended variant (Basic GFA00 / Matte GFA01 / Silk GFA06), so keep
                     # it here too, letting the matcher pin the correct variant slot on a
                     # printer holding two same-colour spools of different variants (#2650).
-                    # If that variant isn't loaded the matcher falls back to type+colour,
-                    # so an eligible printer never fails to map.
+                    # A spool that names no variant still counts; one naming another
+                    # variant does not, as in `_get_missing_force_color_slots` (#3280).
                     req["tray_info_idx"] = (
                         override.get("tray_info_idx", "") if override.get("force_color_match") else ""
                     )
+                    # The matcher satisfies a forced slot only the way
+                    # `_get_missing_force_color_slots` does, never by a similar
+                    # colour or the type alone (#3280).
+                    req["force_color_match"] = bool(override.get("force_color_match"))
                     logger.debug(
                         "Queue item %s: Override slot %d -> %s %s",
                         item.id,
@@ -4410,9 +4472,10 @@ class PrintScheduler:
                 "color": o.get("color", ""),
                 # These are all force_color_match overrides, so the idx (when the
                 # 3MF carried one) is the intended variant, not a stale swap —
-                # keep it so the matcher pins the right variant slot, falling back
-                # to type+colour when it isn't loaded (#2650).
+                # keep it so the matcher pins the right variant slot (#2650); a
+                # spool naming another variant does not satisfy it (#3280).
                 "tray_info_idx": o.get("tray_info_idx", ""),
+                "force_color_match": True,
             }
             for o in force_overrides
         ]
@@ -4762,7 +4825,18 @@ class PrintScheduler:
         used_tray_ids: set[int] = set()
         comparisons = []
 
-        for req in required:
+        # Forced slots first: a slot that would take any tray of its type must
+        # not take the one tray a forced slot can use (#3280). The mapping is
+        # built by slot_id below, so the order only decides who goes first.
+        # Among forced slots, those naming a variant first, as
+        # `_get_missing_force_color_slots` counts them.
+        for req in sorted(
+            required,
+            key=lambda r: (
+                not r.get("force_color_match"),
+                bool(r.get("force_color_match")) and not r.get("tray_info_idx"),
+            ),
+        ):
             req_type = (req.get("type") or "").upper()
             req_color = req.get("color", "")
             req_tray_info_idx = req.get("tray_info_idx", "")
@@ -4822,8 +4896,34 @@ class PrintScheduler:
                     ],
                 )
 
+            # A forced slot takes only what `_get_missing_force_color_slots`
+            # accepts: same type, exact colour, and the same variant when both
+            # sides name one -- preferring the tray that does. Nothing looser:
+            # the model-based path holds a job the printer cannot satisfy this
+            # way, and a printer-pinned job fell through to type_only and
+            # printed in whatever colour came first (#3280).
+            forced = bool(req.get("force_color_match"))
+            if forced:
+                want_type = canonical_filament_type(req_type)
+                want_color = self._normalize_color_for_compare(req_color)
+                candidates = [
+                    f
+                    for f in available
+                    if canonical_filament_type((f.get("type") or "").upper()) == want_type
+                    and self._normalize_color_for_compare(f.get("color", "")) == want_color
+                    and (
+                        not req_tray_info_idx
+                        or not f.get("tray_info_idx")
+                        or f.get("tray_info_idx") == req_tray_info_idx
+                    )
+                ]
+                exact_match = next(
+                    (f for f in candidates if req_tray_info_idx and f.get("tray_info_idx") == req_tray_info_idx),
+                    candidates[0] if candidates else None,
+                )
+
             # Check if tray_info_idx is unique among available trays
-            if req_tray_info_idx:
+            if req_tray_info_idx and not forced:
                 idx_matches = [f for f in available if f.get("tray_info_idx") == req_tray_info_idx]
                 if len(idx_matches) == 1:
                     # Unique tray_info_idx - use it as definitive match
@@ -4855,7 +4955,7 @@ class PrintScheduler:
                             type_only_match = f
 
             # If no idx_match yet, do standard type/color matching on all available trays
-            if not idx_match and not exact_match and not similar_match and not type_only_match:
+            if not forced and not idx_match and not exact_match and not similar_match and not type_only_match:
                 for f in available:
                     f_type = (f.get("type") or "").upper()
                     if canonical_filament_type(f_type) != canonical_filament_type(req_type):
@@ -4911,11 +5011,12 @@ class PrintScheduler:
                 )
             else:
                 logger.info(
-                    "[ams-match] NO MATCH for req slot=%s (type=%r color=%r tii=%r)",
+                    "[ams-match] NO MATCH for req slot=%s (type=%r color=%r tii=%r%s)",
                     req.get("slot_id"),
                     req_type,
                     req_color,
                     req_tray_info_idx,
+                    ", force color match" if forced else "",
                 )
 
         # Build mapping array
@@ -8268,9 +8369,14 @@ class PrintScheduler:
             mapping = []
 
         required = await self._get_filament_requirements(db, item)
-        if not required:
-            return False
-        self._apply_filament_overrides(item, required)
+        if required:
+            self._apply_filament_overrides(item, required)
+        else:
+            # An unreadable 3MF still has its forced colours to go by: they are
+            # what the mapping was built from (#3280).
+            required = _forced_override_requirements(item)
+            if not required:
+                return False
 
         unmatched = _unresolved_required(required, mapping)
         if not unmatched:
