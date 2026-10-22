@@ -5379,6 +5379,12 @@ async def on_print_start(printer_id: int, data: dict):
         # under a name that matches. The only failure that rules out an
         # earlier run's 3MF standing in for it (#3307).
         walk_transfer_failed = False
+        # Paths the sweep reached and could not transfer -- a timeout, not a
+        # 550. The directory walk lists the same folders and would download
+        # the same file again: on a slow A1 that was a second 300 s on the
+        # printer's one FTPS slot, at print start, for a file the recovery
+        # retry fetches with a deadline twice as long (#3308).
+        sweep_failed_paths: set[str] = set()
 
         # The print's name, for a fallback archive whose `subtask_name` the
         # plate guard below had to disown. Display only, and deliberately kept
@@ -5533,12 +5539,14 @@ async def on_print_start(printer_id: int, data: dict):
                     # exhausted transfer arrives here rather than as an
                     # exception (#3063).
                     ftp_transfer_failed = True
+                    sweep_failed_paths.add(remote_path)
                 except FileNotOnPrinterError:
                     # 550 — file isn't at this path. Advance to next candidate
                     # without burning the retry budget.
                     logger.debug("3MF not at %s (550), trying next path", remote_path)
                 except Exception as e:
                     ftp_transfer_failed = True
+                    sweep_failed_paths.add(remote_path)
                     logger.debug("FTP download failed for %s: %s", remote_path, e)
 
             if downloaded_filename or ftps_handshake_blocked(printer.ip_address):
@@ -5578,6 +5586,18 @@ async def on_print_start(printer_id: int, data: dict):
                     posixpath.join(search_dir, f.get("name", "")) for f in dir_files if not f.get("is_directory")
                 ]
             for remote_full_path in _3mf_files_for_print(listed_paths, search_term):
+                if remote_full_path in sweep_failed_paths:
+                    # Listed for this print, and its transfer already failed:
+                    # the same as a failed walk download, without spending a
+                    # second deadline on it. Skipping it cannot hand the walk a
+                    # look-alike: while a file of the print's own name is
+                    # listed, files that merely contain the name are not.
+                    logger.info(
+                        "Not downloading %s again: its transfer already failed; the recovery retry will fetch it",
+                        remote_full_path,
+                    )
+                    walk_transfer_failed = True
+                    continue
                 fname = posixpath.basename(remote_full_path)
                 logger.info("Found matching file: %s", remote_full_path)
                 temp_path = app_settings.archive_dir / "temp" / fname
