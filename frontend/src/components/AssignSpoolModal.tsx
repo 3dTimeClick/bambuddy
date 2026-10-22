@@ -7,7 +7,7 @@ import type { InventorySpool, SpoolAssignment } from '../api/client';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
-import { filterSpoolsByQuery } from '../utils/inventorySearch';
+import { exactSpoolIdQuery, filterSpoolsByQuery } from '../utils/inventorySearch';
 import { getSwatchStyle, resolveSpoolColorName } from '../utils/colors';
 import { useUiSettings } from '../hooks/useUiSettings';
 
@@ -267,8 +267,14 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
   // tray's material (partial-match both directions — "PLA" spool accepts a "PLA Basic" slot and
   // vice versa). Manually-added inventory spools typically have no slicer_filament_name; gating
   // on strict profile equality alone hid them even when the material matched (#1047).
+  //
+  // A "#123" search skips the tray match: typing a spool's number is choosing
+  // that spool, and the material-mismatch warning still asks on assign
+  // (#3301). Before, a spool of another material came up empty for its own
+  // number, as if it had been deleted.
+  const exactSpoolId = exactSpoolIdQuery(searchFilter);
   let filteredSpools = availableSpools;
-  if (!disableFiltering) {
+  if (!disableFiltering && exactSpoolId === null) {
     const trayProfile = stripProfileQualifier(normalizeValue(trayInfo?.profile));
     const trayMaterial = normalizeValue(trayInfo?.material || trayInfo?.type);
     if (trayProfile || trayMaterial) {
@@ -290,6 +296,17 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
   }
   if (searchFilter && filteredSpools) {
     filteredSpools = filterSpoolsByQuery(filteredSpools, searchFilter);
+  }
+  // Why a "#123" search found nothing, when it did -- the spool is not gone
+  // just because it is not offered here.
+  let exactSpoolMissReason: string | null = null;
+  if (exactSpoolId !== null && spools && filteredSpools?.length === 0) {
+    const wanted = spools.find((spool: InventorySpool) => spool.id === exactSpoolId);
+    exactSpoolMissReason = !wanted
+      ? t('inventory.spoolIdNotFound', { id: exactSpoolId })
+      : wanted.archived_at
+        ? t('inventory.spoolIdArchived', { id: exactSpoolId })
+        : t('inventory.spoolIdInOtherSlot', { id: exactSpoolId });
   }
 
   const handleAssign = () => {
@@ -450,6 +467,10 @@ export function AssignSpoolModal({ isOpen, onClose, printerId, amsId, trayId, tr
                     )}
                   </button>
                 ))}
+              </div>
+            ) : exactSpoolMissReason ? (
+              <div className="text-center py-8 text-bambu-gray">
+                <p>{exactSpoolMissReason}</p>
               </div>
             ) : availableSpools && availableSpools.length === 0 ? (
               <div className="text-center py-8 text-bambu-gray">
