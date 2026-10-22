@@ -7197,6 +7197,7 @@ export default {
 
   // Timelapse Viewer
   timelapseViewer: {
+    speed: 'Velocidade:',
     skipBack5s: 'Voltar 5s',
     skipForward5s: 'Avançar 5s',
   },

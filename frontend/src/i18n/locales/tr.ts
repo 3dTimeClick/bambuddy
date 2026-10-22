@@ -7154,6 +7154,7 @@ export default {
 
   // Zaman Atlamalı Video Görüntüleyici
   timelapseViewer: {
+    speed: 'Hız:',
     skipBack5s: '5 sn geri al',
     skipForward5s: '5 sn ileri al',
   },

@@ -7259,6 +7259,7 @@ errors: {
 
   // Timelapse Viewer
   timelapseViewer: {
+    speed: 'Hastighet:',
     skipBack5s: 'Hoppa bakåt 5s',
     skipForward5s: 'Hoppa framåt 5s',
   },

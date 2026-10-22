@@ -337,7 +337,9 @@ export function TimelapseEditorModal({
             <video
               ref={videoRef}
               src={timelapseSrc}
-              className="w-full rounded-lg bg-black"
+              // Short enough to leave the trim and speed controls on screen with
+              // a portrait timelapse (#3281); object-contain letterboxes it.
+              className="w-full max-h-[55dvh] object-contain rounded-lg bg-black"
               onClick={togglePlay}
               muted={!!audioUrl}
             />

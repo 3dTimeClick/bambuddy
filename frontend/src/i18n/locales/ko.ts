@@ -6872,6 +6872,7 @@ export default {
     dragToResize: '드래그하여 크기 조정'
   },
   timelapseViewer: {
+    speed: '속도:',
     skipBack5s: '5초 뒤로',
     skipForward5s: '5초 앞으로'
   },

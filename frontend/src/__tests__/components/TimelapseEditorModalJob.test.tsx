@@ -62,6 +62,14 @@ describe('TimelapseEditorModal re-encode job', () => {
     vi.mocked(api.cancelTimelapseJob).mockReset().mockResolvedValue(job({ status: 'cancelled' }));
   });
 
+  it('keeps a portrait video short enough to leave the controls on screen (#3281)', async () => {
+    open();
+    await screen.findByRole('button', { name: /save/i });
+    const video = document.querySelector('video');
+    expect(video?.className).toMatch(/max-h-\[55dvh\]/);
+    expect(video?.className).toContain('object-contain');
+  });
+
   it('Save starts the job, shows its progress and closes with the result', async () => {
     vi.mocked(api.getTimelapseJob)
       .mockResolvedValueOnce(null)

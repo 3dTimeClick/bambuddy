@@ -6859,6 +6859,7 @@ export default {
     dragToResize: "Перетащите, чтобы изменить размер",
   },
   timelapseViewer: {
+    speed: 'Скорость:',
     skipBack5s: "Назад на 5 с",
     skipForward5s: "Вперёд на 5 с",
   },

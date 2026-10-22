@@ -7263,6 +7263,7 @@ export default {
 
   // Timelapse Viewer
   timelapseViewer: {
+    speed: 'Speed:',
     skipBack5s: 'Skip back 5s',
     skipForward5s: 'Skip forward 5s',
   },

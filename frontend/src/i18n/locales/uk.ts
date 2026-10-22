@@ -7251,6 +7251,7 @@ export default {
 
   // Timelapse Viewer
   timelapseViewer: {
+    speed: 'Швидкість:',
     skipBack5s: "Перейти на 5 секунд назад",
     skipForward5s: "Перейти вперед на 5 с",
   },
