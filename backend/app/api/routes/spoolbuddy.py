@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.api.routes.spoolman_inventory import _clear_stale_tag_links
 from backend.app.core.auth import RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
@@ -833,28 +834,13 @@ async def nfc_write_result(
                 # one Spoolman spool, otherwise find_spool_by_tag returns
                 # whichever spool comes first in the cached list (usually the
                 # older one) and the dashboard shows the wrong spool when the
-                # tag is scanned. Before binding the new owner, clear the tag
-                # from any other spool that currently has it. Best-effort:
-                # cleanup failure does not block the write itself, but the
-                # warning surfaces in logs so a stale duplicate can be tracked
-                # down manually.
+                # tag is scanned. Before binding the new owner, clear extra.tag
+                # on every other spool that holds it -- JSON-encoded, as Spoolman
+                # refuses a bare "" (#3312). Best-effort: cleanup failure does
+                # not block the write itself; each failed spool is logged.
                 try:
-                    cached_spools = await sm_client.get_spools()
-                    duplicate = await sm_client.find_spool_by_tag(req.tag_uid, cached_spools=cached_spools)
-                    if duplicate is not None and duplicate.get("id") != req.spool_id:
-                        await sm_client.merge_spool_extra(int(duplicate["id"]), {"tag": ""})
-                        logger.info(
-                            "Spoolman: cleared tag %s from previous holder spool %d before binding to spool %d",
-                            req.tag_uid,
-                            duplicate["id"],
-                            req.spool_id,
-                        )
-                except (SpoolmanNotFoundError, SpoolmanUnavailableError, SpoolmanClientError) as cleanup_exc:
-                    logger.warning(
-                        "Spoolman: failed to clear duplicate tag %s before binding to spool %d (proceeding anyway): %s",
-                        req.tag_uid,
-                        req.spool_id,
-                        cleanup_exc,
+                    await _clear_stale_tag_links(
+                        sm_client, tag=req.tag_uid, keep_spool_id=req.spool_id, log_context="SpoolBuddy tag write"
                     )
                 except Exception:
                     logger.exception(
