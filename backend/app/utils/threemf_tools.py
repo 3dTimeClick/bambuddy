@@ -54,7 +54,8 @@ def parse_gcode_layer_filament_usage(gcode_content: str) -> dict[int, dict[int, 
     G-code commands parsed:
         - M73 L<layer>: Layer change marker
         - M620 S<filament>: Filament/tool change (S255 = unload)
-        - G0/G1/G2/G3 E<amount>: Extrusion moves
+        - G0/G1/G2/G3 E<amount>: Extrusion moves (relative E; retractions
+          are subtracted, so each layer holds the net length fed)
     """
     layer_filaments: dict[int, dict[int, float]] = {}
     current_layer = 0
@@ -92,7 +93,7 @@ def parse_gcode_layer_filament_usage(gcode_content: str) -> dict[int, dict[int, 
                         new_layer = int(part[1:])
                         # Save current state before layer change
                         if cumulative_extrusion:
-                            layer_filaments[current_layer] = cumulative_extrusion.copy()
+                            layer_filaments[current_layer] = _snapshot(cumulative_extrusion)
                         current_layer = new_layer
                     except ValueError:
                         pass  # Skip G-code lines with unparseable layer numbers
@@ -127,18 +128,30 @@ def parse_gcode_layer_filament_usage(gcode_content: str) -> dict[int, dict[int, 
                 if part_upper.startswith("E"):
                     try:
                         extrusion = float(part[1:])
-                        # Only count positive extrusion (not retractions)
-                        if extrusion > 0:
-                            current = cumulative_extrusion.get(active_filament, 0)
-                            cumulative_extrusion[active_filament] = current + extrusion
+                        # Net sum, retractions included (#3317). Bambu G-code is
+                        # relative (M83): every retract is followed by an
+                        # un-retract of the same length, so counting only the
+                        # positive half added each pair to the total and put a
+                        # print 1.1-1.7x above the slicer's weight.
+                        current = cumulative_extrusion.get(active_filament, 0)
+                        cumulative_extrusion[active_filament] = current + extrusion
                     except ValueError:
                         pass  # Skip G-code lines with unparseable extrusion values
 
     # Save final layer state
     if cumulative_extrusion:
-        layer_filaments[current_layer] = cumulative_extrusion.copy()
+        layer_filaments[current_layer] = _snapshot(cumulative_extrusion)
 
     return layer_filaments
+
+
+def _snapshot(cumulative_extrusion: dict[int, float]) -> dict[int, float]:
+    """Copy the running totals for one layer, never below zero.
+
+    A filament retracted before it has extruded anything would otherwise read
+    as negative usage at that layer.
+    """
+    return {filament: max(mm, 0.0) for filament, mm in cumulative_extrusion.items()}
 
 
 def mm_to_grams(

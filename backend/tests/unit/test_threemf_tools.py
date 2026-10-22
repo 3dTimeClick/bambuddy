@@ -86,16 +86,61 @@ G1 E2.0
         # Layer 2: filament 0 = 15mm (13+2)
         assert result[2] == {0: 15.0, 1: 5.0}
 
-    def test_retractions_ignored(self):
-        """Negative E values (retractions) should be ignored."""
+    def test_retractions_subtracted(self):
+        """#3317: a retract and its un-retract cancel out (relative E, M83).
+
+        Counting only the positive half added every pair to the total and put
+        a failed print's partial usage 1.7x above the slicer's weight.
+        """
         gcode = """
 M620 S0
 G1 E10.0
 G1 E-2.0
+G1 E2.0
 G1 E5.0
 """
         result = parse_gcode_layer_filament_usage(gcode)
         assert result == {0: {0: 15.0}}
+
+    def test_retraction_across_layer_change(self):
+        """A retract before the layer change is part of the layer it ends."""
+        gcode = """
+M620 S0
+G1 E10.0
+G1 E-0.8
+M73 L1
+G1 E0.8
+G1 E4.0
+"""
+        result = parse_gcode_layer_filament_usage(gcode)
+        assert result[0] == {0: pytest.approx(9.2)}
+        assert result[1] == {0: pytest.approx(14.0)}
+
+    def test_retractions_kept_per_filament(self):
+        """A filament's retract before a change stays on that filament."""
+        gcode = """
+M620 S0
+G1 E10.0
+G1 E-2.0
+M620 S1
+G1 E6.0
+G1 E-1.0
+G1 E1.0
+"""
+        result = parse_gcode_layer_filament_usage(gcode)
+        assert result == {0: {0: 8.0, 1: 6.0}}
+
+    def test_net_usage_never_negative(self):
+        """A filament retracted before it has extruded reads 0, not negative."""
+        gcode = """
+M620 S1
+G1 E-3.0
+M73 L1
+G1 E5.0
+"""
+        result = parse_gcode_layer_filament_usage(gcode)
+        assert result[0] == {1: 0.0}
+        assert result[1] == {1: 2.0}
 
     def test_m620_s255_unloads(self):
         """M620 S255 means unload - extrusion after should be ignored."""

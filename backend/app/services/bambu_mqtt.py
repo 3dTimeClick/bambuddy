@@ -1456,6 +1456,13 @@ class BambuMQTTClient:
         self._eop_probe_last: dict = {}
         self._last_valid_progress: float = 0.0  # Last non-zero progress (firmware resets on cancel)
         self._last_valid_layer_num: int = 0  # Last non-zero layer (firmware resets on cancel)
+        # #3317: the layer the previous print ended on. Right after a print
+        # starts, the printer can send one frame that still carries it (H2S:
+        # `layer_num` 357 with `mc_percent` 0, then 0 a second later). Taken at
+        # face value, the 0 that follows saved 357 as this print's last layer,
+        # and a print failing at layer 0 was charged as finished. Frames with
+        # this value are ignored until the new print reports another layer.
+        self._stale_layer_num: int = 0
         # The subtask_id minted for the most recent start_print() command. The
         # printer echoes it back in status, but often not within the first few
         # seconds — so on_print_start uses this as the id source when the
@@ -4343,7 +4350,10 @@ class BambuMQTTClient:
             # Open on any end-of-print signal. Read from the raw frame first so
             # the frame that *carries* the signal is itself captured — state
             # fields are only updated further down this same call.
-            layer = self._probe_number(data.get("layer_num"), self.state.layer_num) or 0
+            frame_layer = data.get("layer_num")
+            if self._is_stale_layer(frame_layer):
+                frame_layer = None
+            layer = self._probe_number(frame_layer, self.state.layer_num) or 0
             total = self._probe_number(data.get("total_layer_num"), self.state.total_layers) or 0
             percent = self._probe_number(data.get("mc_percent"), self.state.progress) or 0
             remaining = self._probe_number(data.get("mc_remaining_time"), self.state.remaining_time)
@@ -4395,6 +4405,15 @@ class BambuMQTTClient:
             self._eop_probe_open = False
             self._eop_probe_armed = False
             self._eop_probe_last = {}
+
+    def _is_stale_layer(self, value) -> bool:
+        """Whether a frame's `layer_num` is the previous print's last layer (#3317)."""
+        if not self._stale_layer_num:
+            return False
+        try:
+            return int(value) == self._stale_layer_num
+        except (TypeError, ValueError):
+            return False
 
     def _update_state(self, data: dict):
         """Update printer state from message data."""
@@ -4497,6 +4516,17 @@ class BambuMQTTClient:
                     data["layer_num"],
                 )
                 new_layer = self.state.layer_num
+            if self._is_stale_layer(new_layer):
+                logger.debug(
+                    "[%s] ignoring layer_num %s: last layer of the previous print",
+                    self.serial_number,
+                    new_layer,
+                )
+                new_layer = self.state.layer_num
+            elif new_layer > 0:
+                # The new print reports a layer of its own; from here on the
+                # previous print's value is a layer this print can reach.
+                self._stale_layer_num = 0
             old_layer = self.state.layer_num
             # Save last non-zero layer for usage tracking (firmware resets to 0 on cancel)
             if old_layer > 0:
@@ -5712,6 +5742,10 @@ class BambuMQTTClient:
             # Clear any old HMS errors when a new print starts
             self.state.hms_errors = []
             # Reset layer tracking for new print (needed for layer-based timelapse)
+            # #3317: only above 1. Every print reports layer 1 first, which
+            # clears a higher value; a previous print that ended on layer 1
+            # would make this print's own first layer look stale.
+            self._stale_layer_num = self.state.layer_num if self.state.layer_num > 1 else 0
             self.state.layer_num = 0
             # Reset total_layers so the previous print's value can't bleed into
             # this print's usage-tracker split (#1771 follow-on to the
