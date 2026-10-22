@@ -155,17 +155,18 @@ function InlineMappingEditor({
       </div>
 
       {slotAssignments.map(({ req, loaded, status, isManual }, idx) => (
+        // Below `sm` the slot select gets a line of its own, as on the
+        // single-printer mapping row (#3294).
         <div
           key={idx}
-          className="grid items-center gap-2 text-xs"
-          style={{ gridTemplateColumns: '16px minmax(70px, 1fr) auto 2fr 16px' }}
+          className="grid items-center gap-2 text-xs grid-cols-[16px_minmax(0,1fr)_16px] sm:grid-cols-[16px_minmax(70px,1fr)_auto_2fr_16px]"
         >
           <span title={`Required: ${req.type} - ${getColorName(req.color)}`}>
             <Circle className="w-3 h-3" fill={req.color} stroke={req.color} />
           </span>
           {/* Only the name truncates; the gram usage is pinned (shrink-0) so
               it never clips on narrow/mobile widths (#2669). */}
-          <span className="text-white flex items-center gap-1 min-w-0">
+          <span className="text-white flex items-center gap-1 min-w-0 col-span-2 sm:col-span-1">
             <span className="truncate min-w-0" title={req.type}>{req.type}</span>
             <span className="text-bambu-gray shrink-0 whitespace-nowrap">({req.used_grams}g)</span>
           </span>
@@ -173,7 +174,7 @@ function InlineMappingEditor({
           <select
             value={loaded?.globalTrayId ?? ''}
             onChange={(e) => handleSlotChange(req.slot_id || 0, e.target.value)}
-            className={`flex-1 px-2 py-1 rounded border text-xs bg-bambu-dark-secondary focus:outline-none focus:ring-1 focus:ring-bambu-green ${
+            className={`flex-1 min-w-0 px-2 py-1 rounded border text-xs bg-bambu-dark-secondary focus:outline-none focus:ring-1 focus:ring-bambu-green ${
               status === 'match'
                 ? 'border-bambu-green/50 text-bambu-green'
                 : status === 'type_only'

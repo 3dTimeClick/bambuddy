@@ -414,19 +414,24 @@ export function FilamentMapping({
             );
             return (
             <div key={idx} className="space-y-1">
+              {/*
+                The rack picker sits inside the required-filament cell, so on a
+                rack machine that cell has to carry the name *and* an ~85px
+                dropdown. Raising only the floor (not the fraction) keeps every
+                other printer's layout exactly as it was, and keeps the AMS
+                dropdown — which names type, colour and remaining weight — the
+                widest column.
+
+                Below `sm` the slot picker gets a line of its own under the
+                required filament (#3294): on a phone held upright, the 210px
+                floor left it about 55px, a swatch and a chevron.
+              */}
               <div
-                className="grid items-center gap-2 text-xs"
-                style={{
-                  // The rack picker sits inside the required-filament cell, so
-                  // on a rack machine that cell has to carry the name *and* an
-                  // ~85px dropdown. Raising only the floor (not the fraction)
-                  // keeps every other printer's layout exactly as it was, and
-                  // keeps the AMS dropdown — which names type, colour and
-                  // remaining weight — the widest column.
-                  gridTemplateColumns: hasRack
-                    ? '16px minmax(210px, 1.4fr) auto 2fr 16px'
-                    : '16px minmax(70px, 1fr) auto 2fr 16px',
-                }}
+                className={`grid items-center gap-2 text-xs grid-cols-[16px_minmax(0,1fr)_16px] ${
+                  hasRack
+                    ? 'sm:grid-cols-[16px_minmax(210px,1.4fr)_auto_2fr_16px]'
+                    : 'sm:grid-cols-[16px_minmax(70px,1fr)_auto_2fr_16px]'
+                }`}
               >
                 {/* Required color */}
                 <span title={t('printModal.requiredTooltip', { name: resolvedName, color: requiredColorLabel })}>
@@ -435,7 +440,7 @@ export function FilamentMapping({
                 {/* Required type + grams + nozzle badge. Only the name
                     truncates; the gram usage is pinned (shrink-0) so it never
                     clips on narrow/mobile widths (#2669). */}
-                <span className="text-white flex items-center gap-1 min-w-0">
+                <span className="text-white flex items-center gap-1 min-w-0 col-span-2 sm:col-span-1">
                   {hasRack && item.group_id != null && item.group ? (
                     item.group.on_rack ? (
                       <select
