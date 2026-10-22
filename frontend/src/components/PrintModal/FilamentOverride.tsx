@@ -153,7 +153,7 @@ export function FilamentOverride({
                     // keeps the sub-brand and the index as it did before.
                     value: `${f.type}|${f.color}`,
                     key: `${f.type}-${f.color}-${f.tray_sub_brands}-${idx}`,
-                    label: `${f.tray_sub_brands || f.type} (${getColorName(f.color, f.tray_sub_brands)})`,
+                    label: `${f.tray_sub_brands || f.type} (${getColorName(f.color, f.tray_sub_brands, f.tray_info_idx)})`,
                     rgba: f.color,
                     hex: displayHex(f.color),
                     exactMatch:

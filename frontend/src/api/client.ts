@@ -1,4 +1,5 @@
 import type { KProfileWriteResult } from '../utils/kprofileWrite';
+import type { BambuCatalogColor } from '../utils/colors';
 import type { ArchivePlatesResponse, LibraryFilePlatesResponse } from '../types/plates';
 import { batched, byField, byId } from './batch';
 
@@ -7175,7 +7176,12 @@ export const api = {
    *  flat answer (e.g. ``"pla matte|ffffff" -> "Ivory White"`` where the flat
    *  map says "Jade White"). #2875. */
   getColorNameMap: () =>
-    request<{ colors: Record<string, string>; by_material?: Record<string, string> }>('/inventory/colors/map'),
+    request<{
+      colors: Record<string, string>;
+      by_material?: Record<string, string>;
+      bambu?: BambuCatalogColor[];
+      preset_materials?: Record<string, string>;
+    }>('/inventory/colors/map'),
   addColorEntry: (data: {
     manufacturer: string;
     color_name: string;

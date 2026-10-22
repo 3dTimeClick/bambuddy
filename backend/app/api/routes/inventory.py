@@ -1032,7 +1032,21 @@ async def get_color_name_map(
     generic white PLA slot in place of Bambu's "Jade White", trading one
     arbitrary answer for another. What survives is the handful of cases this
     exists for.
+
+    ``bambu`` lists every Bambu Lab row as ``{hex, name, material}`` for naming
+    a colour by its nearest Bambu entry (#3279). A colour picked on the
+    printer's touchscreen is reported a step or two off the catalogue's hex
+    (5A657B for Blue Grey 5B6579), which no exact lookup finds. Only Bambu's
+    rows: that is the printer's palette, and another brand's name for a
+    neighbouring hex would be a guess.
+
+    ``preset_materials`` maps each Bambu preset id to its product line
+    (``GFA00`` -> ``PLA Basic``). A slot without RFID reports the preset picked
+    on the printer's screen but an empty ``tray_sub_brands``, and the product
+    line is what the nearest search looks in first.
     """
+    from backend.app.api.routes.cloud import _BUILTIN_FILAMENT_NAMES
+
     result = await db.execute(
         select(
             ColorCatalogEntry.hex_color,
@@ -1045,6 +1059,7 @@ async def get_color_name_map(
     # hex → (name, priority, manufacturer); higher priority wins, first on a tie
     mapping: dict[str, tuple[str, int, str]] = {}
     by_material: dict[str, tuple[str, int, str]] = {}  # "material|hex" → same
+    bambu: list[dict[str, str]] = []
     for hex_color, color_name, manufacturer, is_default, material in result.all():
         if not hex_color or not color_name:
             continue
@@ -1052,6 +1067,8 @@ async def get_color_name_map(
         if len(key) != 6:
             continue
         brand = (manufacturer or "").strip().lower()
+        if brand == "bambu lab":
+            bambu.append({"hex": key, "name": color_name, "material": (material or "").strip()})
         priority = 0
         if brand == "bambu lab":
             priority += 2
@@ -1075,7 +1092,17 @@ async def get_color_name_map(
         flat = mapping.get(qualified.rsplit("|", 1)[1])
         if flat and flat[0] != name and flat[2] == brand:
             qualified_colors[qualified] = name
-    return {"colors": colors, "by_material": qualified_colors}
+    preset_materials = {
+        preset: name.removeprefix("Bambu ").strip()
+        for preset, name in _BUILTIN_FILAMENT_NAMES.items()
+        if name.startswith("Bambu ")
+    }
+    return {
+        "colors": colors,
+        "by_material": qualified_colors,
+        "bambu": bambu,
+        "preset_materials": preset_materials,
+    }
 
 
 @router.post("/colors", response_model=ColorEntryResponse)
