@@ -2488,14 +2488,6 @@
             {
                 "code": "reportPossiblyUnboundVariable",
                 "range": {
-                    "startColumn": 11,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportPossiblyUnboundVariable",
-                "range": {
                     "startColumn": 18,
                     "endColumn": 33,
                     "lineCount": 1

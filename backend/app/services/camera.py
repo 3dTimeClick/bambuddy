@@ -22,6 +22,7 @@ from backend.app.utils.ffmpeg_output import (
     FFMPEG_RTSP_LOGLEVEL,
     NO_FFMPEG_OUTPUT,
     read_ffmpeg_log_until_open,
+    reap_ffmpeg,
     summarize_ffmpeg_stderr,
 )
 
@@ -813,8 +814,6 @@ async def _capture_camera_frame_bytes_uncoalesced(
                 state, log = await read_ffmpeg_log_until_open(process)
                 stdout, stderr = await process.communicate()
         except TimeoutError:
-            process.kill()
-            await process.wait()
             logger.error("Camera frame bytes capture timed out after %ss", timeout)
             return None
         stderr = log + stderr
@@ -839,6 +838,8 @@ async def _capture_camera_frame_bytes_uncoalesced(
         logger.exception("Camera frame bytes capture failed: %s", e)
         return None
     finally:
+        # Killed however the capture ends, not only on its deadline (#3292).
+        await reap_ffmpeg(process)
         if process is not None:
             _active_capture_pids.discard(process.pid)
         await close_tls_proxy(proxy_server)
@@ -910,16 +911,13 @@ async def extract_video_last_frame(video_path: Path, output_path: Path) -> bool:
         return True
     except TimeoutError:
         logger.warning("ffmpeg timed out extracting last frame from %s", video_path)
-        if process is not None:
-            try:
-                process.kill()
-                await process.wait()
-            except ProcessLookupError:
-                pass  # Already exited
         return False
     except OSError as e:
         logger.warning("ffmpeg subprocess error for %s: %s", video_path, e)
         return False
+    finally:
+        # Killed however this ends, not only on its deadline (#3292).
+        await reap_ffmpeg(process)
 
 
 def apply_camera_rotation(image_data: bytes, rotation: int, logger: logging.Logger) -> bytes:

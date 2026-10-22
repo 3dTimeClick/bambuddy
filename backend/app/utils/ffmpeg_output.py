@@ -41,6 +41,14 @@ from backend.app.core.logging_filters import redact_url_credentials
 
 logger = logging.getLogger(__name__)
 
+# Encoder options that bound libx264's memory (#3292). ffmpeg runs in
+# Bambuddy's own cgroup, so in a container its memory counts against the same
+# limit. Left automatic, x264 sizes its threads from the host's cores, not the
+# container's CPU limit, and a 1080p layer-timelapse stitch peaked at about
+# 1.2 GiB on a 30-core host (4K about 4.6 GiB). Two threads and a short
+# lookahead brought 1080p to about 300 MiB with the same preset and quality.
+X264_BOUNDED_ARGS = ("-threads", "2", "-x264-params", "rc-lookahead=10")
+
 # What ffmpeg prints before it has anything to say. Every line of the banner is
 # either the version line or an indented continuation, and a real diagnostic is
 # never indented this way, so the match is on the exact prefixes rather than on
@@ -179,3 +187,26 @@ async def watch_ffmpeg_log(process: asyncio.subprocess.Process) -> None:
             refuse_rtsp_redirect(process, window[window.index(_RTSP_REDIRECT_LOG) :])
             return
         tail = window[-len(_RTSP_REDIRECT_LOG) :]
+
+
+async def reap_ffmpeg(process: asyncio.subprocess.Process | None, timeout: float = 10.0) -> None:
+    """Kill ``process`` if it is still running and wait for it to exit (#3292).
+
+    For the ``finally`` of a one-shot capture: an error while reading ffmpeg's
+    output, or the capture being cancelled, otherwise leaves it running. In a
+    container it shares Bambuddy's memory limit, so every one left behind
+    counts against it until the container restarts. Never raises.
+    """
+    if process is None or process.returncode is not None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    try:
+        await asyncio.wait_for(process.wait(), timeout)
+    except TimeoutError:
+        if process.returncode is None:
+            logger.warning("ffmpeg (pid %s) did not exit after it was killed", process.pid)
+        else:
+            # wait() also waits for the output pipes to close, which can lag
+            # behind a child that has already gone.
+            logger.warning("ffmpeg (pid %s) was killed but its output did not close in %.0f s", process.pid, timeout)

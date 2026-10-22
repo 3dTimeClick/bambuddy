@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from backend.app.services.camera import get_ffmpeg_path
-from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
+from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, X264_BOUNDED_ARGS, summarize_ffmpeg_stderr
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +261,8 @@ class TimelapseProcessor:
                 "fast",
                 "-crf",
                 "23",
+                # Bounded memory, as for the layer-timelapse stitch (#3292).
+                *X264_BOUNDED_ARGS,
                 "-c:a",
                 "aac",
                 "-b:a",

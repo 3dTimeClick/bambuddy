@@ -15,7 +15,7 @@ from pathlib import Path
 from backend.app.core.config import settings
 from backend.app.services.camera import apply_camera_rotation
 from backend.app.services.external_camera import capture_frame
-from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, summarize_ffmpeg_stderr
+from backend.app.utils.ffmpeg_output import NO_FFMPEG_OUTPUT, X264_BOUNDED_ARGS, summarize_ffmpeg_stderr
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ _finalizing_sessions: dict[int, set[str]] = {}
 _STITCH_SECONDS_PER_FRAME = 0.5
 _STITCH_MIN_SECONDS = 300.0
 _STITCH_MAX_SECONDS = 3600.0
+
+# Frames larger than 1080p (counted in pixels, so a portrait camera keeps its
+# shape) are scaled down to it; both sides are made even, as yuv420p requires.
+STITCH_SCALE_FILTER = "scale=w='if(gt(iw*ih,2073600),trunc(iw*sqrt(2073600/(iw*ih))/2)*2,trunc(iw/2)*2)':h=-2"
 
 # A stitch that fails keeps its frames, marked with this file, so the video can
 # still be made from them; the orphan janitor leaves them for this long.
@@ -191,6 +195,8 @@ class TimelapseSession:
             "0",
             "-i",
             str(concat_file),
+            "-vf",
+            STITCH_SCALE_FILTER,
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -199,6 +205,8 @@ class TimelapseSession:
             "medium",
             "-crf",
             "23",
+            # Bounded memory; see X264_BOUNDED_ARGS (#3292).
+            *X264_BOUNDED_ARGS,
             str(output_path),
         ]
 
@@ -229,18 +237,27 @@ class TimelapseSession:
 
         except TimeoutError:
             logger.error("Timelapse stitching timed out after %.0f s (%s frames)", timeout, len(frame_files))
-            if process:
+            output_path.unlink(missing_ok=True)
+            return False
+        except Exception as e:
+            logger.error("Timelapse stitch failed: %s", e)
+            output_path.unlink(missing_ok=True)
+            return False
+        except asyncio.CancelledError:
+            # A stitch cut short leaves a truncated file behind; not a video.
+            output_path.unlink(missing_ok=True)
+            raise
+        finally:
+            # However the stitch ends -- its deadline, an error, or the task
+            # being cancelled -- an ffmpeg it started does not keep running and
+            # holding memory (#3292).
+            if process is not None and process.returncode is None:
                 with contextlib.suppress(ProcessLookupError):
                     process.kill()
                 try:
                     await asyncio.wait_for(process.wait(), 10)
                 except TimeoutError:
                     logger.warning("ffmpeg did not exit after the timelapse stitch was killed")
-            output_path.unlink(missing_ok=True)
-            return False
-        except Exception as e:
-            logger.error("Timelapse stitch failed: %s", e)
-            return False
 
     def mark_kept(self, reason: str) -> bool:
         """Mark the frames to be kept for KEEP_FAILED_FRAMES_SECONDS."""
@@ -248,7 +265,7 @@ class TimelapseSession:
             marker = self.frames_dir / KEPT_FRAMES_MARKER  # SEC-PATH-OK: this module's constant filename
             marker.write_text(
                 f"{reason}\nThese frames are kept for 24 hours. To make the video from them, run in this folder:\n"
-                "ffmpeg -f concat -safe 0 -i frames.txt -c:v libx264 -pix_fmt yuv420p timelapse.mp4\n"
+                f'ffmpeg -f concat -safe 0 -i frames.txt -vf "{STITCH_SCALE_FILTER}" -c:v libx264 -pix_fmt yuv420p -threads 2 timelapse.mp4\n'
             )
             return True
         except OSError as e:

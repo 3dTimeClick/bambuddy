@@ -28,6 +28,7 @@ from backend.app.utils.ffmpeg_output import (
     FFMPEG_RTSP_LOGLEVEL,
     NO_FFMPEG_OUTPUT,
     read_ffmpeg_log_until_open,
+    reap_ffmpeg,
     summarize_ffmpeg_stderr,
     watch_ffmpeg_log,
 )
@@ -548,14 +549,13 @@ async def _capture_usb_frame(device: str, timeout: int) -> bytes | None:
 
     except TimeoutError:
         logger.warning("USB frame capture timed out after %ss", timeout)
-        if process:
-            process.kill()
-            await process.wait()
         return None
     except OSError as e:
         logger.error("USB frame capture failed: %s", e)
         return None
     finally:
+        # Killed however the capture ends, not only on its deadline (#3292).
+        await reap_ffmpeg(process)
         if process is not None:
             _active_capture_pids.discard(process.pid)
 
@@ -757,6 +757,7 @@ async def _capture_rtsp_frame(url: str, timeout: int) -> bytes | None:
         "-",
     ]
 
+    process = None
     try:
         logger.debug("Running ffmpeg RTSP capture...")
         process = await asyncio.create_subprocess_exec(
@@ -791,13 +792,14 @@ async def _capture_rtsp_frame(url: str, timeout: int) -> bytes | None:
 
     except TimeoutError:
         logger.warning("RTSP frame capture timed out after %ss", timeout)
-        if process:
-            process.kill()
         return None
     except OSError as e:
         logger.error("RTSP frame capture failed: %s", e)
         return None
     finally:
+        # Killed and waited for however the capture ends, not only on its
+        # deadline (#3292).
+        await reap_ffmpeg(process)
         if proxy_server:
             await close_tls_proxy(proxy_server)
 

@@ -51,6 +51,7 @@ async def test_a_stitch_past_its_deadline_is_killed_and_reaped(base_dir, monkeyp
         await asyncio.Event().wait()
 
     proc.communicate = never
+    proc.returncode = None  # still running when the deadline passes
     proc.wait = AsyncMock(return_value=-9)
     monkeypatch.setattr(layer_timelapse, "_stitch_timeout", lambda _frames: 0.05)
 
