@@ -84,6 +84,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { QueueStatsBar } from '../components/QueueStatsBar';
 import { CompactHistoryRow } from '../components/CompactHistoryRow';
+import { ColorSubstitutionNotes } from '../components/ColorSubstitutionNotes';
 import { QueueTimelineView } from '../components/QueueTimelineView';
 import { compareQueueOrder } from '../utils/queueOrder';
 import { BatchOrdersView } from '../components/BatchOrdersView';
@@ -1075,6 +1076,13 @@ function SortableQueueItem({
               <span>{t('queue.filamentShort.rowBadge')}</span>
             </p>
           )}
+
+          {/* Sent with a spool of another colour than the file asks for (#3279). */}
+          <ColorSubstitutionNotes
+            substitutions={item.color_substitutions}
+            t={t}
+            className="text-[10px] sm:text-xs mt-1.5 sm:mt-2"
+          />
 
           {/* Archive carries the slicer's own live-resolved AMS-slot pick
               (extra_data.slicer_ams_mapping) — reprints of this archive reuse

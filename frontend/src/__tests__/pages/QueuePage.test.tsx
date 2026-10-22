@@ -223,6 +223,40 @@ describe('QueuePage', () => {
       });
     });
 
+    it('says when a slot printed in another colour than the file asks for (#3279)', async () => {
+      const printing = {
+        ...mockQueueItems[1],
+        id: 91,
+        color_substitutions: [{ slot_id: 1, type: 'PLA', wanted: '#A4AAAC', got: '#000000', tray: 1 }],
+      };
+      const done = {
+        ...mockQueueItems[0],
+        id: 92,
+        status: 'completed',
+        completed_at: '2024-01-02T00:00:00Z',
+        color_substitutions: [{ slot_id: 2, type: 'PLA', wanted: '#FFFFFF', got: '#FF0000', tray: 3 }],
+      };
+      server.use(...serveQueue([printing, done] as MockItem[]));
+
+      render(<QueuePage />);
+
+      const badge = await screen.findByText(/^Slot 1 printed in .*\(#000000\), the file asks for .*\(#A4AAAC\)$/);
+      expect(badge.closest('p')).toHaveAttribute(
+        'title',
+        expect.stringContaining('different colour than the one in the file'),
+      );
+
+      // The History tab draws finished jobs with the compact row.
+      await userEvent.setup().click(await screen.findByRole('button', { name: /^History/ }));
+      expect(await screen.findByText(/^Slot 2 printed in .*\(#FF0000\), the file asks for .*\(#FFFFFF\)$/)).toBeInTheDocument();
+    });
+
+    it('shows no colour note for a job that printed in its colours', async () => {
+      render(<QueuePage />);
+      await screen.findByText('Test Print 1');
+      expect(screen.queryByText(/printed in .*, the file asks for/)).not.toBeInTheDocument();
+    });
+
     it('shows the queue override colour instead of the original 3MF colour (#3132)', async () => {
       const item = {
         ...mockQueueItems[0],

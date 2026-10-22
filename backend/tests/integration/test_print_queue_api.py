@@ -1,5 +1,7 @@
 """Integration tests for Print Queue API endpoints."""
 
+import json
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -432,6 +434,24 @@ class TestPrintQueueAPI:
         assert response.status_code == 200
         assert response.json()["cost_center_id"] == cost_center.id
         assert response.json()["estimated_cost"] == 1.25
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_colour_substitutions_are_returned_parsed(self, async_client: AsyncClient, queue_item_factory):
+        """#3279: the queue row reads which slots printed in another colour."""
+        subs = [{"slot_id": 1, "type": "PLA", "wanted": "#A4AAAC", "got": "#000000", "tray": 1}]
+        item = await queue_item_factory(color_substitutions=json.dumps(subs))
+        unreadable = await queue_item_factory(color_substitutions="{")
+        not_a_list = await queue_item_factory(color_substitutions='{"slot_id": 1}')
+        bad_entries = await queue_item_factory(color_substitutions='[1, {"slot_id": 1}]')
+
+        assert (await async_client.get(f"/api/v1/queue/{item.id}")).json()["color_substitutions"] == subs
+        assert (await async_client.get(f"/api/v1/queue/{unreadable.id}")).json()["color_substitutions"] is None
+        assert (await async_client.get(f"/api/v1/queue/{not_a_list.id}")).json()["color_substitutions"] is None
+        assert (await async_client.get(f"/api/v1/queue/{bad_entries.id}")).json()["color_substitutions"] is None
+        # One bad row must not fail the whole list.
+        listed = (await async_client.get("/api/v1/queue/")).json()
+        assert {i["id"]: i["color_substitutions"] for i in listed}[item.id] == subs
 
     @pytest.mark.asyncio
     @pytest.mark.integration

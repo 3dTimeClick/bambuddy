@@ -5858,6 +5858,11 @@ async def _run_migrations(conn):
     # default -- identical DDL on SQLite and Postgres.
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN timelapse_plate_id INTEGER")
 
+    # Migration: slots a queue item was sent with in another colour than the
+    # file asked for (#3279). Nullable TEXT (JSON), no default -- identical DDL
+    # on SQLite and Postgres.
+    await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN color_substitutions TEXT")
+
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)

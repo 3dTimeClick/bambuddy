@@ -103,6 +103,12 @@ class PrintQueueItem(Base):
     # was picked, and the dispatcher assigns positions itself.
     nozzle_rack_choice: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Slots sent with a spool of another colour than the file asked for (#3279),
+    # as a JSON list of {slot_id, type, wanted, got, tray}. Worked out from the
+    # mapping each time the job is sent, so a retry replaces it. NULL when every
+    # slot got its colour or nothing could be compared.
+    color_substitutions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Printer-card direct uploads create transient library rows. When this is
     # true, the scheduler deletes the source row/files after archiving a copy.
     cleanup_library_after_dispatch: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())

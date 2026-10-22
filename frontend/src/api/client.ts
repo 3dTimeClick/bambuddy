@@ -2836,6 +2836,21 @@ export interface PrintQueueItem {
    *  machine (#1784): `{ [group_id]: 1-based position }`. Re-checked against
    *  the live rack at dispatch; omit to have the dispatcher assign them. */
   nozzle_rack_choice?: Record<number, number> | null;
+  /** Slots sent with a spool of another colour than the file asks for
+   *  (#3279). Worked out when the job is sent; null when every slot got its
+   *  colour or nothing could be compared. */
+  color_substitutions?: ColorSubstitution[] | null;
+}
+
+/** One slot printed in another colour than the file asked for (#3279). */
+export interface ColorSubstitution {
+  slot_id: number;
+  type: string;
+  /** `#RRGGBB` the file asks for, after overrides. */
+  wanted: string;
+  /** `#RRGGBB` of the spool the slot was sent with. */
+  got: string;
+  tray: number;
 }
 
 export interface PrintBatchPlateTarget {

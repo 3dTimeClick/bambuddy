@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: 'Filamento no cargado',
       confirmIntro: 'La impresora no tiene ninguna bandeja con este filamento. Carguelo y pulse Iniciar de nuevo, o imprima de todos modos:',
     },
+    colorSubstitution: {
+      rowBadge: 'La ranura {{slot}} imprimió en {{got}}, el archivo pide {{wanted}}',
+      rowTooltip: 'La bobina de esta ranura es de otro color que el del archivo: no había ninguna bobina de ese color cargada o la ranura se eligió a mano.',
+    },
     slicerAmsMapping: {
       rowBadge: 'Ranuras AMS guardadas para esta impresora',
       rowTooltip: 'Este archivo conserva las ranuras AMS exactas que eligió el slicer, guardadas para la impresora de este elemento. Una reimpresión en ella puede reutilizar esas bobinas en lugar de volver a emparejar por tipo y color.',

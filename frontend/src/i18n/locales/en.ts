@@ -1431,6 +1431,10 @@ export default {
       confirmTitle: 'Filament not loaded',
       confirmIntro: 'The printer has no tray with this filament. Load it and press Start again, or print anyway:',
     },
+    colorSubstitution: {
+      rowBadge: 'Slot {{slot}} printed in {{got}}, the file asks for {{wanted}}',
+      rowTooltip: 'The spool this slot printed from is a different colour than the one in the file: no spool of that colour was loaded, or the slot was picked by hand.',
+    },
     slicerAmsMapping: {
       rowBadge: 'AMS slots saved for this printer',
       rowTooltip: 'This archive carries the exact AMS slots the slicer picked, saved for the printer this item targets. A reprint on it can reuse those trays instead of matching again by type and colour.',

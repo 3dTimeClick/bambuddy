@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: 'Filament nicht geladen',
       confirmIntro: 'Der Drucker hat kein Fach mit diesem Filament. Legen Sie es ein und drücken Sie erneut auf Start, oder drucken Sie trotzdem:',
     },
+    colorSubstitution: {
+      rowBadge: 'Slot {{slot}} wurde in {{got}} gedruckt, die Datei verlangt {{wanted}}',
+      rowTooltip: 'Die Spule, aus der dieser Slot gedruckt hat, hat eine andere Farbe als die in der Datei: Es war keine Spule in dieser Farbe geladen, oder der Slot wurde von Hand gewählt.',
+    },
     slicerAmsMapping: {
       rowBadge: 'AMS-Steckplätze für diesen Drucker gespeichert',
       rowTooltip: 'Dieses Archiv enthält die genauen AMS-Steckplätze, die der Slicer ausgewählt hat, gespeichert für den Drucker dieses Eintrags. Ein erneuter Druck darauf kann diese Fächer wiederverwenden, statt erneut nach Typ und Farbe zuzuordnen.',

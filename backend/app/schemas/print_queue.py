@@ -202,6 +202,16 @@ class QueueVariantSummary(BaseModel):
     position: int
 
 
+class ColorSubstitution(BaseModel):
+    """A slot sent with a spool of another colour than the file asked for (#3279)."""
+
+    slot_id: int
+    type: str
+    wanted: str
+    got: str
+    tray: int
+
+
 class PrintQueueItemResponse(BaseModel):
     id: int
     printer_id: int | None  # None = unassigned
@@ -306,6 +316,9 @@ class PrintQueueItemResponse(BaseModel):
     # {group_id: 1-based position}. The operator's pick, re-checked against the
     # live rack at dispatch; null means "assign them for me".
     nozzle_rack_choice: dict[int, int] | None = None
+
+    # Slots that printed in another colour than the file asked for (#3279).
+    color_substitutions: list[ColorSubstitution] | None = None
 
     class Config:
         from_attributes = True

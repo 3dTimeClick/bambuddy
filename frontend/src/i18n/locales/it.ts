@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: 'Filamento non caricato',
       confirmIntro: 'La stampante non ha nessuno slot con questo filamento. Caricalo e premi di nuovo Avvia, oppure stampa comunque:',
     },
+    colorSubstitution: {
+      rowBadge: 'Lo slot {{slot}} ha stampato in {{got}}, il file richiede {{wanted}}',
+      rowTooltip: 'La bobina usata da questo slot è di un colore diverso da quello del file: non era caricata nessuna bobina di quel colore oppure lo slot è stato scelto a mano.',
+    },
     slicerAmsMapping: {
       rowBadge: 'Slot AMS salvati per questa stampante',
       rowTooltip: 'Questo archivio conserva gli slot AMS esatti scelti dallo slicer, salvati per la stampante di questo elemento. Una ristampa su di essa può riutilizzare quelle bobine invece di rifare l\'abbinamento per tipo e colore.',

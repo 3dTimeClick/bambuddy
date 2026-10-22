@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy import ColumnElement, UnaryExpression, and_, case, func, inspect, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,7 @@ from backend.app.models.printer import Printer
 from backend.app.models.project import Project
 from backend.app.models.user import User
 from backend.app.schemas.print_queue import (
+    ColorSubstitution,
     PrintBatchCreate,
     PrintBatchDispatchRequest,
     PrintBatchPlateProgress,
@@ -469,6 +471,17 @@ def _enrich_response(item: PrintQueueItem) -> PrintQueueItemResponse:
         except json.JSONDecodeError:
             nozzle_rack_choice_parsed = None
 
+    # Slots sent with a spool of another colour (#3279), for the queue row.
+    color_substitutions_parsed = None
+    if item.color_substitutions:
+        try:
+            parsed = json.loads(item.color_substitutions)
+            # Validated here, not by the response model: one bad row must not
+            # fail the whole queue list.
+            color_substitutions_parsed = [ColorSubstitution.model_validate(entry).model_dump() for entry in parsed]
+        except (json.JSONDecodeError, TypeError, ValidationError):
+            color_substitutions_parsed = None
+
     nozzles_info_parsed = None
     if item.nozzles_info:
         try:
@@ -527,6 +540,7 @@ def _enrich_response(item: PrintQueueItem) -> PrintQueueItemResponse:
         "nozzle_mapping": nozzle_mapping_parsed,
         "nozzle_rack_choice": nozzle_rack_choice_parsed,
         "nozzles_info": nozzles_info_parsed,
+        "color_substitutions": color_substitutions_parsed,
         "cleanup_library_after_dispatch": item.cleanup_library_after_dispatch,
         # Cross-model alternatives (#671). Guarded rather than read directly:
         # every route that reaches here eager-loads the relationship, but a

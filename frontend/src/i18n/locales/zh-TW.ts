@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: '線材未裝載',
       confirmIntro: '印表機上沒有裝有此線材的料槽。請裝載後再次按下開始，或仍要列印：',
     },
+    colorSubstitution: {
+      rowBadge: '槽位 {{slot}} 使用 {{got}} 列印，檔案要求 {{wanted}}',
+      rowTooltip: '此槽位使用的線材顏色與檔案中的不同：未裝入該顏色的線材，或槽位為手動選擇。',
+    },
     slicerAmsMapping: {
       rowBadge: '已為此印表機儲存 AMS 槽位',
       rowTooltip: '此封存保留了切片軟體選擇的確切 AMS 槽位，並為此項目的目標印表機儲存。在該印表機上重新列印時，可重複使用這些料盤，而不必再依類型與顏色重新比對。',

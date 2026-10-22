@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: 'Filament non charge',
       confirmIntro: 'L\'imprimante n\'a aucun emplacement avec ce filament. Chargez-le et appuyez de nouveau sur Demarrer, ou imprimez quand meme :',
     },
+    colorSubstitution: {
+      rowBadge: 'L\'emplacement {{slot}} a imprimé en {{got}}, le fichier demande {{wanted}}',
+      rowTooltip: 'La bobine utilisée par cet emplacement n\'a pas la couleur du fichier : aucune bobine de cette couleur n\'était chargée, ou l\'emplacement a été choisi à la main.',
+    },
     slicerAmsMapping: {
       rowBadge: 'Emplacements AMS enregistrés pour cette imprimante',
       rowTooltip: 'Cette archive conserve les emplacements AMS exacts choisis par le slicer, enregistrés pour l\'imprimante de cet élément. Une réimpression dessus peut réutiliser ces bobines au lieu de refaire la correspondance par type et couleur.',

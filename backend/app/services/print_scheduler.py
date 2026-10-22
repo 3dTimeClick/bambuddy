@@ -4595,6 +4595,9 @@ class PrintScheduler:
                         {
                             "type": tray_type,
                             "color": color,
+                            # `color` reads a missing colour as #808080; this
+                            # says whether the printer reported one at all.
+                            "color_known": bool(tray_color),
                             "tray_info_idx": tray_info_idx,
                             "ams_id": ams_id,
                             "tray_id": tray_id,
@@ -4615,6 +4618,7 @@ class PrintScheduler:
                     {
                         "type": vt["tray_type"],
                         "color": color,
+                        "color_known": bool(vt.get("tray_color")),
                         "tray_info_idx": vt.get("tray_info_idx", ""),
                         "ams_id": -1,
                         "tray_id": idx,
@@ -8347,6 +8351,69 @@ class PrintScheduler:
             await db.commit()
         return False
 
+    def _find_color_substitutions(self, required: list[dict], mapping: list, loaded: list[dict]) -> list[dict]:
+        """The slots ``mapping`` gives a spool of another colour than they ask for (#3279).
+
+        Compared the way the matcher compares, so the same hex or a similar one
+        is a match. Only slots the plate prints, mapped to a tray the printer
+        reports, with a colour on both sides: anything else is not a colour the
+        job printed in.
+        """
+        by_tray = {f["global_tray_id"]: f for f in loaded}
+        found = []
+        for req in required:
+            slot_id = req.get("slot_id") or 0
+            if slot_id <= 0 or slot_id > len(mapping):
+                continue
+            tray_id = mapping[slot_id - 1]
+            tray = by_tray.get(tray_id) if _is_tray_id(tray_id) else None
+            if tray is not None and tray.get("color_known") is False:
+                # A spool without a colour set is not a different colour.
+                continue
+            wanted = self._normalize_color_for_compare(req.get("color"))
+            got = self._normalize_color_for_compare(tray.get("color")) if tray else ""
+            if not wanted or not got or wanted == got or self._colors_are_similar(wanted, got):
+                continue
+            found.append(
+                {
+                    "slot_id": slot_id,
+                    "type": req.get("type") or "",
+                    "wanted": f"#{wanted.upper()}",
+                    "got": f"#{got.upper()}",
+                    "tray": tray_id,
+                }
+            )
+        return found
+
+    async def _color_substitutions_for(self, db: AsyncSession, item: PrintQueueItem) -> str | None:
+        """``item``'s colour substitutions as stored on the row, or None (#3279).
+
+        Read from the mapping the job is about to be sent with, whoever made
+        it: the matcher's same-material fallback, a preset match in another
+        colour, or a slot picked by hand. The file's colour is the one after
+        overrides, so a colour swapped on purpose is not one. None whenever
+        there is nothing to compare, and on any failure: a missing note must
+        never stop a print.
+        """
+        try:
+            mapping = json.loads(item.ams_mapping) if item.ams_mapping else None
+            if not isinstance(mapping, list) or not item.printer_id:
+                return None
+            status = printer_manager.get_status(item.printer_id)
+            if status is None:
+                return None
+            required = await self._get_filament_requirements(db, item)
+            if not required:
+                return None
+            self._apply_filament_overrides(item, required)
+            found = self._find_color_substitutions(required, mapping, self._build_loaded_filaments(status))
+        except Exception as e:
+            logger.debug("Queue item %s: colour comparison failed: %s", item.id, e)
+            return None
+        if found:
+            logger.info("Queue item %s: sent with another colour than the file asks for: %s", item.id, found)
+        return json.dumps(found) if found else None
+
     async def _unmatched_requirements(
         self, db: AsyncSession, item: PrintQueueItem, printer_id: int, mapping: list | None
     ) -> list[dict]:
@@ -8547,7 +8614,13 @@ class PrintScheduler:
                 update(PrintQueueItem)
                 .where(PrintQueueItem.id == item.id)
                 .where(PrintQueueItem.status.in_(("pending", "printing")))
-                .values(status="failed", error_message=message, completed_at=datetime.now(timezone.utc))
+                # Failed before the print started: no slot printed in any colour (#3279).
+                .values(
+                    status="failed",
+                    error_message=message,
+                    completed_at=datetime.now(timezone.utc),
+                    color_substitutions=None,
+                )
                 .execution_options(synchronize_session=False)
             ),
         )
@@ -8572,7 +8645,7 @@ class PrintScheduler:
             update(PrintQueueItem)
             .where(PrintQueueItem.id == item.id)
             .where(PrintQueueItem.status == "printing")
-            .values(status="pending", started_at=None)
+            .values(status="pending", started_at=None, color_substitutions=None)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
@@ -9286,11 +9359,19 @@ class PrintScheduler:
         # the file we just uploaded, do NOT send start_print.
         now_utc = datetime.now(timezone.utc)
         billing_run_id = str(uuid.uuid4())
+        # Written with the move to printing, so a retried send replaces the
+        # last answer and a cancelled one leaves the row alone (#3279).
+        color_substitutions = await self._color_substitutions_for(db, item)
         cas = await db.execute(
             update(PrintQueueItem)
             .where(PrintQueueItem.id == item.id)
             .where(PrintQueueItem.status == "pending")
-            .values(status="printing", started_at=now_utc, billing_run_id=billing_run_id)
+            .values(
+                status="printing",
+                started_at=now_utc,
+                billing_run_id=billing_run_id,
+                color_substitutions=color_substitutions,
+            )
         )
         await db.commit()
         if cas.rowcount == 0:
@@ -9947,6 +10028,8 @@ class PrintScheduler:
                 return "already_moved_on"
             item.dispatch_attempts = (item.dispatch_attempts or 0) + 1
             item.started_at = None
+            # The print never started: no slot printed in any colour (#3279).
+            item.color_substitutions = None
             # Charge the attempt to the candidate that was actually dispatched, so
             # a cross-model item (#671) reaches for its other file next lap instead
             # of retrying the printer that just failed to start. Matched by file

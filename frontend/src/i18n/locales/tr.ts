@@ -1419,6 +1419,10 @@ export default {
       confirmTitle: 'Filament yüklü değil',
       confirmIntro: 'Yazıcıda bu filamente sahip bir yuva yok. Yükleyip yeniden Başlat\'a basın veya yine de yazdırın:',
     },
+    colorSubstitution: {
+      rowBadge: 'Yuva {{slot}} {{got}} renginde bastı, dosya {{wanted}} istiyor',
+      rowTooltip: 'Bu yuvanın kullandığı makaranın rengi dosyadakinden farklı: o renkte makara takılı değildi ya da yuva elle seçildi.',
+    },
     slicerAmsMapping: {
       rowBadge: 'Bu yazıcı için kaydedilen AMS yuvaları',
       rowTooltip: 'Bu arşiv, dilimleyicinin seçtiği tam AMS yuvalarını bu öğenin hedeflediği yazıcı için saklar. O yazıcıda yeniden yazdırma, tür ve renge göre yeniden eşleştirmek yerine bu makaraları yeniden kullanabilir.',

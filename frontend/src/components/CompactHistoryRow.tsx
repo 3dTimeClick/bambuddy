@@ -16,6 +16,7 @@ import { queueItemThumbnailUrl } from '../utils/queueItemThumbnail';
 import { type TimeFormat, formatDuration, formatRelativeTime } from '../utils/date';
 import type { PrintQueueItem, Permission } from '../api/client';
 import { Button } from './Button';
+import { ColorSubstitutionNotes } from './ColorSubstitutionNotes';
 import { queueItemDisplayName } from '../utils/queueItemName';
 
 const STATUS_CONFIG = {
@@ -176,6 +177,9 @@ export function CompactHistoryRow({
           </span>
         )}
       </div>
+
+      {/* Printed with a spool of another colour than the file asks for (#3279). */}
+      <ColorSubstitutionNotes substitutions={item.color_substitutions} t={t} className="mt-1 ml-[3.25rem] text-xs" />
 
       {/* Error message — only rendered on failed/skipped rows. */}
       {showErrorMessage && (

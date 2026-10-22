@@ -1429,6 +1429,10 @@ export default {
       confirmTitle: 'Filament inte laddat',
       confirmIntro: 'Skrivaren har inget fack med detta filament. Ladda det och tryck på Start igen, eller skriv ut ändå:',
     },
+    colorSubstitution: {
+      rowBadge: 'Fack {{slot}} skrev ut i {{got}}, filen kräver {{wanted}}',
+      rowTooltip: 'Spolen som facket skrev ut från har en annan färg än den i filen: ingen spole i den färgen var laddad, eller så valdes facket för hand.',
+    },
     slicerAmsMapping: {
       rowBadge: 'AMS-fack sparade för denna skrivare',
       rowTooltip: 'Detta arkiv innehåller de exakta AMS-fack som slicer-programmet valde, sparade för den skrivare denna post riktar sig till. En omutskrift på den kan återanvända dessa brickor istället för att matcha igen efter typ och färg.',

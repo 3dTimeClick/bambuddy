@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: '耗材未装载',
       confirmIntro: '打印机上没有装有此耗材的料槽。请装载后再次点击开始，或仍要打印：',
     },
+    colorSubstitution: {
+      rowBadge: '槽位 {{slot}} 使用 {{got}} 打印，文件要求 {{wanted}}',
+      rowTooltip: '此槽位使用的耗材颜色与文件中的不同：未装入该颜色的耗材，或槽位为手动选择。',
+    },
     slicerAmsMapping: {
       rowBadge: '已为此打印机保存 AMS 槽位',
       rowTooltip: '此存档保留了切片软件选择的确切 AMS 槽位，并为该项目的目标打印机保存。在该打印机上重新打印时，可复用这些料盘，而不必再按类型和颜色重新匹配。',

@@ -586,6 +586,23 @@ class TestWatchdogRetryBudget:
         notify.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_a_send_that_never_started_drops_its_colour_note(self, db_session):
+        """#3279: the note says a slot printed in another colour; a print that
+        never started printed in none, on the pending row or the failed one."""
+        note = '[{"slot_id": 1, "type": "PLA", "wanted": "#A4AAAC", "got": "#000000", "tray": 1}]'
+        async with db_session() as db:
+            item = await db.get(PrintQueueItem, 1)
+            item.color_substitutions = note
+            await db.commit()
+
+        await self._wedge(db_session)
+
+        async with db_session() as db:
+            item = await db.get(PrintQueueItem, 1)
+            assert item.status == "pending"
+            assert item.color_substitutions is None
+
+    @pytest.mark.asyncio
     async def test_a_successful_start_never_touches_the_counter(self, db_session):
         """Only the revert path increments. A printer that picks the job up
         must not accumulate attempts towards a future give-up."""

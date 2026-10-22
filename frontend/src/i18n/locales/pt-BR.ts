@@ -1417,6 +1417,10 @@ export default {
       confirmTitle: 'Filamento nao carregado',
       confirmIntro: 'A impressora nao tem nenhuma bandeja com este filamento. Carregue-o e pressione Iniciar novamente, ou imprima mesmo assim:',
     },
+    colorSubstitution: {
+      rowBadge: 'O slot {{slot}} imprimiu em {{got}}, o arquivo pede {{wanted}}',
+      rowTooltip: 'O carretel usado por este slot é de uma cor diferente da do arquivo: nenhum carretel dessa cor estava carregado ou o slot foi escolhido manualmente.',
+    },
     slicerAmsMapping: {
       rowBadge: 'Slots AMS salvos para esta impressora',
       rowTooltip: 'Este arquivo mantém os slots AMS exatos escolhidos pelo fatiador, salvos para a impressora deste item. Uma reimpressão nela pode reutilizar esses carretéis em vez de casar novamente por tipo e cor.',
