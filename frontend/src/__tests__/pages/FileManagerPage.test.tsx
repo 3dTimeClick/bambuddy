@@ -298,6 +298,19 @@ describe('FileManagerPage', () => {
         expect(screen.getByText('Upload')).toBeInTheDocument();
       });
     });
+
+    it('wraps the header buttons onto more lines instead of running off a narrow screen (#3295)', async () => {
+      // Up to nine controls sit in this row. Without wrapping they pushed
+      // the whole page sideways on a phone. jsdom does no layout, so this
+      // pins the classes that let the row wrap, and next to the title take
+      // only the room left over rather than squeezing the title.
+      render(<FileManagerPage />);
+
+      const upload = await screen.findByRole('button', { name: /upload/i });
+      const row = upload.parentElement as HTMLElement;
+      expect(row).toContainElement(screen.getByRole('button', { name: /new folder/i }));
+      expect(row.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex-wrap', 'min-w-0', 'sm:justify-end', 'sm:flex-1']));
+    });
   });
 
   describe('stats display', () => {

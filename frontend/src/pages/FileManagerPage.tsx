@@ -2727,7 +2727,10 @@ export function FileManagerPage() {
             {t('fileManager.subtitle')}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wraps: up to nine controls, which pushed the page sideways on a
+            phone (#3295). Next to the title it takes only the room left over
+            (flex-1 from zero), so the title is not squeezed to fit it. */}
+        <div className="flex flex-wrap items-center sm:justify-end sm:flex-1 gap-2 min-w-0">
           {/* View mode toggle */}
           <div className="flex items-center bg-bambu-dark rounded-lg p-1">
             <button
