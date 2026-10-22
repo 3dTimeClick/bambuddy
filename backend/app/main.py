@@ -6,6 +6,7 @@ import os
 import posixpath
 import re
 import secrets
+import shutil
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -3819,6 +3820,65 @@ _fallback_3mf_retry_tasks: dict[int, asyncio.Task] = {}
 _fallback_recovery_locks: dict[int, asyncio.Lock] = {}
 
 
+# How many of a printer's newest archives a touchscreen reprint is compared
+# against (#3307). A repeat is usually of a recent job; the bound keeps a
+# print start from reading a long history's extra_data.
+_REPEAT_LOOKBACK = 200
+
+
+async def _archived_3mf_for_repeat(
+    db, printer_id: int, subtask_name: str | None, gcode_file: str | None, total_layers: int | None
+):
+    """The newest archive of the job this printer is running again, with its 3MF.
+
+    A "Print again" on the printer's screen never names the file on the card:
+    it reports its own history copy under a generic name
+    (``file:///userdata/project_file.gcode.3mf``), the 3MF's internal title as
+    ``subtask_name`` and the plate as ``gcode_file`` -- and the title is often
+    not the card file's name, so every lookup built from it misses (#3307).
+    An earlier run that was archived recorded that same title and plate in its
+    ``_print_data``, and holds the 3MF.
+
+    Same printer, same title, same plate, a 3MF still on disk. A layer count
+    known on both sides must agree: the same title and plate re-sliced is
+    another job. None when nothing matches.
+    """
+    from backend.app.models.archive import PrintArchive
+
+    if not subtask_name or not gcode_file:
+        return None
+    rows = (
+        (
+            await db.execute(
+                select(PrintArchive)
+                .where(
+                    PrintArchive.printer_id == printer_id,
+                    PrintArchive.deleted_at.is_(None),
+                    PrintArchive.file_path.isnot(None),
+                    PrintArchive.file_path != "",
+                )
+                .order_by(PrintArchive.created_at.desc(), PrintArchive.id.desc())
+                .limit(_REPEAT_LOOKBACK)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for archive in rows:
+        extra = archive.extra_data if isinstance(archive.extra_data, dict) else {}
+        run = extra.get("_print_data")
+        if not isinstance(run, dict):
+            continue
+        if run.get("subtask_name") != subtask_name or run.get("filename") != gcode_file:
+            continue
+        if total_layers and archive.total_layers and archive.total_layers != total_layers:
+            continue
+        if not (app_settings.base_dir / archive.file_path).is_file():
+            continue
+        return archive
+    return None
+
+
 async def _recover_fallback_archive(archive_id: int, source_3mf: Path, printer_id: int, *, price: bool = True) -> bool:
     """Fill in a no-3MF archive from a 3MF that turned up later.
 
@@ -5314,6 +5374,11 @@ async def on_print_start(printer_id: int, data: dict):
         # leaves this False and schedules nothing. Anything else means the
         # transfer, not the file, is what failed, and that does not last (#3063).
         ftp_transfer_failed = False
+        # The narrower case of the above: the directory walk *listed* a file
+        # for this print and could not fetch it, so the file is on the card
+        # under a name that matches. The only failure that rules out an
+        # earlier run's 3MF standing in for it (#3307).
+        walk_transfer_failed = False
 
         # The print's name, for a fallback archive whose `subtask_name` the
         # plate guard below had to disown. Display only, and deliberately kept
@@ -5554,6 +5619,51 @@ async def on_print_start(printer_id: int, data: dict):
                 # The listing named the file, so it is on the card;
                 # only the transfer failed (#3063).
                 ftp_transfer_failed = True
+                walk_transfer_failed = True
+
+        # A "Print again" on the printer's screen names no file Bambuddy can
+        # find: only its history copy under a generic name, and the 3MF's
+        # internal title (#3307). When an earlier run of the same job was
+        # archived, its 3MF is the one being printed again. Not when the
+        # directory walk listed a file for this print and only its transfer
+        # failed: that file is on the card, and the retry fetches it. A
+        # cool-off or a failed sweep path is no such evidence -- the retry
+        # tries the same names, which this print's file never had.
+        reused_3mf_from: int | None = None
+        if not downloaded_filename and not walk_transfer_failed:
+            reported_layers = raw_mqtt.get("total_layer_num")
+            earlier = await _archived_3mf_for_repeat(
+                db,
+                printer_id,
+                subtask_name,
+                filename,
+                reported_layers if isinstance(reported_layers, int) and reported_layers > 0 else None,
+            )
+            if earlier is not None:
+                reuse_name = Path(earlier.filename or "").name or f"archive_{earlier.id}.3mf"
+                # Per printer: two printers reprinting the same job at once
+                # must not write one temp file (archive_print names the
+                # archive after original_filename, not this path).
+                reuse_path = app_settings.archive_dir / "temp" / f"reprint_{printer_id}_{reuse_name}"
+                try:
+                    reuse_path.parent.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(shutil.copyfile, app_settings.base_dir / earlier.file_path, reuse_path)
+                except OSError as e:
+                    # A copy that fails leaves the print the fallback archive
+                    # it would have had, not no archive at all.
+                    logger.warning("Could not copy the 3MF of archive %s for printer %s: %s", earlier.id, printer_id, e)
+                else:
+                    temp_path = reuse_path
+                    downloaded_filename = reuse_name
+                    reused_3mf_from = earlier.id
+                    cache_3mf_download(printer_id, reuse_name, temp_path)
+                    logger.info(
+                        "No 3MF on printer %s for %s (%s); using the 3MF of archive %s, an earlier run of the same job",
+                        printer_id,
+                        subtask_name,
+                        filename,
+                        earlier.id,
+                    )
 
         # Validate the downloaded 3MF actually matches the plate that's running
         # (#1204): subtask_name lags across consecutive plates of the same model,
@@ -5892,8 +6002,17 @@ async def on_print_start(printer_id: int, data: dict):
                 archive = await service.archive_print(
                     printer_id=printer_id,
                     source_file=temp_path,
-                    print_data={**data, "status": "printing"},
+                    print_data={
+                        **data,
+                        "status": "printing",
+                        # Where the 3MF came from when the printer had none to
+                        # give (#3307), for whoever reads this archive later.
+                        **({"_3mf_from_archive": reused_3mf_from} if reused_3mf_from is not None else {}),
+                    },
                     subtask_id=subtask_id,
+                    # The reused copy's temp name carries the printer id; a
+                    # download's is the file's own name, as before.
+                    original_filename=downloaded_filename if reused_3mf_from is not None else None,
                 )
             except IntegrityError:
                 # archive_print removed the folder it had copied the 3MF into.
