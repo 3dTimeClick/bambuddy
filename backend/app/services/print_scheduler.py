@@ -1383,6 +1383,11 @@ class PrintScheduler:
         # pass. Cleared at the top of each pass so a re-sliced file is never
         # served from a previous tick.
         self._filament_req_memo: dict[tuple, list[dict] | None] = {}
+        # Per-pass memo for `_unmatched_on` (#3280): choosing a printer asks the
+        # matcher about every idle candidate, and a pass can ask again for the
+        # same job and printer (another variant, a previous-print retry, the
+        # low-filament move). Cleared with the requirement memo.
+        self._unmatched_memo: dict[tuple, list[str]] = {}
         # When each "any model" job held for low filament last looked for
         # another printer (#3137), by queue item id.
         self._short_hold_checked_at: dict[int, float] = {}
@@ -1578,6 +1583,7 @@ class PrintScheduler:
         """
         # Scoped to one pass: a file re-sliced between ticks must be re-read.
         self._filament_req_memo.clear()
+        self._unmatched_memo.clear()
         async with async_session() as db:
             # Check if shortest-job-first scheduling is enabled
             sjf_enabled = await self._get_bool_setting(db, "queue_shortest_first")
@@ -2362,6 +2368,12 @@ class PrintScheduler:
                             self._resolve_variant(item, candidate)
                             return await self._filament_short_on(db, item, pid)
 
+                        async def unmatched_on(
+                            pid: int, item: PrintQueueItem = item, candidate: _ModelCandidate = candidate
+                        ) -> list[str]:
+                            self._resolve_variant(item, candidate)
+                            return await self._unmatched_on(db, item, pid)
+
                         while True:
                             match_id, match_reason = await self._find_idle_printer_for_model(
                                 db,
@@ -2378,6 +2390,7 @@ class PrintScheduler:
                                 printer_scope=item_scope,
                                 is_short=is_short,
                                 drying_ids=drying_held,
+                                unmatched_on=unmatched_on,
                             )
                             # "Only if the previous print succeeded" is about the
                             # printer the job lands on: one whose last print failed
@@ -3283,6 +3296,7 @@ class PrintScheduler:
         printer_scope: PrinterScope = ALL_PRINTERS,
         is_short: Callable[[int], Awaitable[bool]] | None = None,
         drying_ids: set[int] | None = None,
+        unmatched_on: Callable[[int], Awaitable[list[str]]] | None = None,
     ) -> tuple[int | None, str | None]:
         """Find an idle, connected printer matching the model with compatible filaments.
 
@@ -3307,6 +3321,11 @@ class PrintScheduler:
                       and "Print Anyway" still has a printer to print on.
             drying_ids: Excluded printers held by a drying cycle; named "(drying)"
                         in the reason, as a pinned job's wait is.
+            unmatched_on: Names the filaments the slot matcher would leave without a
+                          tray on a printer (#3280). A printer it names any for is
+                          passed over like one missing a filament type: the checks
+                          above only ask whether each type and forced colour is
+                          loaded somewhere, not on the right nozzle or once per slot.
 
         Returns:
             Tuple of (printer_id, waiting_reason):
@@ -3416,6 +3435,20 @@ class PrintScheduler:
                         printer.id,
                         printer.name,
                         missing_colors,
+                    )
+                    continue
+
+            # The matcher has the last word: a printer it cannot map would be
+            # held and given back, then chosen again on the next pass (#3280).
+            if unmatched_on is not None:
+                unmatched = await unmatched_on(printer.id)
+                if unmatched:
+                    printers_missing_filament.append((printer.name, unmatched))
+                    logger.debug(
+                        "Skipping printer %s (%s) - the matcher leaves unmapped: %s",
+                        printer.id,
+                        printer.name,
+                        unmatched,
                     )
                     continue
 
@@ -4262,11 +4295,10 @@ class PrintScheduler:
         This replaces a failure, not a success: without it the item is uploaded,
         rejected by the firmware with 0700_8012, retried twice more and failed
         anyway with "never started the print after N dispatch attempts". So this
-        applies on the model-based path too, even though it means an "Any <model>"
-        job stops at the first printer offered rather than trying its siblings —
-        deferring instead would need the check to move inside
-        ``_find_printer_for_model``'s candidate loop, since un-assigning here just
-        re-assigns the same printer on the next tick.
+        applies on the model-based path too. There it is rarely reached: choosing
+        the printer already asks the matcher (``_unmatched_on``, #3280) and passes
+        over one it cannot map, so an "Any <model>" job tries its siblings and
+        otherwise waits; this remains for a match that failed at selection time.
         """
         item.status = "failed"
         item.error_message = message
@@ -8198,6 +8230,9 @@ class PrintScheduler:
             async def is_short(pid: int) -> bool:
                 return await self._filament_short_on(db, item, pid, require_known=True)
 
+            async def unmatched_on(pid: int) -> list[str]:
+                return await self._unmatched_on(db, item, pid)
+
             match_id, _ = await self._find_idle_printer_for_model(
                 db,
                 item.target_model,
@@ -8208,6 +8243,7 @@ class PrintScheduler:
                 require_plate_clear=require_plate_clear,
                 printer_scope=printer_scope,
                 is_short=is_short,
+                unmatched_on=unmatched_on,
             )
             # Every idle printer short comes back as the first of them.
             if match_id is None or await is_short(match_id):
@@ -8311,6 +8347,58 @@ class PrintScheduler:
             await db.commit()
         return False
 
+    async def _unmatched_requirements(
+        self, db: AsyncSession, item: PrintQueueItem, printer_id: int, mapping: list | None
+    ) -> list[dict]:
+        """The requirements ``mapping`` leaves without a tray on ``printer_id`` (#2799).
+
+        ``None`` is a mapping that resolved nothing. Only a printer that reported
+        loaded trays makes that a finding — see ``_block_on_unmatched_filament``
+        on why an empty list is not one.
+        """
+        if mapping is None:
+            status = printer_manager.get_status(printer_id)
+            if status is None or not self._build_loaded_filaments(status):
+                return []
+            # Every required slot reads unresolved against an empty mapping.
+            mapping = []
+
+        required = await self._get_filament_requirements(db, item)
+        if required:
+            self._apply_filament_overrides(item, required)
+        else:
+            # An unreadable 3MF still has its forced colours to go by: they are
+            # what the mapping was built from (#3280).
+            required = _forced_override_requirements(item)
+        return _unresolved_required(required, mapping) if required else []
+
+    async def _unmatched_on(self, db: AsyncSession, item: PrintQueueItem, printer_id: int) -> list[str]:
+        """What ``item`` would be held for on ``printer_id``, as the queue row names it.
+
+        Asks the matcher and the unmatched-filament hold, but changes nothing.
+        Choosing a printer for an "any model" job only checked that each type
+        and forced colour was loaded somewhere, which a dual-nozzle printer with
+        the spool on the other nozzle, or one spool asked for twice, passes. The
+        hold then gave the printer back, and the next pass chose it again.
+
+        Empty when the hold would let the item through, including "Print
+        Anyway" and a match that fails: the printer is then chosen as before.
+        """
+        if item.skip_filament_check:
+            return []
+        key = (item.id, item.archive_id, item.library_file_id, item.plate_id, item.filament_overrides, printer_id)
+        if key in self._unmatched_memo:
+            return list(self._unmatched_memo[key])
+        try:
+            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
+            unmatched = await self._unmatched_requirements(db, item, printer_id, mapping)
+        except Exception as e:
+            logger.warning("Filament match check failed for item %s on printer %s: %s", item.id, printer_id, e)
+            return []
+        described = [_describe_filament(req, "nozzle_id") for req in unmatched]
+        self._unmatched_memo[key] = described
+        return list(described)
+
     async def _block_on_unmatched_filament(
         self,
         db: AsyncSession,
@@ -8351,6 +8439,7 @@ class PrintScheduler:
         if item.skip_filament_check or not item.printer_id:
             return False
 
+        mapping: list | None = None
         if item.ams_mapping:
             try:
                 mapping = json.loads(item.ams_mapping)
@@ -8358,27 +8447,8 @@ class PrintScheduler:
                 return False
             if not isinstance(mapping, list):
                 return False
-        else:
-            # Nothing resolved, or nothing survived revalidation. Only a printer
-            # that reported loaded trays makes that a finding — see the
-            # docstring on why an empty list is not one.
-            status = printer_manager.get_status(item.printer_id)
-            if status is None or not self._build_loaded_filaments(status):
-                return False
-            # Every required slot reads unresolved against an empty mapping.
-            mapping = []
 
-        required = await self._get_filament_requirements(db, item)
-        if required:
-            self._apply_filament_overrides(item, required)
-        else:
-            # An unreadable 3MF still has its forced colours to go by: they are
-            # what the mapping was built from (#3280).
-            required = _forced_override_requirements(item)
-            if not required:
-                return False
-
-        unmatched = _unresolved_required(required, mapping)
+        unmatched = await self._unmatched_requirements(db, item, item.printer_id, mapping)
         if not unmatched:
             # No cleanup needed here: once start is pressed the item is no
             # longer staged, and whichever exit runs next overwrites the reason
