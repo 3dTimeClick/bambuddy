@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} katman',
       wearCost: 'Yazıcı aşınması',
       costEstimate: 'Tahmin — nihai maliyet baskı bittiğinde belirlenir',
+      fullPrintFigure: 'Bu dosyanın tam bir baskısı. Bu çalıştırmanın kullandığı miktar baskı günlüğündedir',
       object: '{{count}} nesne',
       objects: '{{count}} nesne',
       slicedFor: '{{model}} için dilimlendi',

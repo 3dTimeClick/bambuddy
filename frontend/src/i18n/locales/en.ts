@@ -1194,6 +1194,7 @@ export default {
       layers: '{{count}} layers',
       wearCost: 'Printer wear',
       costEstimate: 'Estimate — the final cost is set when the print finishes',
+      fullPrintFigure: 'One full print of this file. What this run used is in the Print Log',
       object: '{{count}} object',
       objects: '{{count}} objects',
       slicedFor: 'Sliced for {{model}}',

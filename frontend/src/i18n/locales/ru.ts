@@ -1142,6 +1142,7 @@ export default {
       layers: "{{count}} слоёв",
       wearCost: 'Износ принтера',
       costEstimate: 'Оценка — итоговая стоимость определяется по завершении печати',
+      fullPrintFigure: 'Одна полная печать этого файла. Расход этого запуска — в журнале печати',
       object: "{{count}} объект",
       objects: "{{count}} объектов",
       slicedFor: "Нарезано для {{model}}",

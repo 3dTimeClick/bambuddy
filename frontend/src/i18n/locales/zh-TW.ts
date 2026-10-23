@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} 層',
       wearCost: '印表機磨損',
       costEstimate: '估算值——最終成本在列印完成時確定',
+      fullPrintFigure: '此檔案完整列印一次的數值。本次執行的實際用量見列印記錄',
       object: '{{count}} 個物件',
       objects: '{{count}} 個物件',
       slicedFor: '為 {{model}} 切片',

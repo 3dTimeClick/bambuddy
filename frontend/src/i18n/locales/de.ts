@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} Schichten',
       wearCost: 'Druckerverschleiß',
       costEstimate: 'Schätzung – die endgültigen Kosten stehen fest, wenn der Druck abgeschlossen ist',
+      fullPrintFigure: 'Ein vollständiger Druck dieser Datei. Was dieser Lauf verbraucht hat, steht im Druckprotokoll',
       object: '{{count}} Objekt',
       objects: '{{count}} Objekte',
       slicedFor: 'Geslict für {{model}}',

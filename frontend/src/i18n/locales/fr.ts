@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} couches',
       wearCost: 'Usure de l\'imprimante',
       costEstimate: 'Estimation : le coût final est fixé à la fin de l\'impression',
+      fullPrintFigure: 'Une impression complète de ce fichier. Ce que cette exécution a consommé figure dans le journal d\'impression',
       object: '{{count}} objet',
       objects: '{{count}} objets',
       slicedFor: 'Découpé pour {{model}}',

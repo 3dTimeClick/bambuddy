@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} capas',
       wearCost: 'Desgaste de la impresora',
       costEstimate: 'Estimación: el coste final se fija cuando termina la impresión',
+      fullPrintFigure: 'Una impresión completa de este archivo. Lo que consumió esta ejecución está en el registro de impresión',
       object: '{{count}} objeto',
       objects: '{{count}} objetos',
       slicedFor: 'Laminado para {{model}}',

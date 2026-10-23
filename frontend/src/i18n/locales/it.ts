@@ -1187,6 +1187,7 @@ export default {
       layers: '{{count}} strati',
       wearCost: 'Usura della stampante',
       costEstimate: 'Stima: il costo finale viene fissato al termine della stampa',
+      fullPrintFigure: 'Una stampa completa di questo file. Quanto ha consumato questa esecuzione è nel «Registro stampe»',
       object: '{{count}} oggetto',
       objects: '{{count}} oggetti',
       slicedFor: 'Sliced per {{model}}',

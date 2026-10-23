@@ -1192,6 +1192,7 @@ export default {
       layers: '{{count}} skikt',
       wearCost: 'Skrivarslitage',
       costEstimate: 'Uppskattning – den slutliga kostnaden fastställs när utskriften är klar',
+      fullPrintFigure: 'En hel utskrift av den här filen. Vad den här körningen förbrukade finns i utskriftsloggen',
       object: '{{count}} objekt',
       objects: '{{count}} objekt',
       slicedFor: 'Slicad för {{model}}',

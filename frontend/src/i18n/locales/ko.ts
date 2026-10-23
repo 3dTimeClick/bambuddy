@@ -1141,6 +1141,7 @@ export default {
       layers: '{{count}}층',
       wearCost: '프린터 마모',
       costEstimate: '예상치 — 최종 비용은 출력이 끝나면 확정됩니다',
+      fullPrintFigure: '이 파일을 한 번 끝까지 인쇄한 값입니다. 이번 실행의 사용량은 인쇄 기록에 있습니다',
       object: '{{count}}개 객체',
       objects: '{{count}}개 객체',
       slicedFor: '{{model}}용으로 슬라이싱됨',

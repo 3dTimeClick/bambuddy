@@ -280,6 +280,10 @@ async function openInSlicerWithToken(
   }
 }
 
+// Ended without finishing: the archive's grams and cost stay one full print of
+// the file (COST-3), not what this run used.
+const UNFINISHED_STATUSES = new Set(['failed', 'aborted', 'cancelled', 'stopped']);
+
 function ArchiveCard({
   archive,
   printerName,
@@ -1291,7 +1295,11 @@ function ArchiveCard({
             </div>
           )}
           {archive.filament_used_grams && (
-            <div className="flex items-center gap-1.5 text-bambu-gray">
+            <div
+              className="flex items-center gap-1.5 text-bambu-gray"
+              title={UNFINISHED_STATUSES.has(archive.status) ? t('archives.card.fullPrintFigure') : undefined}
+              data-testid="archive-grams"
+            >
               <Package className="w-3 h-3" />
               {archive.filament_used_grams.toFixed(1)}g
             </div>
@@ -1299,10 +1307,18 @@ function ArchiveCard({
           {(archive.cost != null || archive.energy_cost != null || archive.wear_cost != null) && (
             <div className="flex items-center gap-3 text-bambu-gray">
               {archive.cost != null && (
-                // A running print's cost is an estimate until completion re-prices it (#3261)
+                // A running print's cost is an estimate until completion re-prices it (#3261).
+                // A run that did not finish leaves one full print's figure; its
+                // own cost is in the Print Log (#3318).
                 <div
                   className="flex items-center gap-1.5"
-                  title={archive.status === 'printing' ? t('archives.card.costEstimate') : undefined}
+                  title={
+                    archive.status === 'printing'
+                      ? t('archives.card.costEstimate')
+                      : UNFINISHED_STATUSES.has(archive.status)
+                        ? t('archives.card.fullPrintFigure')
+                        : undefined
+                  }
                   data-testid="archive-cost"
                 >
                   <Coins className="w-3 h-3" />

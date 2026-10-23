@@ -1186,6 +1186,7 @@ export default {
       layers: '{{count}} レイヤー',
       wearCost: 'プリンターの摩耗',
       costEstimate: '見積もり — 最終コストは印刷完了時に確定します',
+      fullPrintFigure: 'このファイルを最後まで印刷した場合の値です。今回の実行で使用した量は印刷ログにあります',
       object: '{{count}}オブジェクト',
       objects: '{{count}}オブジェクト',
       slicedFor: '{{model}}用にスライス',

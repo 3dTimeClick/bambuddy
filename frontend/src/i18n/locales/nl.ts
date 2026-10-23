@@ -1192,6 +1192,7 @@ export default {
       layers: '{{count}} lagen',
       wearCost: 'Printerslijtage',
       costEstimate: 'Schatting — de definitieve kosten worden vastgesteld als de print klaar is',
+      fullPrintFigure: 'Eén volledige afdruk van dit bestand. Wat deze run verbruikte staat in het afdruklogboek',
       object: '{{count}} object',
       objects: '{{count}} objecten',
       slicedFor: 'Gesliced voor {{model}}',
