@@ -1026,8 +1026,8 @@
             {
                 "code": "reportAttributeAccessIssue",
                 "range": {
-                    "startColumn": 33,
-                    "endColumn": 59,
+                    "startColumn": 29,
+                    "endColumn": 55,
                     "lineCount": 1
                 }
             },

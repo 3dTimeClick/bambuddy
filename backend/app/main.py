@@ -858,6 +858,82 @@ def _is_bambuddy_authorized_print_in_memory(printer_id: int, state: PrinterState
     )
 
 
+def _reported_print_names(printer_id: int, state: PrinterState) -> set[str]:
+    """The names the printer reports for its print, as it echoes them (spaces become underscores)."""
+    return {_normalise_subtask_name(name) for _pid, name in _build_status_print_keys(printer_id, state)} - {""}
+
+
+async def _printing_archive_without_job_id(
+    db, printer_id: int, reported: set[str], *, dispatched_only: bool, live_only: bool = False
+):
+    """The newest printing archive on ``printer_id`` of a print that reported no job id, under a reported name.
+
+    An archive with a real id of its own is a print that reported one: a "0"
+    print is not it, even under the same name (one whose completion was missed
+    would otherwise cover it). ``dispatched_only`` keeps to archives carrying
+    Bambuddy's dispatch marker; ``live_only`` leaves out deleted ones.
+    """
+    from backend.app.models.archive import PrintArchive
+
+    query = select(PrintArchive).where(
+        PrintArchive.printer_id == printer_id,
+        PrintArchive.status == "printing",
+        or_(PrintArchive.subtask_id.is_(None), PrintArchive.subtask_id.in_(("", "0"))),
+    )
+    if dispatched_only:
+        query = query.where(or_(PrintArchive.billing_run_id.is_not(None), PrintArchive.created_by_id.is_not(None)))
+    if live_only:
+        query = query.where(PrintArchive.deleted_at.is_(None))
+    archives = await db.execute(query.order_by(PrintArchive.created_at.desc()))
+    return next((a for a in archives.scalars() if _archive_name_forms(a) & reported), None)
+
+
+async def running_print_archive(db, printer_id: int, state: PrinterState, *, printing_only: bool, by_name: bool):
+    """The archive of the print running on ``printer_id``, or None (#3327).
+
+    By the print's subtask_id first, which the firmware mints per print; with
+    ``printing_only`` only an archive that is still printing (a leftover row of
+    a completion never seen must not stand in for another job). A print
+    started outside the cloud (Bambu Studio over LAN, Handy, the printer's
+    screen) reports subtask_id "0", which links it to nothing: the archive
+    Bambuddy bound to the running print comes next, the one completion charges
+    and photographs. A restart forgets that binding and rebinds only Bambuddy's
+    own prints, so with ``by_name`` a "0" print last falls back to its printing
+    archive under the name the printer reports. That can be an earlier run of
+    the same name whose completion was missed while Bambuddy was down: good
+    enough for a plate label or a cover, not for which objects skip-objects
+    offers, so those callers leave it off. None until the archive exists, and
+    never a deleted one.
+    """
+    from backend.app.models.archive import PrintArchive
+
+    subtask_id = str(getattr(state, "subtask_id", "") or "").strip()
+    if subtask_id not in ("", "0"):
+        query = select(PrintArchive).where(
+            PrintArchive.printer_id == printer_id,
+            PrintArchive.subtask_id == subtask_id,
+            PrintArchive.deleted_at.is_(None),
+        )
+        if printing_only:
+            query = query.where(PrintArchive.status == "printing")
+        archive = await db.scalar(query.order_by(PrintArchive.created_at.desc()).limit(1))
+        if archive is not None:
+            return archive
+
+    bound = next(
+        (_active_prints[key] for key in _build_status_print_keys(printer_id, state) if key in _active_prints),
+        None,
+    )
+    if bound is not None:
+        return await db.scalar(select(PrintArchive).where(PrintArchive.id == bound, PrintArchive.deleted_at.is_(None)))
+    if not by_name or subtask_id != "0":
+        return None
+    reported = _reported_print_names(printer_id, state)
+    if not reported:
+        return None
+    return await _printing_archive_without_job_id(db, printer_id, reported, dispatched_only=False, live_only=True)
+
+
 def _bind_active_print(
     printer_id: int,
     archive_id: int,
@@ -948,23 +1024,10 @@ async def _is_bambuddy_authorized_print(printer_id: int, state: PrinterState, db
         # Bambuddy's printing archives on this printer under the name the
         # printer reports, compared as the printer echoes names (spaces become
         # underscores). Nothing reported to compare yet: wait.
-        reported = {_normalise_subtask_name(name) for _pid, name in possible_keys} - {""}
+        reported = _reported_print_names(printer_id, state)
         if not reported:
             return None
-        dispatched = await db.execute(
-            select(PrintArchive)
-            .where(
-                PrintArchive.printer_id == printer_id,
-                PrintArchive.status == "printing",
-                or_(PrintArchive.billing_run_id.is_not(None), PrintArchive.created_by_id.is_not(None)),
-                # An archive with a real id of its own is a print that reported
-                # one: a "0" print is not it, even under the same name (one whose
-                # completion was missed would otherwise cover it).
-                or_(PrintArchive.subtask_id.is_(None), PrintArchive.subtask_id.in_(("", "0"))),
-            )
-            .order_by(PrintArchive.created_at.desc())
-        )
-        archive = next((a for a in dispatched.scalars() if _archive_name_forms(a) & reported), None)
+        archive = await _printing_archive_without_job_id(db, printer_id, reported, dispatched_only=True)
     else:
         result = await db.execute(
             select(PrintArchive)
@@ -3759,33 +3822,20 @@ async def _restore_printable_objects(printer_id: int, state, db, logger) -> None
     object count, and the one endpoint that can rebuild the list is reachable
     only from the modal that button opens.
 
-    Anchored on ``subtask_id``, which the firmware mints per print, so a
-    leftover ``status="printing"`` row from a completion we never saw cannot
-    hand this print someone else's objects. Without one, nothing is loaded
-    rather than guessed — the reload path on ``GET /print/objects`` covers that
-    case on demand.
+    The archive is the running print's as ``running_print_archive`` finds it:
+    by subtask_id, or for a print that reports none by the archive bound to it
+    (#3327), never by name: a leftover ``status="printing"`` row from a
+    completion we never saw must not hand this print someone else's objects.
+    After a restart that binding exists only for Bambuddy's own prints, so a
+    print that reports no subtask_id loads nothing rather than a guess; the
+    reload path on ``GET /print/objects`` covers that case on demand.
     """
     client = printer_manager.get_client(printer_id)
     if client is None or client.state.printable_objects:
         return
 
-    subtask_id = str(getattr(state, "subtask_id", "") or "").strip()
-    if subtask_id in ("", "0"):
-        return
-
-    from backend.app.models.archive import PrintArchive
-
-    archive = await db.scalar(
-        select(PrintArchive)
-        .where(
-            PrintArchive.printer_id == printer_id,
-            PrintArchive.status == "printing",
-            PrintArchive.subtask_id == subtask_id,
-        )
-        .order_by(PrintArchive.created_at.desc())
-        .limit(1)
-    )
-    if archive is not None:
+    archive = await running_print_archive(db, printer_id, state, printing_only=True, by_name=False)
+    if archive is not None and archive.file_path:
         _load_objects_from_archive(archive, printer_id, logger)
 
 
@@ -4472,6 +4522,9 @@ async def _dispatched_by_bambuddy(db, printer_id: int, filename: str | None, sub
 async def on_print_start(printer_id: int, data: dict):
     """Handle print start - archive the 3MF file immediately."""
     logger = logging.getLogger(__name__)
+    # The print's start, before the 3MF download that the archive waits for
+    # (#3327): a minute of it would otherwise be missing from the print time.
+    detected_at = datetime.now(timezone.utc)
 
     logger.info("[CALLBACK] on_print_start called for printer %s, data keys: %s", printer_id, list(data.keys()))
 
@@ -5884,7 +5937,7 @@ async def on_print_start(printer_id: int, data: dict):
                     print_name=print_name,
                     print_time_seconds=fallback_print_time,
                     status="printing",
-                    started_at=datetime.now(timezone.utc),
+                    started_at=detected_at,
                     subtask_id=subtask_id,
                     confirm_requested=await _ask_outcome_for_external_print(db, printer_id, subtask_name),
                     filament_type=mqtt_filament_meta.get("filament_type"),
@@ -6030,6 +6083,7 @@ async def on_print_start(printer_id: int, data: dict):
                         **({"_3mf_from_archive": reused_3mf_from} if reused_3mf_from is not None else {}),
                     },
                     subtask_id=subtask_id,
+                    started_at=detected_at,
                     # The reused copy's temp name carries the printer id; a
                     # download's is the file's own name, as before.
                     original_filename=downloaded_filename if reused_3mf_from is not None else None,

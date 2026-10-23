@@ -762,22 +762,17 @@ async def _printer_status(db: AsyncSession, printer: Printer) -> PrinterStatus:
     # Resolve the active print's archive + plate (#881 follow-up): lets the
     # printer card show the actual plate name for multi-plate 3MFs instead of
     # just the 3MF filename. Only attempted for active prints, since subtask_id
-    # is only meaningful then.
+    # is only meaningful then. A print started outside the cloud reports
+    # subtask_id "0" and is linked by its running archive instead (#3327).
+    # A deleted archive is never named.
     current_archive_id: int | None = None
     current_plate_id: int | None = None
     if state.state in ("RUNNING", "PAUSE"):
         current_plate_id = resolve_plate_id(state)
-        if state.subtask_id:
-            from backend.app.models.archive import PrintArchive
+        from backend.app.main import running_print_archive
 
-            archive_row = await db.execute(
-                select(PrintArchive.id)
-                .where(PrintArchive.subtask_id == state.subtask_id)
-                .where(PrintArchive.printer_id == printer_id)
-                .order_by(PrintArchive.created_at.desc())
-                .limit(1)
-            )
-            current_archive_id = archive_row.scalar_one_or_none()
+        archive = await running_print_archive(db, printer_id, state, printing_only=False, by_name=True)
+        current_archive_id = archive.id if archive is not None else None
 
     return PrinterStatus(
         id=printer_id,
@@ -1116,31 +1111,21 @@ def clear_cover_cache(printer_id: int) -> None:
 async def _running_print_archive_file(printer_id: int, state) -> Path | None:
     """Path to the 3MF of the print this printer is running, if we have it.
 
-    Bambuddy archives the sliced file when the print starts, so the copy the
-    printer is executing is usually already on disk. Anchored on ``subtask_id``,
-    which the firmware mints per print: a leftover ``status="printing"`` row from
-    a completion that was never seen must not lend its file to another job.
+        Bambuddy archives the sliced file when the print starts, so the copy the
+        printer is executing is usually already on disk. Found as
+        ``running_print_archive`` finds it: by ``subtask_id``, which the firmware
+        mints per print, so a leftover ``status="printing"`` row from a completion
+        that was never seen must not lend its file to another job, and for a print
+        that reports none by its binding or name (#3327); a wrong guess there costs
+    only the picture.
 
-    Opens its own short-lived session, like the caller does, so the pooled
-    connection is not held across the FTP work that follows.
+        Opens its own short-lived session, like the caller does, so the pooled
+        connection is not held across the FTP work that follows.
     """
-    subtask_id = str(getattr(state, "subtask_id", "") or "").strip()
-    if subtask_id in ("", "0"):
-        return None
-
-    from backend.app.models.archive import PrintArchive
+    from backend.app.main import running_print_archive
 
     async with database.async_session() as db:
-        archive = await db.scalar(
-            select(PrintArchive)
-            .where(
-                PrintArchive.printer_id == printer_id,
-                PrintArchive.status == "printing",
-                PrintArchive.subtask_id == subtask_id,
-            )
-            .order_by(PrintArchive.created_at.desc())
-            .limit(1)
-        )
+        archive = await running_print_archive(db, printer_id, state, printing_only=True, by_name=True)
     if archive is None or not archive.file_path:
         return None
 
@@ -4190,36 +4175,27 @@ async def get_printable_objects(
         # all. skipped_objects is deliberately left alone: a reload is
         # not a new print, and the list of what the user already skipped only
         # lives here.
-        from backend.app.models.archive import PrintArchive
+        from backend.app.main import running_print_archive
         from backend.app.services.archive import extract_printable_objects_from_archive
 
-        subtask_id = str(getattr(client.state, "subtask_id", "") or "").strip()
-        if subtask_id not in ("", "0"):
-            async with database.async_session() as db:
-                archive = await db.scalar(
-                    select(PrintArchive)
-                    .where(
-                        PrintArchive.printer_id == printer_id,
-                        PrintArchive.status == "printing",
-                        PrintArchive.subtask_id == subtask_id,
-                    )
-                    .order_by(PrintArchive.created_at.desc())
-                    .limit(1)
+        # Never by name: an earlier run of the same name left printing would
+        # offer its objects to skip on this one (#3327).
+        async with database.async_session() as db:
+            archive = await running_print_archive(db, printer_id, client.state, printing_only=True, by_name=False)
+        if archive is not None and archive.file_path:
+            objects, bbox_all = extract_printable_objects_from_archive(
+                settings.base_dir / archive.file_path,
+                plate_number=resolve_plate_id(client.state),
+            )
+            if objects:
+                client.state.printable_objects = objects
+                client.state.printable_objects_bbox_all = bbox_all
+                logger.info(
+                    "Reloaded %s objects for printer %s from archive %s",
+                    len(objects),
+                    printer_id,
+                    archive.id,
                 )
-            if archive is not None:
-                objects, bbox_all = extract_printable_objects_from_archive(
-                    settings.base_dir / archive.file_path,
-                    plate_number=resolve_plate_id(client.state),
-                )
-                if objects:
-                    client.state.printable_objects = objects
-                    client.state.printable_objects_bbox_all = bbox_all
-                    logger.info(
-                        "Reloaded %s objects for printer %s from archive %s",
-                        len(objects),
-                        printer_id,
-                        archive.id,
-                    )
 
     # Only when the disk could not answer: a `reload=true` that the archive
     # satisfied has already refreshed from the file the printer is running.
