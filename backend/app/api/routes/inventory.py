@@ -60,7 +60,7 @@ from backend.app.schemas.supplier import (
     SupplierStats,
     SupplierUpdate,
 )
-from backend.app.services import slot_unlink_grace
+from backend.app.services import slot_unlink_grace, spool_swaps
 from backend.app.services.ams_assignment_lock import get_ams_assignment_lock
 from backend.app.services.ams_slot_presence import spool_present
 from backend.app.services.location_service import (
@@ -2322,6 +2322,9 @@ async def assign_spool(
             fingerprint_type=fingerprint_type,
         )
         db.add(assignment)
+        await spool_swaps.record_assignment(
+            db, data.printer_id, data.ams_id, data.tray_id, data.spool_id, spool_swaps.INVENTORY
+        )
         await db.commit()
     await db.refresh(assignment)
     slot_unlink_grace.forget_slot(data.printer_id, data.ams_id, data.tray_id)

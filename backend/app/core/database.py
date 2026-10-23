@@ -5863,6 +5863,11 @@ async def _run_migrations(conn):
     # on SQLite and Postgres.
     await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN color_substitutions TEXT")
 
+    # Migration: spools assigned to a tray while a print runs, so a hand swap
+    # splits the print between them across a restart (#3325). Nullable JSON, no
+    # default -- identical DDL on SQLite and Postgres.
+    await _safe_execute(conn, "ALTER TABLE active_print_sessions ADD COLUMN spool_change_log JSON")
+
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)

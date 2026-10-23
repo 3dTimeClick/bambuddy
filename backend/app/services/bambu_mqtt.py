@@ -1132,6 +1132,9 @@ class PrinterState:
     # Tray change history during current print: [(global_tray_id, layer_num), ...]
     # Used by usage tracker to split filament weight on mid-print tray switch
     tray_change_log: list = field(default_factory=list)
+    # Spools assigned to a tray during the current print, and the spool each
+    # assigned tray held at its start (services.spool_swaps, #3325).
+    spool_change_log: list = field(default_factory=list)
     # Firmware version info (from info.module[name="ota"].sw_ver)
     firmware_version: str | None = None
     # Developer LAN mode: parsed from MQTT "fun" field bit 0x20000000
@@ -5786,6 +5789,8 @@ class BambuMQTTClient:
             self._last_valid_layer_num = 0
             # Clear and seed tray change log for mid-print usage splitting
             self.state.tray_change_log.clear()
+            # Seeded with the assigned spools by usage_tracker.on_print_start.
+            self.state.spool_change_log = []
             tn = self.state.tray_now
             if (
                 (0 <= tn <= 15)

@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.models.spool import Spool
 from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.schemas.spool import normalize_effect_type
-from backend.app.services import slot_unlink_grace
+from backend.app.services import slot_unlink_grace, spool_swaps
 from backend.app.services.color_catalog_lookup import resolve_bambu_color
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
 from backend.app.services.spool_filament_preset import printer_safe_filament_id, resolve_spool_preset
@@ -576,6 +576,7 @@ async def auto_assign_spool(
     )
     db.add(assignment)
     await db.flush()
+    await spool_swaps.record_assignment(db, printer_id, ams_id, tray_id, spool.id, spool_swaps.INVENTORY)
     slot_unlink_grace.forget_slot(printer_id, ams_id, tray_id)
 
     # Apply K-profile via MQTT (if available)

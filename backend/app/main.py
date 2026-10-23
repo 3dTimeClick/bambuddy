@@ -6938,6 +6938,7 @@ async def _restore_usage_tracking_session(printer_id: int, state, db, logger) ->
             clear_persisted_session,
             get_persisted_ams_mapping,
             get_persisted_print_name,
+            get_persisted_spool_change_log,
             restore_session,
         )
 
@@ -6969,6 +6970,12 @@ async def _restore_usage_tracking_session(printer_id: int, state, db, logger) ->
             # has captured since is newer.
             if state.print_ams_mapping is None:
                 state.print_ams_mapping = await get_persisted_ams_mapping(db, printer_id)
+            # Spools swapped on a tray before the restart (#3325); anything this
+            # process has recorded since goes after them.
+            persisted_swaps = await get_persisted_spool_change_log(db, printer_id)
+            if persisted_swaps:
+                seen = getattr(state, "spool_change_log", None) or []
+                state.spool_change_log = persisted_swaps + [item for item in seen if item not in persisted_swaps]
         if persisted_log:
             restored = [tuple(entry) for entry in persisted_log if isinstance(entry, (list, tuple)) and len(entry) == 2]
             # Anything this process already observed goes after the persisted

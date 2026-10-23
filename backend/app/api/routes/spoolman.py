@@ -27,7 +27,7 @@ from backend.app.models.spoolman_k_profile import SpoolmanKProfile
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.user import User
 from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId
-from backend.app.services import slot_unlink_grace
+from backend.app.services import slot_unlink_grace, spool_swaps
 from backend.app.services.ams_slot_presence import spool_present
 from backend.app.services.inventory_mode import spoolman_owns_assignments
 from backend.app.services.printer_manager import PrinterManager, printer_manager
@@ -965,6 +965,7 @@ async def link_spool(
                 ),
                 {"printer_id": p_id, "ams_id": a_id, "tray_id": t_id, "spool_id": spool_id},
             )
+            await spool_swaps.record_assignment(db, p_id, a_id, t_id, spool_id, spool_swaps.SPOOLMAN)
             await db.commit()
             slot_unlink_grace.forget_slot(p_id, a_id, t_id)
         except Exception as e:
@@ -1408,6 +1409,9 @@ async def create_spool_from_slot(
                     "tray_id": req.tray_id,
                     "spool_id": sync_result["id"],
                 },
+            )
+            await spool_swaps.record_assignment(
+                db, req.printer_id, req.ams_id, req.tray_id, sync_result["id"], spool_swaps.SPOOLMAN
             )
             await db.commit()
             slot_unlink_grace.forget_slot(req.printer_id, req.ams_id, req.tray_id)

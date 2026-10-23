@@ -55,7 +55,7 @@ from backend.app.models.user import User
 from backend.app.schemas.spool import SpoolFilamentPresetBase, SpoolKProfileBase, naive_utc
 from backend.app.schemas.spoolman import SlotAmsId, SlotTrayId, SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
 from backend.app.schemas.supplier import SpoolSupplierLinkInput
-from backend.app.services import slot_unlink_grace
+from backend.app.services import slot_unlink_grace, spool_swaps
 from backend.app.services.location_service import (
     enrich_spool_dicts_with_location_id,
     maybe_sync_spoolman_locations,
@@ -1813,6 +1813,9 @@ async def assign_spoolman_slot(
                 "tray_id": body.tray_id,
                 "spool_id": body.spoolman_spool_id,
             },
+        )
+        await spool_swaps.record_assignment(
+            db, body.printer_id, body.ams_id, body.tray_id, body.spoolman_spool_id, spool_swaps.SPOOLMAN
         )
         await db.commit()
         slot_unlink_grace.forget_slot(body.printer_id, body.ams_id, body.tray_id)
