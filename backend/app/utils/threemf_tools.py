@@ -1676,18 +1676,51 @@ def extract_support_filament_slots_from_3mf(zf: zipfile.ZipFile) -> set[int]:
 
 _PAINT_COLOR_ATTR_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
 
-# Painted-face quadtree leaves include both real filament assignments and
-# tiny edit artifacts (single-leaf accidents from "tried a colour, undid,
-# repainted with a different one"). The threshold's only job is dropping
-# accidents — anything the user spent meaningful effort on must survive.
-# 5% of an object's painted triangles is well below any 60/40 / 70/30 /
-# 33/33/33 split a real two- or three-colour print would hit, so all
-# intentional colours are kept; one-off single-leaf paints (typically
-# 0.1-1.5% in observed projects) are filtered. Note that this fallback
-# path runs ONLY when the preview-slice path can't reach the sidecar; in
-# the normal flow the slicer's own pruning produces the canonical list and
-# this threshold isn't reached.
-_PAINT_NOISE_THRESHOLD = 0.05
+
+def _painted_states(paint_color: bytes) -> set[int]:
+    """Filament numbers a triangle's ``paint_color`` paints with (#3355).
+
+    The string is the slicer's TriangleSelector tree, one hex digit per
+    4-bit node, written last node first. Each node: bits 0-1 are the
+    number of split sides; a split node (1-3) keeps the special side in bits
+    2-3 and is followed by split + 1 children. A leaf keeps its state in bits
+    2-3 (0 = unpainted, 1 or 2 = that filament); ``0b11`` there means the next
+    node holds ``state - 3``, and a ``0xF`` in that one means one more holds
+    ``state - 18``. Unpainted leaves print with the object's or part's own
+    filament, which the caller already counts. Reading each digit as a
+    filament number instead (extruder 1 is written ``4``, 2 ``8``, 3 ``0C``)
+    left real colours out, and the slice then overwrote them.
+
+    A string that ends early is malformed: what was read is kept.
+    """
+    nibbles = [int(chr(c), 16) for c in reversed(paint_color)]
+    states: set[int] = set()
+    pos = 0
+    pending = 1  # nodes still to read
+    try:
+        while pending:
+            pending -= 1
+            code = nibbles[pos]
+            pos += 1
+            split_sides = code & 0b11
+            if split_sides:
+                pending += split_sides + 1
+                continue
+            if code & 0b1100 == 0b1100:
+                low = nibbles[pos]
+                pos += 1
+                if low == 0b1111:
+                    state = nibbles[pos] + 18
+                    pos += 1
+                else:
+                    state = low + 3
+            else:
+                state = code >> 2
+            if state:
+                states.add(state)
+    except IndexError:
+        pass
+    return states
 
 
 def extract_plate_extruder_set_from_3mf(zf: zipfile.ZipFile, plate_id: int) -> set[int]:
@@ -1703,12 +1736,9 @@ def extract_plate_extruder_set_from_3mf(zf: zipfile.ZipFile, plate_id: int) -> s
        with distinct filaments).
     3. ``3D/Objects/object_*.model`` — ``paint_color`` attributes on
        individual ``<triangle>`` elements (used when the user "painted" a
-       face with a different filament). The encoding is a hex string where
-       each nibble is a TriangleSelector tree node: ``0`` = unpainted leaf,
-       ``F`` = branch (4 children follow), ``1``..``E`` = leaf painted with
-       extruder N. We don't decode the tree — every leaf-paint nibble in
-       the string IS the extruder number, so a flat scan over hex chars
-       yields the correct set without recursive parsing.
+       face with a different filament), decoded by :func:`_painted_states`.
+       Every painted leaf counts, however small: the slicer prints it with
+       that filament, so the slot is used.
 
     Without (3) the painted-face data is invisible: model_settings says
     every object on a multi-color plate uses extruder 1 by default but the
@@ -1798,33 +1828,9 @@ def extract_plate_extruder_set_from_3mf(zf: zipfile.ZipFile, plate_id: int) -> s
         except OSError:
             paint_cache[path] = out
             return out
-        # Per-extruder triangle coverage. Each painted triangle may have
-        # multiple leaf nibbles (the quadtree subdivides the face into
-        # painted regions); we count one triangle per unique extruder per
-        # match so the resulting fraction is "what share of painted
-        # triangles include at least one leaf with extruder N". Noise from
-        # one-off edit artifacts is filtered out at the threshold below.
-        extruder_triangles: dict[int, int] = {}
-        total_painted = 0
-        for match in _PAINT_COLOR_ATTR_RE.finditer(data):
-            total_painted += 1
-            seen: set[int] = set()
-            for ch in match.group(1):
-                # Hex digit → 4-bit value. 0 = unpainted leaf, F = branch
-                # (decoded recursively but children are encoded inline, so
-                # we'll see them on later iterations). 1-E = leaf painted
-                # with extruder N.
-                if ch in b"123456789":
-                    seen.add(ch - 0x30)
-                elif ch in b"ABCDEabcde":
-                    seen.add((ch & 0x4F) - 0x37)
-            for e in seen:
-                extruder_triangles[e] = extruder_triangles.get(e, 0) + 1
-        if total_painted > 0:
-            cutoff = max(1, int(total_painted * _PAINT_NOISE_THRESHOLD))
-            for ext, count in extruder_triangles.items():
-                if count >= cutoff:
-                    out.add(ext)
+        # Whole-triangle paints repeat ("4", "8", ...): decode each string once.
+        for paint in {match.group(1) for match in _PAINT_COLOR_ATTR_RE.finditer(data)}:
+            out |= _painted_states(paint)
         paint_cache[path] = out
         return out
 
