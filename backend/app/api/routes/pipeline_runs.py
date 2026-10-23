@@ -683,7 +683,7 @@ async def check_eligibility(
     body: CheckEligibilityRequest,
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
     pipeline = await _load_pipeline(db, pipeline_id)
@@ -716,7 +716,7 @@ async def run_pipeline(
     api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
     printer_scope: PrinterScope = RequestPrinterScope,
     review_required: bool = QueueReviewRequired,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
     from backend.app.api.routes.settings import get_setting
@@ -869,7 +869,7 @@ async def list_runs_for_pipeline(
     pipeline_id: int,
     limit: int = 10,
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     limit = max(1, min(limit, 100))
@@ -897,7 +897,7 @@ async def list_all_runs(
     target_printer_id: int | None = None,
     target_model_class: str | None = None,
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Dashboard list. Newest first; filters on pipeline_id + status +
@@ -945,7 +945,7 @@ _TERMINAL_RUN_STATUSES = ("completed", "failed", "cancelled", "partial_failure")
 @pipeline_run_router.post("/clear")
 async def clear_terminal_runs(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_WRITE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Delete every terminal pipeline run (completed / failed / cancelled /
@@ -973,7 +973,7 @@ async def clear_terminal_runs(
 async def get_run(
     run_id: int,
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     run = await _load_run_in_scope(db, run_id, printer_scope)
@@ -984,7 +984,7 @@ async def get_run(
 async def cancel_run(
     run_id: int,
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PIPELINES_RUN),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
     """Cancel a queued / in-flight run. Cascades to all non-terminal queue
@@ -1047,7 +1047,7 @@ async def retry_failed(
     api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
     printer_scope: PrinterScope = RequestPrinterScope,
     review_required: bool = QueueReviewRequired,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Create a new run with copies = (failed + cancelled count) from the

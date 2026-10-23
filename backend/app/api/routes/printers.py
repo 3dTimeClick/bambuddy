@@ -154,7 +154,7 @@ def _serialize_printer(printer: Printer, *, include_secret: bool):
 async def list_printers(
     user: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """List the configured printers the caller may see (#1727).
 
@@ -175,7 +175,7 @@ async def list_printers(
 async def create_printer(
     printer_data: PrinterCreate,
     _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_CREATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Add a new printer.
 
@@ -256,7 +256,7 @@ async def get_available_filaments(
     location: str | None = Query(None, description="Optional location filter"),
     _=RequirePermissionIfAuthEnabled(Permission.QUEUE_CREATE),
     printer_scope: PrinterScope = RequestPrinterScope,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get deduplicated list of filaments loaded across all active printers of a given model.
 
@@ -363,7 +363,7 @@ async def get_available_filaments(
 async def get_developer_mode_warnings(
     _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Check if any connected printer the caller can see lacks developer LAN mode."""
     result = await db.execute(select(Printer).where(Printer.is_active == True))  # noqa: E712
@@ -387,7 +387,7 @@ async def get_developer_mode_warnings(
 async def get_printer(
     printer_id: int,
     user: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get a specific printer.
 
@@ -408,7 +408,7 @@ async def update_printer(
     printer_id: int,
     printer_data: PrinterUpdate,
     user: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Update a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -480,7 +480,7 @@ async def delete_printer(
     printer_id: int,
     delete_archives: bool = True,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_DELETE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Delete a printer.
 
@@ -628,7 +628,7 @@ async def delete_printer(
 async def get_printer_status(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get real-time status of a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -902,7 +902,7 @@ async def _printer_status(db: AsyncSession, printer: Printer) -> PrinterStatus:
 async def get_overlay_status(
     printer_id: int,
     _: None = RequireOverlayTokenIfAuthEnabled,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict:
     """Everything the streaming overlay (#2613) draws for one printer.
 
@@ -972,7 +972,7 @@ async def get_overlay_status(
 async def get_current_print_user(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get the user who started the current print (for reprint tracking).
 
@@ -995,7 +995,7 @@ async def get_current_print_user(
 async def refresh_printer_status(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Request a full status refresh from the printer (sends pushall command)."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -1014,7 +1014,7 @@ async def refresh_printer_status(
 async def connect_printer(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Manually connect to a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -1030,7 +1030,7 @@ async def connect_printer(
 async def disconnect_printer(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Manually disconnect from a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -1169,7 +1169,7 @@ async def get_printer_cover(
     """
     # Fetch the printer in a short-lived session and release the pooled DB
     # connection BEFORE the FTP download below. Previously this route took its
-    # row via Depends(get_db), whose session stays open for the whole request —
+    # row via Depends(get_db, scope="function"), whose session stays open for the whole request —
     # so a 3MF cover download (up to 8 paths × 3 retries with backoff, minutes
     # under FTP contention) pinned one pooled connection idle-in-transaction the
     # entire time (issue #2572). db is used only for this one SELECT; everything
@@ -1607,7 +1607,7 @@ async def _load_printer_or_404(printer_id: int) -> Printer:
 
     The file-manager and storage routes talk FTP to the printer, which can
     block for the full socket timeout — longer when a saturated FTP pool backs
-    up. Holding the request's Depends(get_db) session across that FTP pinned one
+    up. Holding the request's Depends(get_db, scope="function") session across that FTP pinned one
     pooled connection idle-in-transaction per in-flight request, a top cause of
     pool exhaustion on large farms. The returned row's scalar columns stay
     readable after the session closes (expire_on_commit=False). Raises 404 when
@@ -2217,7 +2217,7 @@ async def get_printer_storage(
 async def enable_mqtt_logging(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Enable MQTT message logging for a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2236,7 +2236,7 @@ async def enable_mqtt_logging(
 async def disable_mqtt_logging(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Disable MQTT message logging for a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2255,7 +2255,7 @@ async def disable_mqtt_logging(
 async def get_mqtt_logs(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get MQTT message logs for a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2282,7 +2282,7 @@ async def get_mqtt_logs(
 async def clear_mqtt_logs(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Clear MQTT message logs for a printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2313,7 +2313,7 @@ async def start_drying(
     filament: str = "",
     rotate_tray: bool = False,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Send AMS drying start command. temp=45-85, duration=hours."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2361,7 +2361,7 @@ async def stop_drying(
     printer_id: int,
     ams_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Send AMS drying stop command."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2402,7 +2402,7 @@ async def set_print_option(
     print_halt: bool = True,
     sensitivity: str = "medium",
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set an AI detection / print option on the printer.
 
@@ -2466,7 +2466,7 @@ async def set_ams_backup(
     printer_id: int,
     enabled: bool,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Toggle AMS Filament Backup (auto-switch to a backup spool when one runs out)."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -2489,7 +2489,7 @@ async def set_ams_backup(
 async def get_inventory_remain(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Per-globalTrayId remaining grams for slots bound to an inventory spool.
 
@@ -2539,7 +2539,7 @@ async def start_calibration(
     nozzle_offset: bool = False,
     high_temp_heatbed: bool = False,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Start printer calibration with selected options.
 
@@ -2604,7 +2604,7 @@ def _slot_preset_key(ams_id: int, tray_id: int) -> int:
 async def get_slot_presets(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get all saved slot-to-preset mappings for a printer."""
     result = await db.execute(select(SlotPresetMapping).where(SlotPresetMapping.printer_id == printer_id))
@@ -2631,7 +2631,7 @@ async def get_slot_preset(
     ams_id: int,
     tray_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get the saved preset for a specific slot."""
     result = await db.execute(
@@ -2665,7 +2665,7 @@ async def save_slot_preset(
     preset_source: str = "cloud",
     tray_info_idx: str | None = None,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Save a preset mapping for a specific slot.
 
@@ -2730,7 +2730,7 @@ async def delete_slot_preset(
     ams_id: int,
     tray_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Delete a saved preset mapping for a slot."""
     result = await db.execute(
@@ -2754,7 +2754,7 @@ async def get_slot_spool_defaults(
     printer_id: int,
     ams_id: int,
     tray_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
 ):
     """What the spool assigned to this slot is configured to use here.
@@ -2878,7 +2878,7 @@ async def configure_ams_slot(
     kprofile_setting_id: str = Query(""),
     k_value: float = Query(0.0),
     orca_profile_id: str = Query(""),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
 ):
     """Configure an AMS slot with a specific filament setting and K profile.
@@ -3387,7 +3387,7 @@ async def reset_ams_slot(
     printer_id: int,
     ams_id: int,
     tray_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
 ):
     """Reset an AMS slot to empty/unconfigured state.
@@ -3434,7 +3434,7 @@ async def reset_ams_slot(
 async def get_ams_labels(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_READ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get all user-defined AMS labels for a printer, keyed by AMS unit ID.
 
@@ -3494,7 +3494,7 @@ async def save_ams_label(
     ams_id: int,
     body: AmsLabelBody,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Create or update the friendly name for a specific AMS unit.
 
@@ -3531,7 +3531,7 @@ async def delete_ams_label(
     ams_id: int,
     ams_serial: str = Query(default="", max_length=50),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_UPDATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Delete the friendly name for a specific AMS unit, reverting to the auto label."""
     stripped = ams_serial.strip() if ams_serial else ""
@@ -3556,7 +3556,7 @@ async def delete_ams_label(
 async def stop_print(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Stop/cancel the current print job."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3582,7 +3582,7 @@ async def stop_print(
 async def clear_plate(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CLEAR_PLATE),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Acknowledge that the build plate has been cleared after a finished/failed print.
 
@@ -3637,7 +3637,7 @@ async def clear_plate(
 async def pause_print(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Pause the current print job."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3660,7 +3660,7 @@ async def pause_print(
 async def resume_print(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Resume a paused print job."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3684,7 +3684,7 @@ async def set_print_speed(
     printer_id: int,
     mode: int = Query(..., ge=1, le=4, description="Speed mode (1=silent, 2=standard, 3=sport, 4=ludicrous)"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the print speed mode."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3710,7 +3710,7 @@ async def set_nozzle_temperature(
     target: int = Query(..., ge=0, le=320, description="Target nozzle temperature in Celsius; 0 turns heating off"),
     nozzle: int = Query(0, ge=0, le=1, description="Nozzle/extruder index (0=right/default, 1=left)"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set a nozzle target temperature."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3734,7 +3734,7 @@ async def set_bed_temperature(
     printer_id: int,
     target: int = Query(..., ge=0, le=140, description="Target bed temperature in Celsius; 0 turns heating off"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the bed target temperature."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3763,7 +3763,7 @@ async def set_chamber_temperature(
         description="Target chamber temperature in Celsius; 0 turns heating off",
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the chamber target temperature.
 
@@ -3797,7 +3797,7 @@ async def set_fan_speed(
     fan: str = Query(..., description="Fan to control: part, aux, aux2 (left aux), or chamber"),
     speed: int = Query(..., ge=0, le=100, description="Fan speed percentage"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set a fan speed by percentage.
 
@@ -3859,7 +3859,7 @@ async def select_extruder(
     printer_id: int,
     extruder: int = Query(..., ge=0, le=1, description="Extruder index (0=right, 1=left)"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Select the active extruder/nozzle on dual-nozzle printers."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3883,7 +3883,7 @@ async def set_airduct_mode(
     printer_id: int,
     mode: str = Query(..., description="Airduct mode: 'cooling' or 'heating'"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the airduct mode (cooling/heating) on supported printers (P2S/H2*)."""
     if mode not in ("cooling", "heating"):
@@ -3910,7 +3910,7 @@ async def set_chamber_light(
     printer_id: int,
     on: bool = Query(..., description="True to turn on, False to turn off"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Turn the chamber light on or off."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -3946,7 +3946,7 @@ async def bed_jog(
         ),
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Adjust the nozzle-bed gap by a relative distance.
 
@@ -4025,7 +4025,7 @@ async def xy_jog(
     x: float = Query(0, description="Signed relative X movement in mm"),
     y: float = Query(0, description="Signed relative Y movement in mm"),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Move the toolhead by a relative X/Y distance."""
     if (x == 0 and y == 0) or abs(x) > 200 or abs(y) > 200:
@@ -4062,7 +4062,7 @@ async def extruder_jog(
         ..., description="Signed relative extrusion distance in mm. Positive extrudes, negative retracts."
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Extrude or retract filament by a relative distance.
 
@@ -4096,7 +4096,7 @@ async def home_axes(
         description="Legacy; accepted values are 'z' | 'xy' | 'all'. Always runs the printer's full auto-home sequence — see below.",
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Run the printer's full auto-home sequence via bare `G28`.
 
@@ -4136,7 +4136,7 @@ async def home_axes(
 async def clear_hms_errors(
     printer_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Clear HMS/print errors on the printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -4321,7 +4321,7 @@ async def skip_objects(
     printer_id: int,
     object_ids: list[int],
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Skip specific objects during the current print.
 
@@ -4376,7 +4376,7 @@ async def refresh_ams_slot(
     ams_id: int,
     slot_id: int,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_AMS_RFID),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Re-read RFID for an AMS slot (triggers filament info refresh)."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -4652,7 +4652,7 @@ async def ams_load(
         ),
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Load filament from a specific AMS slot or external spool.
 
@@ -4703,7 +4703,7 @@ async def ams_unload(
         ),
     ),
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Unload the filament in a given slot, or the currently loaded one."""
     if tray_id is not None and not _is_valid_load_tray_id(tray_id):
@@ -4735,7 +4735,7 @@ async def execute_hms_action(
     printer_id: int,
     body: HmsActionBody,
     _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Execute an HMS action on the printer."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))

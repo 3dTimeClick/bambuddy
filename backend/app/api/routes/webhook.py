@@ -108,7 +108,7 @@ def _job_id(subtask_id) -> str | None:
 async def webhook_add_to_queue(
     data: QueueAddRequest,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Add a print to the queue via webhook.
 
@@ -190,7 +190,7 @@ async def webhook_add_to_queue(
 async def webhook_start_print(
     printer_id: int,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Trigger the next manual-start queue item on a printer.
 
@@ -271,7 +271,7 @@ def _stop_current_print(printer_id: int) -> None:
 async def webhook_stop_print(
     printer_id: int,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Stop the current print on a printer.
 
@@ -299,7 +299,7 @@ async def webhook_stop_print(
 async def webhook_cancel_print(
     printer_id: int,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Cancel the current print on a printer.
 
@@ -325,7 +325,7 @@ async def webhook_cancel_print(
 async def webhook_get_printer_status(
     printer_id: int,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get status of a printer.
 
@@ -378,7 +378,7 @@ async def webhook_get_printer_status(
 async def webhook_get_queue_status(
     printer_id: int | None = None,
     api_key: APIKey = Depends(get_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get queue status for all printers or a specific printer.
 

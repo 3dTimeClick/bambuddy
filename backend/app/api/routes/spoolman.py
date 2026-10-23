@@ -113,7 +113,7 @@ async def get_spoolman_settings(db: AsyncSession) -> dict:
 
 @router.get("/status", response_model=SpoolmanStatus)
 async def get_spoolman_status(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """Get Spoolman integration status.
@@ -171,7 +171,7 @@ async def get_spoolman_status(
 
 @router.post("/connect")
 async def connect_spoolman(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Connect to Spoolman server using configured URL."""
@@ -256,7 +256,7 @@ async def _refresh_slot_preset(db: AsyncSession, spool: dict, tray, printer_id: 
 @router.post("/sync/{printer_id}", response_model=SyncResult)
 async def sync_printer_ams(
     printer_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.FILAMENTS_UPDATE),
 ):
     """Sync AMS data from a specific printer to Spoolman."""
@@ -488,7 +488,7 @@ async def sync_printer_ams(
 
 @router.post("/sync-all", response_model=SyncResult)
 async def sync_all_printers(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -690,7 +690,7 @@ async def sync_all_printers(
 
 @router.get("/spools")
 async def get_spools(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """Get all spools from Spoolman."""
@@ -715,7 +715,7 @@ async def get_spools(
 
 @router.get("/filaments")
 async def get_filaments(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """Get all filaments from Spoolman."""
@@ -752,7 +752,7 @@ class UnlinkedSpool(BaseModel):
 
 @router.get("/spools/unlinked", response_model=list[UnlinkedSpool])
 async def get_unlinked_spools(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """Get all Spoolman spools not currently assigned to an AMS slot."""
@@ -806,7 +806,7 @@ async def get_unlinked_spools(
 
 @router.get("/spools/linked")
 async def get_linked_spools(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """Get a map of tag -> spool_id for all Spoolman spools that have a tag assigned."""
@@ -862,7 +862,7 @@ class LinkSpoolRequest(BaseModel):
 async def link_spool(
     spool_id: int,
     request: LinkSpoolRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1248,7 +1248,7 @@ async def link_spool(
 @router.post("/spools/{spool_id}/unlink")
 async def unlink_spool(
     spool_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_UPDATE),
 ):
     """Unlink a Spoolman spool from AMS by clearing Spoolman extra.tag."""
@@ -1311,7 +1311,7 @@ class CreateSpoolFromSlotRequest(BaseModel):
 @router.post("/spools/from-slot")
 async def create_spool_from_slot(
     req: CreateSpoolFromSlotRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):

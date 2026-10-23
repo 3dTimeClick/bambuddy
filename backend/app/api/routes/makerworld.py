@@ -216,7 +216,7 @@ async def proxy_thumbnail(
 
 @router.get("/status", response_model=MakerWorldStatus)
 async def get_status(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User | None = RequirePermissionIfAuthEnabled(makerworld_provider.view_permission),
     api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
 ):
@@ -256,7 +256,7 @@ async def get_status(
 )
 async def resolve_url(
     body: MakerWorldResolveRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
@@ -318,7 +318,7 @@ async def resolve_url(
 )
 async def import_instance(
     body: MakerWorldImportRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
@@ -453,7 +453,7 @@ async def import_instance(
 @router.get("/recent-imports", response_model=list[MakerWorldRecentImport])
 async def recent_imports(
     limit: int = 10,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User | None = RequirePermissionIfAuthEnabled(makerworld_provider.view_permission),
 ):
     """Last N MakerWorld imports, newest first.

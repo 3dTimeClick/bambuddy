@@ -429,7 +429,7 @@ async def compute_subtree_stats(db: AsyncSession, root_id: int) -> _SubtreeRepor
 @router.get("/", response_model=list[ProjectListResponse])
 async def list_projects(
     status: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -560,7 +560,7 @@ async def list_projects(
 @router.post("/", response_model=ProjectResponse)
 async def create_project(
     data: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a new project."""
@@ -630,7 +630,7 @@ async def create_project(
 
 @router.get("/templates", response_model=list[ProjectListResponse])
 async def list_templates(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
 ):
     """List all project templates."""
@@ -676,7 +676,7 @@ async def list_templates(
 async def create_project_from_template(
     template_id: int,
     name: str = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a new project from a template."""
@@ -765,7 +765,7 @@ async def create_project_from_template(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
 ):
     """Get a project by ID with detailed stats."""
@@ -819,7 +819,7 @@ async def get_project(
 async def update_project(
     project_id: int,
     data: ProjectUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
 ):
     """Update a project."""
@@ -930,7 +930,7 @@ async def update_project(
 @router.delete("/{project_id}")
 async def delete_project(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_DELETE),
 ):
     """Delete a project. Archives and queue items will have project_id set to NULL."""
@@ -956,7 +956,7 @@ async def list_project_archives(
     project_id: int,
     limit: int = 100,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -999,7 +999,7 @@ async def list_project_archives(
 @router.get("/{project_id}/queue")
 async def list_project_queue(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1022,7 +1022,7 @@ async def list_project_queue(
 @router.get("/{project_id}/file-progress", response_model=list[ProjectFileProgress])
 async def get_project_file_progress(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
 ):
     """Completed-run counts per library file inside a project (#1897).
@@ -1130,7 +1130,7 @@ def _editable_rows(
 async def add_archives_to_project(
     project_id: int,
     data: BatchAddArchives,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
     actor: User | ApiKeyActor | None = RequestActor,
@@ -1160,7 +1160,7 @@ async def add_archives_to_project(
 async def add_queue_items_to_project(
     project_id: int,
     data: BatchAddQueueItems,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
     actor: User | ApiKeyActor | None = RequestActor,
@@ -1190,7 +1190,7 @@ async def add_queue_items_to_project(
 async def remove_archives_from_project(
     project_id: int,
     data: BatchAddArchives,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
     actor: User | ApiKeyActor | None = RequestActor,
@@ -1238,7 +1238,7 @@ COVER_IMAGE_CONTENT_TYPES = {
 async def upload_project_cover_image(
     project_id: int,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
 ):
     """Upload (or replace) the project's cover image (#1155).
@@ -1300,7 +1300,7 @@ async def upload_project_cover_image(
 @router.get("/{project_id}/cover-image")
 async def get_project_cover_image(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = Depends(require_media_token_permission(Permission.PROJECTS_READ)),
 ):
     """Stream the project's cover image (#1155).
@@ -1339,7 +1339,7 @@ async def get_project_cover_image(
 @router.delete("/{project_id}/cover-image")
 async def delete_project_cover_image(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
 ):
     """Remove the project's cover image (#1155)."""
@@ -1411,7 +1411,7 @@ def _bom_response(item: ProjectBOMItem, visible_names: dict[int, str | None]) ->
 @router.get("/{project_id}/bom", response_model=list[BOMItemResponse])
 async def list_bom_items(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1437,7 +1437,7 @@ async def list_bom_items(
 async def create_bom_item(
     project_id: int,
     data: BOMItemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1481,7 +1481,7 @@ async def update_bom_item(
     project_id: int,
     item_id: int,
     data: BOMItemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1528,7 +1528,7 @@ async def update_bom_item(
 async def delete_bom_item(
     project_id: int,
     item_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
 ):
     """Delete a BOM item."""
@@ -1551,7 +1551,7 @@ async def delete_bom_item(
 @router.post("/{project_id}/create-template", response_model=ProjectResponse)
 async def create_template_from_project(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a template from an existing project."""
@@ -1657,7 +1657,7 @@ def _queue_item_name(item: PrintQueueItem) -> str | None:
 async def get_project_timeline(
     project_id: int,
     limit: int = 50,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     printer_scope: PrinterScope = RequestPrinterScope,
 ):
@@ -1790,7 +1790,7 @@ def _stored_library_path(stored: str | None) -> Path | None:
 async def export_project(
     project_id: int,
     format: str = "zip",  # "zip" (with files) or "json" (metadata only)
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
@@ -1960,7 +1960,7 @@ async def _import_folder(
 @router.post("/import", response_model=ProjectResponse)
 async def import_project(
     data: ProjectImport,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
@@ -2038,7 +2038,7 @@ async def import_project(
 @router.post("/import/file", response_model=ProjectResponse)
 async def import_project_file(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
     actor: User | ApiKeyActor | None = RequestActor,
 ):

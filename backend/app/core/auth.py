@@ -2036,7 +2036,7 @@ def generate_api_key() -> tuple[str, str, str]:
 async def get_api_key(
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> APIKey:
     """Get and validate API key from request headers (the webhook routes).
 

@@ -122,7 +122,7 @@ def _config_response(config: ManyfoldConfig) -> ManyfoldConfigResponse:
 
 @router.get("/config", response_model=ManyfoldConfigResponse)
 async def get_config(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
 ):
     """The stored connection, without the secret."""
@@ -132,7 +132,7 @@ async def get_config(
 @router.put("/config", response_model=ManyfoldConfigResponse)
 async def update_config(
     body: ManyfoldConfigUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Store the connection. An empty secret keeps the stored one."""
@@ -154,7 +154,7 @@ async def update_config(
 
 @router.delete("/config", status_code=204)
 async def delete_config(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Disconnect Manyfold. Files imported earlier stay in the library."""
@@ -166,7 +166,7 @@ async def delete_config(
 @router.post("/config/test", response_model=ManyfoldTestResponse)
 async def test_config(
     body: ManyfoldTestRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
 ):
     """Sign in with the entered values and count the models Bambuddy can see.
@@ -195,7 +195,7 @@ async def test_config(
 
 @router.get("/status", response_model=ManyfoldStatus)
 async def get_status(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_VIEW),
 ):
     """Whether Manyfold is set up, and where it is."""
@@ -207,7 +207,7 @@ async def get_status(
 async def list_models(
     q: str = "",
     page: int = 1,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_VIEW),
 ):
     """One page of Manyfold's models, optionally searched.
@@ -227,7 +227,7 @@ async def list_models(
 @router.get("/models/{model_id}", response_model=ManyfoldModel)
 async def get_model(
     model_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_VIEW),
 ):
     """A model's details and files, with the library file of each earlier import."""
@@ -266,7 +266,7 @@ async def get_model(
 @router.get("/models/{model_id}/preview")
 async def get_preview(
     model_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_VIEW),
 ):
     """The model's preview image, fetched from Manyfold.
@@ -306,7 +306,7 @@ async def _import_folder_id(db: AsyncSession, folder_id: int | None, user: User 
 @router.post("/import", response_model=ManyfoldImportResponse)
 async def import_file(
     body: ManyfoldImportRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_IMPORT),
     actor: User | ApiKeyActor | None = RequestActor,
 ):
