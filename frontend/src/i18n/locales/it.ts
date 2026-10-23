@@ -1017,6 +1017,7 @@ export default {
     noArchives: 'Nessun archivio trovato',
     noArchivesSearch: 'Nessun archivio corrisponde alla ricerca',
     originalPrintNotVisible: 'Stampa originale non visibile - prova a rimuovere i filtri',
+    linkedArchiveNotVisible: 'Archivio collegato non visibile - prova a rimuovere i filtri',
     noArchivesYet: 'Nessun archivio ancora',
     prints: 'stampe',
     pagination: {
@@ -4315,6 +4316,7 @@ export default {
     folderIsEmpty: 'La cartella e vuota',
     noFilesOutsideFolders: 'Nessun file fuori dalle cartelle',
     noFilesYet: 'Nessun file ancora',
+    highlightedFileNotFound: 'File non trovato - potrebbe essere stato eliminato o potresti non avervi accesso',
     folderEmptyDescription: 'Carica file o sposta file in questa cartella per iniziare.',
     noFilesDescription: 'Carica file per iniziare a organizzare i file di stampa.',
     noMatchingFiles: 'Nessun file corrispondente',

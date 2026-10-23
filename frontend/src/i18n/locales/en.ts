@@ -1024,6 +1024,7 @@ export default {
     noArchives: 'No archives found',
     noArchivesSearch: 'No archives match your search',
     originalPrintNotVisible: 'Original print not visible - try clearing filters',
+    linkedArchiveNotVisible: 'Linked archive not visible - try clearing filters',
     noArchivesYet: 'No archives yet',
     prints: 'prints',
     pagination: {
@@ -4360,6 +4361,7 @@ export default {
     folderIsEmpty: 'Folder is empty',
     noFilesOutsideFolders: 'No files outside folders',
     noFilesYet: 'No files yet',
+    highlightedFileNotFound: 'File not found - it may have been deleted or you may not have access to it',
     folderEmptyDescription: 'Upload files or move files into this folder to get started.',
     noFilesDescription: 'Upload files to start organizing your print-related files.',
     noMatchingFiles: 'No matching files',

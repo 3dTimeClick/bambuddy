@@ -1022,6 +1022,7 @@ export default {
     noArchives: 'Inga arkiv hittade',
     noArchivesSearch: 'Inga arkiv matchar din sökning',
     originalPrintNotVisible: 'Originalutskriften syns inte – prova att nollställa filter',
+    linkedArchiveNotVisible: 'Det länkade arkivet syns inte – prova att nollställa filter',
     noArchivesYet: 'Inga arkiv än',
     prints: 'utskrifter',
     pagination: {
@@ -4357,6 +4358,7 @@ errors: {
     folderIsEmpty: 'Mappen är tom',
     noFilesOutsideFolders: 'Inga filer utanför mappar',
     noFilesYet: 'Inga filer än',
+    highlightedFileNotFound: 'Filen hittades inte – den kan ha tagits bort eller så saknar du åtkomst till den',
     folderEmptyDescription: 'Ladda upp filer eller flytta filer till denna mapp för att komma igång.',
     noFilesDescription: 'Ladda upp filer för att börja organisera dina utskriftsrelaterade filer.',
     noMatchingFiles: 'Inga matchande filer',

@@ -972,6 +972,7 @@ export default {
     noArchives: "Архивы не найдены",
     noArchivesSearch: "По вашему запросу ничего не найдено",
     originalPrintNotVisible: "Исходная печать не отображается — попробуйте сбросить фильтры",
+    linkedArchiveNotVisible: "Связанный архив не отображается — попробуйте сбросить фильтры",
     noArchivesYet: "Архив пока пуст",
     prints: "печатей",
     pagination: {
@@ -4131,6 +4132,7 @@ export default {
     folderIsEmpty: "Папка пуста",
     noFilesOutsideFolders: "Нет файлов вне папок",
     noFilesYet: "Файлов пока нет",
+    highlightedFileNotFound: "Файл не найден — возможно, он удалён или у вас нет к нему доступа",
     folderEmptyDescription: "Загрузите или переместите файлы в эту папку.",
     noFilesDescription: "Загрузите файлы, чтобы начать упорядочивать материалы для печати.",
     noMatchingFiles: "Подходящие файлы не найдены",

@@ -1022,6 +1022,7 @@ export default {
     noArchives: 'Geen archieven gevonden',
     noArchivesSearch: 'Geen archieven komen overeen met je zoekopdracht',
     originalPrintNotVisible: 'Originele afdruk niet zichtbaar - probeer filters te wissen',
+    linkedArchiveNotVisible: 'Gekoppeld archief niet zichtbaar - probeer filters te wissen',
     noArchivesYet: 'Nog geen archieven',
     prints: 'afdrukken',
     pagination: {
@@ -4358,6 +4359,7 @@ export default {
     folderIsEmpty: 'Map is leeg',
     noFilesOutsideFolders: 'Geen bestanden buiten mappen',
     noFilesYet: 'Nog geen bestanden',
+    highlightedFileNotFound: 'Bestand niet gevonden - het is mogelijk verwijderd of je hebt er geen toegang toe',
     folderEmptyDescription: 'Upload bestanden of verplaats bestanden naar deze map om te beginnen.',
     noFilesDescription: 'Upload bestanden om je afdrukgerelateerde bestanden te organiseren.',
     noMatchingFiles: 'Geen overeenkomende bestanden',

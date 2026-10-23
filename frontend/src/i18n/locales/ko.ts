@@ -973,6 +973,7 @@ export default {
     noArchives: '아카이브를 찾을 수 없습니다',
     noArchivesSearch: '검색 조건에 맞는 아카이브가 없습니다',
     originalPrintNotVisible: '원본 인쇄가 보이지 않음 - 필터를 지워보세요',
+    linkedArchiveNotVisible: '연결된 아카이브가 보이지 않음 - 필터를 지워보세요',
     noArchivesYet: '아직 아카이브가 없습니다',
     prints: '인쇄',
     pagination: {
@@ -4139,6 +4140,7 @@ export default {
     folderIsEmpty: '폴더가 비어 있음',
     noFilesOutsideFolders: '폴더 밖에 있는 파일 없음',
     noFilesYet: '파일 없음',
+    highlightedFileNotFound: '파일을 찾을 수 없음 - 삭제되었거나 접근 권한이 없을 수 있습니다',
     folderEmptyDescription: '파일을 업로드하거나 이 폴더로 이동하여 시작하세요.',
     noFilesDescription: '파일을 업로드하여 인쇄 관련 파일을 정리하세요.',
     noMatchingFiles: '일치하는 파일 없음',

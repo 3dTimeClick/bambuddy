@@ -1017,6 +1017,7 @@ export default {
     noArchives: '未找到归档',
     noArchivesSearch: '没有匹配搜索的归档',
     originalPrintNotVisible: '原始打印不可见 - 请尝试清除筛选条件',
+    linkedArchiveNotVisible: '关联的归档不可见 - 请尝试清除筛选条件',
     noArchivesYet: '暂无归档',
     prints: '条打印',
     pagination: {
@@ -4315,6 +4316,7 @@ export default {
     folderIsEmpty: '文件夹为空',
     noFilesOutsideFolders: '文件夹外没有文件',
     noFilesYet: '暂无文件',
+    highlightedFileNotFound: '未找到文件 - 它可能已被删除，或您没有访问权限',
     folderEmptyDescription: '上传文件或将文件移入此文件夹以开始使用。',
     noFilesDescription: '上传文件以开始组织您的打印相关文件。',
     noMatchingFiles: '没有匹配的文件',

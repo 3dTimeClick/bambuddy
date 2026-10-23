@@ -1017,6 +1017,7 @@ export default {
     noArchives: 'Aucune archive trouvée',
     noArchivesSearch: 'Aucune archive ne correspond',
     originalPrintNotVisible: 'Impression d\'origine non visible - essayez d\'effacer les filtres',
+    linkedArchiveNotVisible: 'Archive liée non visible - essayez d\'effacer les filtres',
     noArchivesYet: 'Pas encore d\'archive',
     prints: 'impressions',
     pagination: {
@@ -4316,6 +4317,7 @@ export default {
     folderIsEmpty: 'Dossier vide',
     noFilesOutsideFolders: 'Aucun fichier hors des dossiers',
     noFilesYet: 'Aucun fichier',
+    highlightedFileNotFound: 'Fichier introuvable - il a peut-être été supprimé ou vous n\'y avez pas accès',
     folderEmptyDescription: 'Téléversez ou déplacez des fichiers ici.',
     noFilesDescription: 'Téléversez des fichiers pour organiser.',
     noMatchingFiles: 'Aucun fichier correspondant',

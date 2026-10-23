@@ -1017,6 +1017,7 @@ export default {
     noArchives: 'Keine Archive gefunden',
     noArchivesSearch: 'Keine Archive entsprechen Ihrer Suche',
     originalPrintNotVisible: 'Ursprünglicher Druck nicht sichtbar - versuchen Sie, die Filter zu löschen',
+    linkedArchiveNotVisible: 'Verknüpftes Archiv nicht sichtbar - versuchen Sie, die Filter zu löschen',
     noArchivesYet: 'Noch keine Archive',
     prints: 'Drucke',
     pagination: {
@@ -4328,6 +4329,7 @@ export default {
     folderIsEmpty: 'Ordner ist leer',
     noFilesOutsideFolders: 'Keine Dateien außerhalb von Ordnern',
     noFilesYet: 'Noch keine Dateien',
+    highlightedFileNotFound: 'Datei nicht gefunden - sie wurde möglicherweise gelöscht oder Sie haben keinen Zugriff darauf',
     folderEmptyDescription: 'Laden Sie Dateien hoch oder verschieben Sie Dateien in diesen Ordner.',
     noFilesDescription: 'Laden Sie Dateien hoch, um Ihre Druckdateien zu organisieren.',
     noMatchingFiles: 'Keine passenden Dateien',

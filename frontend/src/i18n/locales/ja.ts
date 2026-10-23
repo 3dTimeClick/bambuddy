@@ -1016,6 +1016,7 @@ export default {
     noArchives: 'アーカイブが見つかりません',
     noArchivesSearch: '検索条件に一致するアーカイブがありません',
     originalPrintNotVisible: '元の印刷が表示されていません - フィルターをクリアしてみてください',
+    linkedArchiveNotVisible: 'リンクされたアーカイブが表示されていません - フィルターをクリアしてみてください',
     noArchivesYet: 'アーカイブはまだありません',
     prints: '件',
     pagination: {
@@ -4328,6 +4329,7 @@ export default {
     folderIsEmpty: 'フォルダーは空です',
     noFilesOutsideFolders: 'フォルダー外のファイルはありません',
     noFilesYet: 'ファイルはまだありません',
+    highlightedFileNotFound: 'ファイルが見つかりません - 削除されたか、アクセス権がない可能性があります',
     folderEmptyDescription: 'ファイルをアップロードするか、このフォルダーにファイルを移動して開始しましょう。',
     noFilesDescription: '印刷関連ファイルの整理を始めるにはファイルをアップロードしてください。',
     noMatchingFiles: '一致するファイルがありません',

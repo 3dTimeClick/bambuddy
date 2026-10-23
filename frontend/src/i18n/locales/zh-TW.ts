@@ -1017,6 +1017,7 @@ export default {
     noArchives: '未找到歸檔',
     noArchivesSearch: '沒有匹配搜尋的歸檔',
     originalPrintNotVisible: '原始列印不可見 - 請嘗試清除篩選條件',
+    linkedArchiveNotVisible: '關聯的封存不可見 - 請嘗試清除篩選條件',
     noArchivesYet: '尚無歸檔',
     prints: '條列印',
     pagination: {
@@ -4315,6 +4316,7 @@ export default {
     folderIsEmpty: '資料夾為空',
     noFilesOutsideFolders: '資料夾外沒有檔案',
     noFilesYet: '尚無檔案',
+    highlightedFileNotFound: '找不到檔案 - 可能已被刪除，或您沒有存取權限',
     folderEmptyDescription: '上傳檔案或將檔案移入此資料夾以開始使用。',
     noFilesDescription: '上傳檔案以開始組織您的列印相關檔案。',
     noMatchingFiles: '沒有匹配的檔案',

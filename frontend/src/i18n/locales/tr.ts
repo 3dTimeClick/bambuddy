@@ -1017,6 +1017,7 @@ export default {
     noArchives: 'Arşiv bulunamadı',
     noArchivesSearch: 'Aramanızla eşleşen arşiv yok',
     originalPrintNotVisible: 'Orijinal baskı görünmüyor - filtreleri temizlemeyi deneyin',
+    linkedArchiveNotVisible: 'Bağlı arşiv görünmüyor - filtreleri temizlemeyi deneyin',
     noArchivesYet: 'Henüz arşiv yok',
     prints: 'baskı',
     pagination: {
@@ -4323,6 +4324,7 @@ export default {
     folderIsEmpty: 'Klasör boş',
     noFilesOutsideFolders: 'Klasör dışında dosya yok',
     noFilesYet: 'Henüz dosya yok',
+    highlightedFileNotFound: 'Dosya bulunamadı - silinmiş olabilir veya erişiminiz olmayabilir',
     folderEmptyDescription: 'Başlamak için bu klasöre dosya yükleyin veya dosyaları taşıyın.',
     noFilesDescription: 'Baskıyla ilgili dosyalarınızı organize etmeye başlamak için dosya yükleyin.',
     noMatchingFiles: 'Eşleşen dosya yok',

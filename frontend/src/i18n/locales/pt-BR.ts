@@ -1017,6 +1017,7 @@ export default {
     noArchives: 'Nenhum arquivo encontrado',
     noArchivesSearch: 'Nenhum arquivo corresponde à sua pesquisa',
     originalPrintNotVisible: 'Impressão original não visível - tente limpar os filtros',
+    linkedArchiveNotVisible: 'Arquivo vinculado não visível - tente limpar os filtros',
     noArchivesYet: 'Ainda não há arquivos',
     prints: 'impressões',
     pagination: {
@@ -4315,6 +4316,7 @@ export default {
     folderIsEmpty: 'A pasta está vazia',
     noFilesOutsideFolders: 'Nenhum arquivo fora das pastas',
     noFilesYet: 'Nenhum arquivo ainda',
+    highlightedFileNotFound: 'Arquivo não encontrado - ele pode ter sido excluído ou você pode não ter acesso a ele',
     folderEmptyDescription: 'Envie arquivos ou mova arquivos para esta pasta para começar.',
     noFilesDescription: 'Envie arquivos para começar a organizar seus arquivos relacionados à impressão.',
     noMatchingFiles: 'Nenhum arquivo correspondente',

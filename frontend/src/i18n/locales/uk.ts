@@ -1021,6 +1021,7 @@ export default {
     noArchives: "Архіви не знайдено",
     noArchivesSearch: "Жоден архів не відповідає вашому пошуку",
     originalPrintNotVisible: "Оригінальний друк не відображається — спробуйте очистити фільтри",
+    linkedArchiveNotVisible: "Пов'язаний архів не відображається — спробуйте очистити фільтри",
     noArchivesYet: "Архівів ще немає",
     prints: "друків",
     pagination: {
@@ -4355,6 +4356,7 @@ export default {
     folderIsEmpty: "Папка порожня",
     noFilesOutsideFolders: "Немає файлів поза папками",
     noFilesYet: "Файлів ще немає",
+    highlightedFileNotFound: "Файл не знайдено — можливо, його видалено або у вас немає до нього доступу",
     folderEmptyDescription: "Щоб почати, вивантажте файли або перемістіть їх до цієї папки.",
     noFilesDescription: "Вивантажте файли, щоб упорядковувати матеріали для друку.",
     noMatchingFiles: "Немає відповідних файлів",
