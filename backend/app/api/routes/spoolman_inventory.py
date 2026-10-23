@@ -1572,11 +1572,12 @@ async def get_all_spoolman_slot_assignments(
             except (ValueError, TypeError):
                 continue
 
-    # Add synthetic fallback key (f"p{pid}a{ams_id}") for slots without a serial.
+    # Add the synthetic position key (f"p{pid}a{ams_id}"): a label saved before
+    # the unit reported its serial (the AMS Lite before #3348) is still under
+    # one, and is shown until it is saved again, as on the printer card.
     all_serials: set[str] = set(serial_map.values())
     for s in slots:
-        if (s.printer_id, s.ams_id) not in serial_map:
-            all_serials.add(f"p{s.printer_id}a{s.ams_id}")
+        all_serials.add(f"p{s.printer_id}a{s.ams_id}")
 
     label_by_serial: dict[str, str] = {}
     if all_serials:
@@ -1588,9 +1589,7 @@ async def get_all_spoolman_slot_assignments(
         sn = serial_map.get((pid, ams_id))
         if sn and sn in label_by_serial:
             return label_by_serial[sn]
-        if not sn:
-            return label_by_serial.get(f"p{pid}a{ams_id}")
-        return None
+        return label_by_serial.get(f"p{pid}a{ams_id}")
 
     enriched: list[SpoolmanSlotAssignmentEnriched] = []
     for s in slots:

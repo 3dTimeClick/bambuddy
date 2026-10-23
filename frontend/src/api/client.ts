@@ -526,7 +526,7 @@ export interface AMSUnit {
   dry_sf_reason: number[]; // Cannot-dry reasons (1=InsufficientPower, 8=NeedPluginPower)
   dry_target_temp: number | null; // Active-cycle target °C (Bambu does not echo)
   dry_filament: string | null;    // Active-cycle filament name we sent
-  module_type: string;    // "ams", "n3f", "n3s"
+  module_type: string;    // "ams", "ams_f1", "n3f", "n3s"
 }
 
 export interface ScheduledDrying {

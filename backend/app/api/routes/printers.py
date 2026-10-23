@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -3495,7 +3495,8 @@ async def save_ams_label(
 
     # Determine the serial key to store under
     stripped = body.ams_serial.strip() if body.ams_serial else ""
-    serial_key = stripped if stripped else f"p{printer_id}a{ams_id}"
+    position_key = f"p{printer_id}a{ams_id}"
+    serial_key = stripped if stripped else position_key
 
     result = await db.execute(select(AmsLabel).where(AmsLabel.ams_serial_number == serial_key))
     existing = result.scalar_one_or_none()
@@ -3505,6 +3506,10 @@ async def save_ams_label(
         existing.ams_id = ams_id
     else:
         db.add(AmsLabel(ams_serial_number=serial_key, ams_id=ams_id, label=body.label))
+    # A unit that reports its serial only now (the AMS Lite before #3348) may
+    # still have its label under the position key; the serial's label replaces it.
+    if serial_key != position_key:
+        await db.execute(delete(AmsLabel).where(AmsLabel.ams_serial_number == position_key))
 
     await db.commit()
     return {"ams_id": ams_id, "label": body.label}
@@ -3519,15 +3524,13 @@ async def delete_ams_label(
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Delete the friendly name for a specific AMS unit, reverting to the auto label."""
+    # The position key too: a label saved before the unit reported its serial
+    # is shown as a fallback, and would otherwise come back once cleared.
     stripped = ams_serial.strip() if ams_serial else ""
-    serial_key = stripped if stripped else f"p{printer_id}a{ams_id}"
+    keys = {stripped, f"p{printer_id}a{ams_id}"} - {""}
 
-    result = await db.execute(select(AmsLabel).where(AmsLabel.ams_serial_number == serial_key))
-    existing = result.scalar_one_or_none()
-
-    if existing:
-        await db.delete(existing)
-        await db.commit()
+    await db.execute(delete(AmsLabel).where(AmsLabel.ams_serial_number.in_(keys)))
+    await db.commit()
 
     return {"success": True}
 

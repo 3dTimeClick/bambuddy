@@ -247,7 +247,7 @@ class AMSUnit(BaseModel):
     dry_sf_reason: list[int] = []  # Cannot-dry reasons from firmware (see CannotDryReason)
     dry_target_temp: int | None = None  # Active-cycle target °C (Bambu doesn't echo this)
     dry_filament: str | None = None  # Active-cycle filament name we sent
-    module_type: str = ""  # "ams", "n3f", "n3s"
+    module_type: str = ""  # "ams", "ams_f1", "n3f", "n3s"
 
 
 class NozzleInfoResponse(BaseModel):

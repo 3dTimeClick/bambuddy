@@ -2193,13 +2193,11 @@ async def list_assignments(
 
     # Fetch all relevant AMS labels keyed by serial number
     all_serials = set(serial_map.values())
-    # Also include synthetic fallback keys for assignments without a known serial
-    synthetic_keys: dict[str, tuple[int, int]] = {}
+    # Also include the synthetic position keys: a label saved before the unit
+    # reported its serial (the AMS Lite before #3348) is still under one, and
+    # is shown until it is saved again, as on the printer card.
     for a in assignments:
-        if (a.printer_id, a.ams_id) not in serial_map:
-            synthetic = f"p{a.printer_id}a{a.ams_id}"
-            synthetic_keys[synthetic] = (a.printer_id, a.ams_id)
-            all_serials.add(synthetic)
+        all_serials.add(f"p{a.printer_id}a{a.ams_id}")
 
     label_by_serial: dict[str, str] = {}
     if all_serials:
@@ -2214,9 +2212,8 @@ async def list_assignments(
         sn = serial_map.get((a.printer_id, a.ams_id))
         if sn and sn in label_by_serial:
             resp.ams_label = label_by_serial[sn]
-        elif not sn:
-            synthetic = f"p{a.printer_id}a{a.ams_id}"
-            resp.ams_label = label_by_serial.get(synthetic)
+        else:
+            resp.ams_label = label_by_serial.get(f"p{a.printer_id}a{a.ams_id}")
         responses.append(resp)
 
     return responses

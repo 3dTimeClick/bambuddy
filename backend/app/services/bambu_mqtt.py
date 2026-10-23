@@ -36,10 +36,11 @@ PENDING_TRAY_TARGET_TTL = 120.0
 
 # AMS module name prefixes used in get_version responses.
 # The numeric suffix after '/' is the AMS unit ID as reported in push_status.
-#   "ams/<id>"  – original AMS (X1C, X1E, P1S, …)
-#   "n3f/<id>"  – AMS 2 Pro (H2D Pro and similar)
-#   "n3s/<id>"  – AMS HT (H2D Pro and similar; IDs typically start at 128)
-_AMS_MODULE_PREFIXES = ("ams/", "n3f/", "n3s/")
+#   "ams/<id>"     – original AMS (X1C, X1E, P1S, …)
+#   "ams_f1/<id>"  – AMS Lite (A1, A1 Mini; the A2L reports id 16, stored as 6)
+#   "n3f/<id>"     – AMS 2 Pro (H2D Pro and similar)
+#   "n3s/<id>"     – AMS HT (H2D Pro and similar; IDs typically start at 128)
+_AMS_MODULE_PREFIXES = ("ams/", "ams_f1/", "n3f/", "n3s/")
 
 # gcode_state values that mean the printer is not idle and must not be handed a
 # new start-print (#2598). The firmware rejects a project_file while busy with
@@ -2708,6 +2709,7 @@ class BambuMQTTClient:
 
         AMS module naming conventions (numeric suffix is the AMS unit ID):
         - ``ams/<id>``  – original AMS
+        - ``ams_f1/<id>`` – AMS Lite (#3348)
         - ``n3f/<id>``  – AMS 2 Pro (H2D Pro and similar)
         - ``n3s/<id>``  – AMS HT (H2D Pro and similar)
 
@@ -2754,7 +2756,9 @@ class BambuMQTTClient:
             if not any(name.startswith(prefix) for prefix in _AMS_MODULE_PREFIXES):
                 continue
             try:
-                ams_id = int(name.split("/", 1)[1])
+                # The A2L's AMS Lite is unit 16 here but stored as 6, like
+                # everywhere else it is ingested.
+                ams_id = normalize_am_unit_id(int(name.split("/", 1)[1]))
             except (ValueError, IndexError):
                 continue
             sw_ver = module.get("sw_ver", "")
