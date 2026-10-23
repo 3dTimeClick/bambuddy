@@ -24,6 +24,7 @@ from backend.app.api.routes.settings import set_setting
 from backend.app.core.auth import ApiKeyActor, RequestActor, RequirePermissionIfAuthEnabled, require_actor_still_exists
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.row_visibility import owned_row_clauses
 from backend.app.models.library import LibraryFile
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
@@ -229,8 +230,10 @@ async def get_model(
     model_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.MANYFOLD_VIEW),
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
-    """A model's details and files, with the library file of each earlier import."""
+    """A model's details and files, with the library file of each earlier import
+    the caller may open."""
     model_id = _id(model_id)
     service = await _service(db)
     try:
@@ -241,12 +244,17 @@ async def get_model(
         await service.close()
 
     imported: dict[str, ManyfoldLibraryRef] = {}
-    rows = await db.execute(
-        LibraryFile.active()
-        .where(manyfold_provider.source_url_filter(LibraryFile.source_url, model_id))
-        .order_by(LibraryFile.id)
+    readable = owned_row_clauses(LibraryFile, actor, Permission.LIBRARY_READ_ALL, Permission.LIBRARY_READ_OWN)
+    rows = (
+        await db.execute(
+            LibraryFile.active()
+            .where(manyfold_provider.source_url_filter(LibraryFile.source_url, model_id), *readable)
+            .order_by(LibraryFile.id)
+        )
+        if readable is not None
+        else None
     )
-    for row in rows.scalars().all():
+    for row in rows.scalars().all() if rows is not None else []:
         file_id = (row.source_url or "").rsplit("/", 1)[-1]
         imported.setdefault(file_id, ManyfoldLibraryRef(id=row.id, filename=row.filename, folder_id=row.folder_id))
 
@@ -319,9 +327,15 @@ async def import_file(
     source_url = manyfold_provider.canonical_url(
         ProviderResourceRef(source_type=manyfold_provider.source_type, external_id=model_id, sub_id=file_id)
     )
+    # A copy the caller cannot open is no copy for them: they get their own.
+    readable = owned_row_clauses(LibraryFile, actor, Permission.LIBRARY_READ_ALL, Permission.LIBRARY_READ_OWN)
     existing = (
-        await db.execute(LibraryFile.active().where(LibraryFile.source_url == source_url).limit(1))
-    ).scalar_one_or_none()
+        (
+            await db.execute(LibraryFile.active().where(LibraryFile.source_url == source_url, *readable).limit(1))
+        ).scalar_one_or_none()
+        if readable is not None
+        else None
+    )
     if existing is not None:
         return ManyfoldImportResponse(
             library_file_id=existing.id, filename=existing.filename, folder_id=existing.folder_id, was_existing=True
@@ -355,6 +369,7 @@ async def import_file(
         source_type=manyfold_provider.source_type,
         source_url=source_url,
         owner_id=actor.id if actor else None,
+        dedupe_within=readable,
     )
     logger.info(
         "[MANYFOLD] Imported %s (model %s, file %s) as library file %s", filename, model_id, file_id, library_file.id

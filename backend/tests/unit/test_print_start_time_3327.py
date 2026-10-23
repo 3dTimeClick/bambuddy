@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 
 import pytest
 
+from backend.app.core.config import settings
 from backend.app.services.archive import ArchiveService
-from backend.tests.unit.test_archive_print_plate import _three_mf, dirs, printer_id  # noqa: F401
+from backend.tests.unit.test_archive_print_plate import _three_mf, printer_id  # noqa: F401
 from backend.tests.unit.test_print_start_no_second_download_3308 import (  # noqa: F401
     FILE,
     _isolated,
@@ -20,6 +21,14 @@ from backend.tests.unit.test_print_start_no_second_download_3308 import (  # noq
     _served_on_second_try,
     _times_out_at_root,
 )
+
+
+@pytest.fixture
+def dirs(tmp_path, monkeypatch):
+    """The data directory; the archive directory is the print-start harness's
+    (``_isolated``), so it is patched once and put back once."""
+    monkeypatch.setattr(settings, "base_dir", tmp_path)
+    return tmp_path
 
 
 def _timed(transfer):

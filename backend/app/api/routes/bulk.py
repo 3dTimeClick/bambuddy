@@ -33,6 +33,7 @@ from backend.app.api.routes.smart_plugs import (
 )
 from backend.app.core.auth import (
     ApiKeyActor,
+    RequestActor,
     RequestPrinterScope,
     RequirePermissionIfAuthEnabled,
     require_ownership_permission,
@@ -260,6 +261,7 @@ async def get_folders_by_archives(
         )
     ),
     printer_scope: PrinterScope = RequestPrinterScope,
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """``GET /library/folders/by-archive/{archive_id}`` for several archives, keyed by archive id.
 
@@ -270,4 +272,4 @@ async def get_folders_by_archives(
     archive_ids = parse_id_list(ids)
     if not archive_ids:
         return {}
-    return await _folders_by_archive(db, user, archive_ids, printer_scope)
+    return await _folders_by_archive(db, user, archive_ids, printer_scope, actor)

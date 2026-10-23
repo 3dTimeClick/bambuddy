@@ -4311,6 +4311,22 @@ async def _dispatch_outcome_confirmation_safely(
             pass
 
 
+async def _outcome_answerers(db, owner_id: int | None) -> set[int] | None:
+    """Who may answer a print's outcome prompt in the app: its owner and anyone
+    who may change everyone's archives. None (everyone on the printer) with auth
+    off, or for a print nobody owns."""
+    from sqlalchemy.orm import selectinload
+
+    from backend.app.core.auth import is_auth_enabled
+    from backend.app.core.permissions import Permission
+    from backend.app.models.user import User
+
+    if owner_id is None or not await is_auth_enabled(db):
+        return None
+    users = (await db.execute(select(User).options(selectinload(User.groups)).where(User.is_active))).scalars().all()
+    return {owner_id} | {u.id for u in users if u.has_permission(Permission.ARCHIVES_UPDATE_ALL.value)}
+
+
 async def dispatch_outcome_confirmation(
     db,
     printer_id: int,
@@ -4377,6 +4393,7 @@ async def dispatch_outcome_confirmation(
             "archive_id": archive_id,
             "print_name": confirm_archive.print_name or confirm_archive.filename,
         },
+        user_ids=await _outcome_answerers(db, confirm_archive.created_by_id),
     )
     await notification_service.on_print_confirm_request(
         printer_id,
