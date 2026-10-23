@@ -3753,9 +3753,9 @@ async def set_chamber_temperature(
     """Set the chamber target temperature.
 
     Gated on `supports_chamber_heater(model)`: only H2C, H2D, H2D Pro, H2S,
-    and X2D have an active chamber heater. Sensor-only models (X1C, X1E,
-    P2S) report chamber temp but silently swallow M141, so we 400 here
-    rather than send a no-op.
+    X1E and X2D have an active chamber heater. Sensor-only models (X1C, P2S)
+    report chamber temp but silently swallow M141, so we 400 here rather
+    than send a no-op.
     """
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
     printer = result.scalar_one_or_none()

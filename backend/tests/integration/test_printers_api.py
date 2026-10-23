@@ -4441,7 +4441,7 @@ class TestSetChamberTemperatureAPI:
     """Integration tests for POST /printers/{id}/temperature/chamber.
 
     Gated on supports_chamber_heater(model). Sensor-only models that report
-    chamber temp but have no heater (X1C, X1E, P2S) get a 400 at the route
+    chamber temp but have no heater (X1C, P2S) get a 400 at the route
     level rather than a silent no-op at the firmware level.
     """
 
@@ -4453,7 +4453,7 @@ class TestSetChamberTemperatureAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    @pytest.mark.parametrize("sensor_only_model", ["X1C", "X1E", "P2S"])
+    @pytest.mark.parametrize("sensor_only_model", ["X1C", "P2S"])
     async def test_sensor_only_model_rejected(self, async_client: AsyncClient, printer_factory, sensor_only_model):
         """Models with sensor but no heater must 400 before any client call."""
         printer = await printer_factory(name="P", model=sensor_only_model)
@@ -4477,9 +4477,10 @@ class TestSetChamberTemperatureAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    @pytest.mark.parametrize("heater_model", ["H2C", "H2D", "H2DPRO", "H2S", "X2D"])
+    @pytest.mark.parametrize("heater_model", ["H2C", "H2D", "H2DPRO", "H2D Pro", "H2S", "X1E", "X2D"])
     async def test_success_per_heater_model(self, async_client: AsyncClient, printer_factory, heater_model):
-        """All five heater-equipped models accept the command."""
+        """Every heater-equipped model accepts the command, under the name it is
+        stored with: an H2D Pro is "H2D Pro" (#3335)."""
         printer = await printer_factory(name="P", model=heater_model)
         mock_client = MagicMock()
         mock_client.set_chamber_temperature.return_value = True

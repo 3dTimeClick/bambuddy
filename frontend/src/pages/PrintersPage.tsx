@@ -4729,7 +4729,7 @@ function PrinterCard({
                       )}
                     </div>
                     {status.temperatures.chamber !== undefined && (() => {
-                      // Sensor-only models (X1C, X1E, P2S) show the chamber reading
+                      // Sensor-only models (X1C, P2S) show the chamber reading
                       // but can't act on M141, so we keep the card read-only there.
                       const hasChamberHeater = status.supports_chamber_heater === true;
                       return (
@@ -4897,8 +4897,8 @@ function PrinterCard({
                         <ChamberLight on={status.chamber_light ?? false} className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                       </button>
 
-                      {/* Airduct Mode (P2S / X2D / H2*) */}
-                      {(['P2S', 'X2D', 'H2D', 'H2C', 'H2S'].includes(printer.model ?? '')) && (() => {
+                      {/* Airduct Mode (P2S / X2D / H2*, an H2D Pro stored as "H2D Pro", #3335) */}
+                      {(['P2S', 'X2D', 'H2D', 'H2D Pro', 'H2C', 'H2S'].includes(printer.model ?? '')) && (() => {
                         const isHeating = status.airduct_mode === 1;
                         const Icon = isHeating ? Flame : Snowflake;
                         const color = isHeating ? 'text-orange-600 dark:text-orange-400' : 'text-sky-600 dark:text-sky-400';
