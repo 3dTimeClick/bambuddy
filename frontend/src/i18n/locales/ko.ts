@@ -3257,6 +3257,7 @@ export default {
     clearQueue: '대기열을 지우시겠습니까?'
   },
   login: {
+    retrying: 'Bambuddy에 연결할 수 없습니다. 다시 시도하는 중…',
     title: 'Bambuddy 로그인',
     subtitle: '계정에 로그인하세요',
     username: '사용자명',

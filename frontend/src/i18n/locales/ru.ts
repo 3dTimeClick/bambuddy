@@ -3249,6 +3249,7 @@ export default {
     clearQueue: "Очистить очередь печати?",
   },
   login: {
+    retrying: "Bambuddy недоступен. Повторная попытка…",
     title: "Вход в Bambuddy",
     subtitle: "Войдите в свою учётную запись",
     username: "Имя пользователя",

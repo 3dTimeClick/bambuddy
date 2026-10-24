@@ -3420,6 +3420,7 @@ export default {
 
   // Giriş sayfası
   login: {
+    retrying: 'Bambuddy\'ye ulaşılamıyor. Yeniden deneniyor…',
     title: 'Bambuddy Giriş',
     subtitle: 'Hesabınıza giriş yapın',
     username: 'Kullanıcı Adı',

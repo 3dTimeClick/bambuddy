@@ -3417,6 +3417,7 @@ export default {
 
   // Login page
   login: {
+    retrying: 'Bambuddy ist nicht erreichbar. Neuer Versuch läuft…',
     title: 'Bambuddy Anmeldung',
     subtitle: 'Melden Sie sich bei Ihrem Konto an',
     username: 'Benutzername',

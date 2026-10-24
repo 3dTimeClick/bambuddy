@@ -3447,6 +3447,7 @@ export default {
 
   // Login page
   login: {
+    retrying: 'Bambuddy is niet bereikbaar. Opnieuw proberen…',
     title: 'Bambuddy-login',
     subtitle: 'Log in op je account',
     username: 'Gebruikersnaam',

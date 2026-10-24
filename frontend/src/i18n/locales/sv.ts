@@ -3446,6 +3446,7 @@ errors: {
 
   // Login page
   login: {
+    retrying: 'Kan inte nå Bambuddy. Försöker igen…',
     title: 'Bambuddy-inloggning',
     subtitle: 'Logga in på ditt konto',
     username: 'Användarnamn',

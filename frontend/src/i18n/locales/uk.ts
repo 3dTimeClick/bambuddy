@@ -3444,6 +3444,7 @@ export default {
 
   // Login page
   login: {
+    retrying: "Bambuddy недоступний. Повторна спроба…",
     title: "Вхід у Bambuddy",
     subtitle: "Увійти у свій обліковий запис",
     username: "Ім’я користувача",

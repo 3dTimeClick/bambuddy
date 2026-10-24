@@ -3405,6 +3405,7 @@ export default {
 
   // Login page
   login: {
+    retrying: 'Impossible de joindre Bambuddy. Nouvelle tentative…',
     title: 'Connexion Bambuddy',
     subtitle: 'Connectez-vous à votre compte',
     username: 'Utilisateur',

@@ -3417,6 +3417,7 @@ export default {
 
   // Login page
   login: {
+    retrying: 'Bambuddy に接続できません。再試行しています…',
     title: 'Bambuddy ログイン',
     subtitle: 'アカウントにサインイン',
     username: 'ユーザー名',

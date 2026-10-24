@@ -3449,6 +3449,7 @@ export default {
 
   // Login page
   login: {
+    retrying: 'Can\'t reach Bambuddy. Retrying…',
     title: 'Bambuddy Login',
     subtitle: 'Sign in to your account',
     username: 'Username',

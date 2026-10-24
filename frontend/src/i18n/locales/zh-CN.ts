@@ -3404,6 +3404,7 @@ export default {
 
   // Login page
   login: {
+    retrying: '无法连接 Bambuddy，正在重试…',
     title: 'Bambuddy 登录',
     subtitle: '登录您的账户',
     username: '用户名',
