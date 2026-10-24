@@ -4863,9 +4863,8 @@ export default {
       coolPlate: 'Cool Plate',
       coolPlateSuperTack: 'Cool Plate SuperTack',
       engineering: 'Engineering Plate',
-      highTemp: 'High Temp Plate',
+      highTemp: 'Smooth PEI Plate / High Temp Plate',
       texturedPEI: 'Textured PEI Plate',
-      smoothPEI: 'Smooth PEI Plate',
     },
     // Slicer Pipelines (#1425) — apply a saved bundle or save the current pick.
     filters: {

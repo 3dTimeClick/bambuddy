@@ -4865,9 +4865,8 @@ export default {
       coolPlate: 'Soğuk Plaka',
       coolPlateSuperTack: 'Soğuk Plaka SuperTack',
       engineering: 'Mühendislik Plakası',
-      highTemp: 'Yüksek Sıcaklık Plakası',
+      highTemp: 'Düz PEI Plakası / Yüksek Sıcaklık Plakası',
       texturedPEI: 'Dokulu PEI Plakası',
-      smoothPEI: 'Düz PEI Plakası',
     },
     // Slicer Pipelines (#1425) — apply a saved bundle or save the current pick.
     filters: {

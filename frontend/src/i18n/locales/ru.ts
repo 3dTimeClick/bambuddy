@@ -4660,9 +4660,8 @@ export default {
       coolPlate: "Холодная пластина",
       coolPlateSuperTack: "Холодная пластина SuperTack",
       engineering: "Инженерная пластина",
-      highTemp: "Высокотемпературная пластина",
+      highTemp: "Гладкая PEI-пластина / Высокотемпературная пластина",
       texturedPEI: "Текстурированная PEI-пластина",
-      smoothPEI: "Гладкая PEI-пластина",
     },
     filters: {
       onlyConnectedModels: 'Только принтеры в сети',

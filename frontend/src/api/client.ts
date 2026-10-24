@@ -1960,10 +1960,10 @@ export interface SliceRequest {
   plate?: number;
   export_3mf?: boolean;
   // Build-plate override (#1337). When omitted, the slicer uses the process
-  // preset's curr_bed_type as-is. Canonical values match BambuStudio /
-  // OrcaSlicer's enum: "Cool Plate", "Engineering Plate", "High Temp Plate",
-  // "Textured PEI Plate", "Smooth PEI Plate", "Cool Plate (SuperTack)",
-  // "Supertack Plate".
+  // preset's curr_bed_type as-is. A name from BambuStudio / OrcaSlicer's
+  // enum: "Cool Plate", "Engineering Plate", "High Temp Plate" (Smooth PEI),
+  // "Textured PEI Plate", "Supertack Plate", or OrcaSlicer's "Textured Cool
+  // Plate" (refused when Bambu Studio slices); the backend refuses others (#3359).
   bed_type?: string | null;
   // "Slice as designed" (#2611). 3MF only: slice using the file's embedded
   // project_settings.config (the designer's own wall count, infill, etc.)

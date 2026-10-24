@@ -4668,9 +4668,8 @@ export default {
       coolPlate: '쿨 플레이트',
       coolPlateSuperTack: '쿨 플레이트 슈퍼택',
       engineering: '엔지니어링 플레이트',
-      highTemp: '고온 플레이트',
+      highTemp: '매끄러운 PEI 플레이트 / 고온 플레이트',
       texturedPEI: '텍스처 PEI 플레이트',
-      smoothPEI: '매끄러운 PEI 플레이트'
     },
     // Slicer Pipelines (#1425) — apply a saved bundle or save the current pick.
     filters: {

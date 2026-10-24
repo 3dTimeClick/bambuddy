@@ -1035,6 +1035,8 @@ _BED_TEMP_KEYS: dict[str, tuple[str, str]] = {
     "High Temp Plate": ("hot_plate_temp_initial_layer", "hot_plate_temp"),
     "Textured PEI Plate": ("textured_plate_temp_initial_layer", "textured_plate_temp"),
     "Supertack Plate": ("supertack_plate_temp_initial_layer", "supertack_plate_temp"),
+    # OrcaSlicer only (PrintConfig.hpp get_bed_temp_key).
+    "Textured Cool Plate": ("textured_cool_plate_temp_initial_layer", "textured_cool_plate_temp"),
 }
 
 # Fallback for a config that names no plate: the Orca/PrusaSlicer spelling,

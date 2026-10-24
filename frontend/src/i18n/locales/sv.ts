@@ -4910,9 +4910,8 @@ errors: {
       coolPlate: 'Cool Plate',
       coolPlateSuperTack: 'Cool Plate SuperTack',
       engineering: 'Engineering Plate',
-      highTemp: 'High Temp Plate',
+      highTemp: 'Slät PEI-platta / High Temp Plate',
       texturedPEI: 'Texturerad PEI-platta',
-      smoothPEI: 'Slät PEI-platta',
     },
     // Slicer Pipelines (#1425) — apply a saved bundle or save the current pick.
     filters: {

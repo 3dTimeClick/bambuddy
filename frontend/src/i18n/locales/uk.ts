@@ -4908,9 +4908,8 @@ export default {
       coolPlate: "Холодна друкарська пластина",
       coolPlateSuperTack: "Cool Plate SuperTack",
       engineering: "Інженерна пластина",
-      highTemp: "Високотемпературна пластина",
+      highTemp: "Гладка PEI-пластина / Високотемпературна пластина",
       texturedPEI: "Текстурована PEI-пластина",
-      smoothPEI: "Гладка PEI-пластина",
     },
     // Slicer Pipelines (#1425) — apply a saved bundle or save the current pick.
     filters: {

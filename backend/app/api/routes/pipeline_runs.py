@@ -65,7 +65,7 @@ from backend.app.schemas.pipeline_run import (
     PipelineRunListResponse,
     PipelineRunResponse,
 )
-from backend.app.schemas.slicer import PresetRef, SliceRequest
+from backend.app.schemas.slicer import PresetRef, SliceRequest, checked_bed_type
 from backend.app.services.pipeline_eligibility import (
     EligibilityReport,
     check_pipeline_eligibility,
@@ -175,11 +175,23 @@ def _slice_request_from_pipeline(pipeline: SlicerPipeline) -> SliceRequest:
         for r in raw_filaments
         if isinstance(r, dict) and "source" in r and "id" in r
     ]
+    # Rows saved before #3359 can hold a name no slicer knows; say so instead
+    # of failing the run with a validation dump.
+    try:
+        bed_type = checked_bed_type(pipeline.bed_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The pipeline's build plate {pipeline.bed_type!r} is not one the slicers know. "
+                "Save the pipeline again from the Slice dialog with another plate."
+            ),
+        ) from None
     return SliceRequest(
         printer_preset=PresetRef(source=pipeline.printer_preset_source, id=pipeline.printer_preset_id),
         process_preset=PresetRef(source=pipeline.process_preset_source, id=pipeline.process_preset_id),
         filament_presets=filament_presets,
-        bed_type=pipeline.bed_type,
+        bed_type=bed_type,
         export_3mf=True,
     )
 
@@ -543,7 +555,6 @@ def _make_orchestration_callable(
             await session.commit()
             await _publish_run_event(session, run)
 
-            slice_request = _slice_request_from_pipeline(pipeline)
             model_bytes = src_path.read_bytes()
 
             folder_id: int | None = None
@@ -553,6 +564,9 @@ def _make_orchestration_callable(
                     folder_id = lib.folder_id
 
             try:
+                # Inside the try: a row with a bed type no slicer knows fails
+                # the run instead of leaving it in "slicing" (#3359).
+                slice_request = _slice_request_from_pipeline(pipeline)
                 slice_response = await slice_and_persist(
                     session,
                     model_bytes=model_bytes,

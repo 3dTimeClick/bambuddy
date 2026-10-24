@@ -76,7 +76,7 @@ from backend.app.schemas.library import (
     ZipExtractResponse,
     ZipExtractResult,
 )
-from backend.app.schemas.slicer import SliceRequest, SliceResponse
+from backend.app.schemas.slicer import ORCA_ONLY_BED_TYPES, SliceRequest, SliceResponse
 from backend.app.services.archive import ThreeMFParser, estimate_filament_cost
 from backend.app.services.design_settings import (
     DesignOverride,
@@ -4478,6 +4478,13 @@ async def _run_slicer_with_fallback(
     # gates the toggle on the picked printer matching the design's target,
     # so this path never re-targets across printer models.
     embedded_mode = bool(request.use_embedded_settings and is_3mf)
+    # The schema takes either slicer's plate names, but Bambu Studio slices a
+    # name it does not know as Cool Plate (#3359).
+    if not embedded_mode and preferred == "bambu_studio" and request.bed_type in ORCA_ONLY_BED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bambu Studio has no {request.bed_type}. Pick another build plate or slice with OrcaSlicer.",
+        )
     # Bounds silence rather than total slicing time (#2730), so a heavy model
     # that keeps reporting progress runs to completion however long it takes.
     service = SlicerApiService(api_url, timeout_seconds=await get_stall_timeout_seconds(db))
