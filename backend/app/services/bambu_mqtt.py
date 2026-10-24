@@ -819,6 +819,22 @@ class HMSError:
     # (#1830) and on `hms[]`-sourced faults generally.
     full_code: str = ""
 
+    def completion_payload(self) -> dict:
+        """This error as a print-complete payload carries it, for the failure reason."""
+        return {
+            "code": self.code,
+            "attr": self.attr,
+            "module": self.module,
+            "severity": self.severity,
+            # Lets the queue's failure reason label an `hms[]` fault
+            # with its full code rather than a lossy short one (#2728).
+            "full_code": self.full_code,
+            # Carried so the queue's failure reason quotes the same
+            # sentence the status response and the broadcast do,
+            # rather than resolving the code a fourth time (#2926).
+            "description": self.description,
+        }
+
 
 # HMS short codes the firmware emits during normal user-cancel sequences.
 # These aren't faults — they're status echoes that confirm the cancel happened.
@@ -5966,26 +5982,7 @@ class BambuMQTTClient:
             self._was_running = False
             self._timelapse_during_print = False  # Reset for next print
             # Include HMS errors for failure reason detection
-            hms_errors_data = (
-                [
-                    {
-                        "code": e.code,
-                        "attr": e.attr,
-                        "module": e.module,
-                        "severity": e.severity,
-                        # Lets the queue's failure reason label an `hms[]` fault
-                        # with its full code rather than a lossy short one (#2728).
-                        "full_code": e.full_code,
-                        # Carried so the queue's failure reason quotes the same
-                        # sentence the status response and the broadcast do,
-                        # rather than resolving the code a fourth time (#2926).
-                        "description": e.description,
-                    }
-                    for e in self.state.hms_errors
-                ]
-                if self.state.hms_errors
-                else []
-            )
+            hms_errors_data = [e.completion_payload() for e in self.state.hms_errors or []]
             self.on_print_complete(
                 {
                     "status": status,

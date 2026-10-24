@@ -283,6 +283,11 @@ def compute_time_accuracy(archive: PrintArchive, run_aggregate: dict | None = No
     # Both fields are cleared so the card shows estimate + no badge.
     if run_aggregate and (run_aggregate.get("run_count") or 0) > 1:
         return result
+    # A run whose times were not measured (#3310): its end is the slicer's
+    # estimate or the reconnect. The card shows the estimate and no badge,
+    # as for multi-run archives.
+    if run_aggregate and run_aggregate.get("unmeasured_run_count"):
+        return result
 
     if archive.started_at and archive.completed_at and archive.status == "completed":
         actual_seconds = int((archive.completed_at - archive.started_at).total_seconds())
@@ -304,7 +309,7 @@ async def _load_run_aggregates(db: AsyncSession, archive_ids: list[int]) -> dict
     """Batch-load per-archive run aggregates from PrintLogEntry.
 
     Returns ``{archive_id: {run_count, last_run_at, total_filament_actual_grams,
-    successful_run_count, failed_run_count}}``. Archives with no logged runs are
+    successful_run_count, failed_run_count, unmeasured_run_count}}``. Archives with no logged runs are
     absent from the map; callers should treat that as zero/none.
     """
     from backend.app.models.print_log import PrintLogEntry
@@ -319,18 +324,20 @@ async def _load_run_aggregates(db: AsyncSession, archive_ids: list[int]) -> dict
             func.coalesce(func.sum(PrintLogEntry.filament_used_grams), 0).label("total_filament"),
             func.sum(case((PrintLogEntry.status == "completed", 1), else_=0)).label("successful"),
             func.sum(case((PrintLogEntry.status == "failed", 1), else_=0)).label("failed"),
+            func.sum(case((PrintLogEntry.duration_unmeasured.is_(True), 1), else_=0)).label("estimated"),
         )
         .where(PrintLogEntry.archive_id.in_(archive_ids))
         .group_by(PrintLogEntry.archive_id)
     )
     aggregates: dict[int, dict] = {}
-    for archive_id, run_count, last_run_at, total_filament, successful, failed in rows.all():
+    for archive_id, run_count, last_run_at, total_filament, successful, failed, estimated in rows.all():
         aggregates[archive_id] = {
             "run_count": int(run_count or 0),
             "last_run_at": last_run_at,
             "total_filament_actual_grams": float(total_filament) if total_filament else None,
             "successful_run_count": int(successful or 0),
             "failed_run_count": int(failed or 0),
+            "unmeasured_run_count": int(estimated or 0),
         }
     return aggregates
 
@@ -1423,6 +1430,8 @@ async def get_archive_stats(
         .where(
             PrintLogEntry.status == "completed",
             PrintArchive.print_time_seconds.isnot(None),
+            # A run whose times were not measured is no sample (#3310).
+            PrintLogEntry.duration_unmeasured.is_not(True),
             *base_conditions,
         )
     )

@@ -5868,6 +5868,11 @@ async def _run_migrations(conn):
     # default -- identical DDL on SQLite and Postgres.
     await _safe_execute(conn, "ALTER TABLE active_print_sessions ADD COLUMN spool_change_log JSON")
 
+    # Migration: a print log run whose times were not measured, a print that
+    # finished while Bambuddy restarted (#3310). Nullable, no
+    # default -- identical DDL on SQLite and Postgres.
+    await _safe_execute(conn, "ALTER TABLE print_log_entries ADD COLUMN duration_unmeasured BOOLEAN")
+
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)
