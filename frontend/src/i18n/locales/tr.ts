@@ -910,6 +910,9 @@ export default {
       openSettings: 'Ayarları aç',
     },
     estimatedCompletion: 'Tahmini tamamlanma süresi',
+    pauseIn: 'Duraklatmaya {{time}} · {{eta}}',
+    pauseAtLayer: '{{layer}}. katmanda duraklatma',
+    nextPauseAtLayer: 'Dilimleyicide eklenen sonraki duraklatma, {{layer}}. katmanda',
     plateNumber: 'Plaka {{number}}',
     slotOptions: 'Yuva seçenekleri',
     // AMS hover popup
@@ -2197,6 +2200,8 @@ export default {
     // Bildirimler
     bedCooledThreshold: 'Tabla Soğuma Eşiği',
     bedCooledThresholdDescription: 'Bir baskıdan sonra tablanın soğumuş kabul edildiği sıcaklık',
+    pauseWarningMinutes: 'Duraklatma uyarısı',
+    pauseWarningMinutesDescription: 'Dilimleyicide eklenen bir duraklatmadan kaç dakika önce "Duraklatma yaklaşıyor" bildiriminin gönderileceği',
     userNotificationsEnabled: 'Kullanıcı Bildirimleri',
     userNotificationsEnabledDescription: 'Baskı işi olayları için kullanıcı bildirim menüsünü ve e-posta bildirimlerini etkinleştir. Gelişmiş Kimlik Doğrulama gerektirir.',
     userNotificationsDisabledHint: 'Kullanıcı bildirimlerini kullanmak için Gelişmiş Kimlik Doğrulamayı etkinleştirin.',
@@ -6635,6 +6640,9 @@ export default {
     bedCooledDescription: 'Baskıdan sonra tabla eşiğin altına soğudu',
     firstLayerCompleteLabel: 'İlk Katman Tamamlandı',
     firstLayerCompleteDescription: 'İlk katman bittiğinde anlık görüntüyle bildir',
+    pauseUpcomingLabel: 'Duraklatma yaklaşıyor',
+    pauseUpcomingDescription: 'Dilimleyicide eklenen bir duraklatmadan önce uyarı',
+    pauseUpcomingBadge: 'Duraklatma',
     connectedApps: 'Bağlı uygulamalar',
     appMessages: 'Bağlı uygulamalardan gelen mesajlar',
     appMessagesDescription: 'Diğer uygulamaların Bambuddy üzerinden gönderdiği mesajları iletir, ör. Bambuddy Orders',

@@ -910,6 +910,9 @@ export default {
       openSettings: 'Apri impostazioni',
     },
     estimatedCompletion: 'Tempo completamento stimato',
+    pauseIn: '{{time}} alla pausa · {{eta}}',
+    pauseAtLayer: 'Pausa al layer {{layer}}',
+    nextPauseAtLayer: 'Prossima pausa aggiunta nello slicer, al layer {{layer}}',
     plateNumber: 'Piastra {{number}}',
     slotOptions: 'Opzioni slot',
     // AMS hover popup
@@ -2149,6 +2152,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Soglia raffreddamento piatto',
     bedCooledThresholdDescription: 'Temperatura sotto la quale il piatto è considerato raffreddato dopo una stampa',
+    pauseWarningMinutes: 'Preavviso pausa',
+    pauseWarningMinutesDescription: 'Minuti prima di una pausa aggiunta nello slicer in cui inviare la notifica "Pausa in arrivo"',
     userNotificationsEnabled: 'Notifiche utente',
     userNotificationsEnabledDescription: "Abilita il menu notifiche utente e le notifiche e-mail per gli eventi di stampa. Richiede l'autenticazione avanzata.",
     userNotificationsDisabledHint: "Abilita l'autenticazione avanzata per usare le notifiche utente.",
@@ -6666,6 +6671,9 @@ export default {
     bedCooledDescription: 'Piatto raffreddato sotto la soglia dopo la stampa',
     firstLayerCompleteLabel: 'Primo strato completato',
     firstLayerCompleteDescription: 'Notifica con foto al termine del primo strato',
+    pauseUpcomingLabel: 'Pausa in arrivo',
+    pauseUpcomingDescription: 'Preavviso prima di una pausa aggiunta nello slicer',
+    pauseUpcomingBadge: 'Pausa',
     connectedApps: 'App collegate',
     appMessages: 'Messaggi dalle app collegate',
     appMessagesDescription: 'Recapita i messaggi che altre applicazioni inviano tramite Bambuddy, ad es. Bambuddy Orders',

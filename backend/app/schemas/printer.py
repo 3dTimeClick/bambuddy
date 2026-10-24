@@ -348,6 +348,14 @@ class PrintOptionsResponse(BaseModel):
     filament_tangle_detect: bool = False
 
 
+class NextPause(BaseModel):
+    """The next pause the slicer put into the running print (#2984)."""
+
+    layer: int
+    # Minutes until the printer gets there; None while it reports no time left.
+    minutes: int | None = None
+
+
 class PrinterStatus(BaseModel):
     id: int
     name: str
@@ -435,6 +443,8 @@ class PrinterStatus(BaseModel):
     last_ams_update: float = 0.0
     # Number of printable objects in current print (for skip objects feature)
     printable_objects_count: int = 0
+    # The next pause the slicer put into the print, while it is running (#2984)
+    next_pause: NextPause | None = None
     # Fan speeds (0-100 percentage, None if not available for this model)
     cooling_fan_speed: int | None = None  # Part cooling fan
     big_fan1_speed: int | None = None  # Auxiliary fan

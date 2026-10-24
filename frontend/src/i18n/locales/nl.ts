@@ -915,6 +915,9 @@ export default {
       openSettings: 'Instellingen openen',
     },
     estimatedCompletion: 'Geschatte voltooiingstijd',
+    pauseIn: '{{time}} tot pauze · {{eta}}',
+    pauseAtLayer: 'Pauze bij laag {{layer}}',
+    nextPauseAtLayer: 'Volgende in de slicer toegevoegde pauze, bij laag {{layer}}',
     plateNumber: 'Plaat {{number}}',
     slotOptions: 'Sleufopties',
     // AMS hover popup
@@ -2214,6 +2217,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Drempel voor afgekoeld bed',
     bedCooledThresholdDescription: 'Temperatuur waaronder het bed na een afdruk als afgekoeld wordt beschouwd',
+    pauseWarningMinutes: 'Pauzewaarschuwing',
+    pauseWarningMinutesDescription: 'Minuten voor een in de slicer toegevoegde pauze waarop de melding "Pauze komt eraan" wordt verstuurd',
     userNotificationsEnabled: 'Gebruikersmeldingen',
     userNotificationsEnabledDescription: 'Schakel het gebruikersmeldingenmenu en e-mailmeldingen voor afdrukgebeurtenissen in. Vereist Geavanceerde authenticatie.',
     userNotificationsDisabledHint: 'Schakel Geavanceerde authenticatie in om gebruikersmeldingen te gebruiken.',
@@ -6730,6 +6735,9 @@ export default {
     bedCooledDescription: 'Bed na afdruk afgekoeld tot onder drempel',
     firstLayerCompleteLabel: 'Eerste laag voltooid',
     firstLayerCompleteDescription: 'Melden met momentopname wanneer de eerste laag is voltooid',
+    pauseUpcomingLabel: 'Pauze komt eraan',
+    pauseUpcomingDescription: 'Waarschuwing voor een in de slicer toegevoegde pauze',
+    pauseUpcomingBadge: 'Pauze',
     connectedApps: 'Gekoppelde apps',
     appMessages: 'Berichten van gekoppelde apps',
     appMessagesDescription: 'Berichten bezorgen die andere toepassingen via Bambuddy versturen, bijv. Bambuddy Orders',

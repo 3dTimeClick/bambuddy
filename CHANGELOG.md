@@ -5,6 +5,10 @@ All notable changes to Bambuddy will be documented in this file.
 ## [1.3.0b1] - Unreleased
 
 ### Added
+- **Time to the next pause, and a heads-up before it (#2984, requested by @apizz)** — A pause added in the slicer, for an NFC chip, a magnet or threaded inserts, came without warning: the only way to be there for it was to look up its layer in the slicer and keep checking the layer count.
+  - **On the printer card:** next to the ETA, in blue, the time until the next pause and its clock time, e.g. "20m to pause · 20:27". Hover it for the layer. With several pauses it counts down to each in turn. Sizes M and up; the one-line size S card has no room for it. In a speed mode other than Standard it shows the layer only, as the slicer's times are for Standard speed.
+  - **Pause Coming Up notification:** a new event for notification channels, sent once per pause, 5 minutes before by default (at Standard speed). Set the minutes under Settings > Notifications > **Pause Heads-Up** (1-120). Off on every channel until turned on, with its own template.
+  - **Where it comes from:** the pauses are read from the print's G-code in its archived 3MF, written there by Bambu Studio and OrcaSlicer. Prints without an archived 3MF show none. Wiki updated.
 - **Printer cameras from any page (#2737, requested by @apizz)** — An embedded camera overlay belonged to the Printers page: it disappeared on every other page and came back only on returning there, so a quick look at a print meant leaving the page you were on.
   - **On every page:** open overlays now stay open as you move around Bambuddy, and still reopen after a reload.
   - **Cameras button:** a camera icon at the end of the sidebar's **Printers** row (on hover when the sidebar is collapsed), in the header on narrow screens, or the **C** key, lists the printers you can see and opens one as an overlay. A camera already open is ticked and closes from the same list. Users without `camera:view` and `printers:read` don't see it, or any overlay.

@@ -910,6 +910,9 @@ export default {
       openSettings: '開啟設定',
     },
     estimatedCompletion: '預計完成時間',
+    pauseIn: '距暫停 {{time}} · {{eta}}',
+    pauseAtLayer: '在第 {{layer}} 層暫停',
+    nextPauseAtLayer: '切片軟體中加入的下一個暫停，在第 {{layer}} 層',
     plateNumber: '板 {{number}}',
     slotOptions: '槽位選項',
     // AMS hover popup
@@ -2194,6 +2197,8 @@ export default {
     // Notifications
     bedCooledThreshold: '熱床冷卻閾值',
     bedCooledThresholdDescription: '列印後熱床被視為已冷卻的溫度',
+    pauseWarningMinutes: '暫停提前提醒',
+    pauseWarningMinutesDescription: '在切片軟體中加入的暫停前多少分鐘傳送「即將暫停」通知',
     userNotificationsEnabled: '使用者通知',
     userNotificationsEnabledDescription: '啟用使用者通知選單和列印任務事件的郵件通知。需要進階身份驗證。',
     userNotificationsDisabledHint: '請啟用進階身份驗證以使用使用者通知。',
@@ -6665,6 +6670,9 @@ export default {
     bedCooledDescription: '列印後熱床溫度降至閾值以下',
     firstLayerCompleteLabel: '首層列印完成',
     firstLayerCompleteDescription: '首層完成時傳送帶照片的通知',
+    pauseUpcomingLabel: '即將暫停',
+    pauseUpcomingDescription: '切片軟體中加入的暫停前提醒',
+    pauseUpcomingBadge: '暫停',
     connectedApps: '已連線的應用程式',
     appMessages: '來自已連線應用程式的訊息',
     appMessagesDescription: '傳遞其他應用程式透過 Bambuddy 傳送的訊息，例如 Bambuddy Orders',

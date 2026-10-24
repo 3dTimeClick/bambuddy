@@ -910,6 +910,9 @@ export default {
       openSettings: 'Abrir ajustes',
     },
     estimatedCompletion: 'Hora estimada de finalización',
+    pauseIn: '{{time}} hasta la pausa · {{eta}}',
+    pauseAtLayer: 'Pausa en la capa {{layer}}',
+    nextPauseAtLayer: 'Próxima pausa añadida en el laminador, en la capa {{layer}}',
     plateNumber: 'Cama {{number}}',
     slotOptions: 'Opciones de la ranura',
     // AMS hover popup
@@ -2197,6 +2200,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Umbral de cama enfriada',
     bedCooledThresholdDescription: 'Temperatura por debajo de la cual se considera que la cama se ha enfriado tras una impresión',
+    pauseWarningMinutes: 'Aviso de pausa',
+    pauseWarningMinutesDescription: 'Minutos antes de una pausa añadida en el laminador para enviar la notificación "Pausa próxima"',
     userNotificationsEnabled: 'Notificaciones de usuario',
     userNotificationsEnabledDescription: 'Activa el menú de notificaciones de usuario y las notificaciones por correo de los eventos de los trabajos de impresión. Requiere autenticación avanzada.',
     userNotificationsDisabledHint: 'Active la autenticación avanzada para usar las notificaciones de usuario.',
@@ -6687,6 +6692,9 @@ export default {
     bedCooledDescription: 'La cama se enfrió por debajo del umbral tras la impresión',
     firstLayerCompleteLabel: 'Primera capa completada',
     firstLayerCompleteDescription: 'Notificar con una captura cuando termina la primera capa',
+    pauseUpcomingLabel: 'Pausa próxima',
+    pauseUpcomingDescription: 'Aviso antes de una pausa añadida en el laminador',
+    pauseUpcomingBadge: 'Pausa',
     connectedApps: 'Aplicaciones conectadas',
     appMessages: 'Mensajes de aplicaciones conectadas',
     appMessagesDescription: 'Entregar los mensajes que otras aplicaciones envían a través de Bambuddy, p. ej. Bambuddy Orders',

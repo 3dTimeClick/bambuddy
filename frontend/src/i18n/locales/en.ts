@@ -917,6 +917,9 @@ export default {
       openSettings: 'Open settings',
     },
     estimatedCompletion: 'Estimated completion time',
+    pauseIn: '{{time}} to pause · {{eta}}',
+    pauseAtLayer: 'Pause at layer {{layer}}',
+    nextPauseAtLayer: 'Next pause added in the slicer, at layer {{layer}}',
     plateNumber: 'Plate {{number}}',
     slotOptions: 'Slot options',
     // AMS hover popup
@@ -2216,6 +2219,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Bed Cooled Threshold',
     bedCooledThresholdDescription: 'Temperature below which the bed is considered cooled after a print',
+    pauseWarningMinutes: 'Pause Heads-Up',
+    pauseWarningMinutesDescription: 'Minutes before a pause added in the slicer to send the "Pause coming up" notification',
     userNotificationsEnabled: 'User Notifications',
     userNotificationsEnabledDescription: 'Enable the user notifications menu and email notifications for print job events. Requires Advanced Authentication.',
     userNotificationsDisabledHint: 'Enable Advanced Authentication to use user notifications.',
@@ -6732,6 +6737,9 @@ export default {
     bedCooledDescription: 'Bed cooled below threshold after print',
     firstLayerCompleteLabel: 'First Layer Complete',
     firstLayerCompleteDescription: 'Notify with snapshot when first layer finishes',
+    pauseUpcomingLabel: 'Pause Coming Up',
+    pauseUpcomingDescription: 'Heads-up before a pause added in the slicer',
+    pauseUpcomingBadge: 'Pause',
     connectedApps: 'Connected apps',
     appMessages: 'Messages from connected apps',
     appMessagesDescription: 'Deliver messages other applications send through Bambuddy, e.g. Bambuddy Orders',

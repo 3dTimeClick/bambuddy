@@ -5873,6 +5873,21 @@ async def _run_migrations(conn):
     # default -- identical DDL on SQLite and Postgres.
     await _safe_execute(conn, "ALTER TABLE print_log_entries ADD COLUMN duration_unmeasured BOOLEAN")
 
+    # Migration: heads-up before a pause the slicer put into the print (#2984).
+    # Off by default, so no channel starts sending it on upgrade. The backfill
+    # covers a table create_all() already gave the column (the ALTER is then
+    # swallowed as a duplicate and existing rows keep NULL).
+    await _safe_execute(
+        conn, "ALTER TABLE notification_providers ADD COLUMN on_print_pause_upcoming BOOLEAN DEFAULT FALSE"
+    )
+    async with conn.begin_nested():
+        await conn.execute(
+            text(
+                "UPDATE notification_providers SET on_print_pause_upcoming = :off WHERE on_print_pause_upcoming IS NULL"
+            ),
+            {"off": False},
+        )
+
     await _migrate_auth_datetimes_to_timestamp(conn)
     await _migrate_add_missing_set_null_fks(conn)
     await _migrate_wallet_transactions_keep_deleted_users(conn)
@@ -5925,6 +5940,7 @@ _PG_COLUMNS_SET_FROM_MODEL = (
     ("notification_providers", "on_location_ha_sensor_alert"),
     ("notification_providers", "on_plate_clear_required"),
     ("notification_providers", "on_print_confirm_request"),
+    ("notification_providers", "on_print_pause_upcoming"),
     ("notification_providers", "on_stock_break_alert"),
     ("notification_providers", "on_stock_reorder_alert"),
     ("notification_providers", "telegram_verdict_mode"),

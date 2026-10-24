@@ -915,6 +915,9 @@ export default {
       openSettings: 'Öppna inställningar',
     },
     estimatedCompletion: 'Beräknad färdigställningstid',
+    pauseIn: '{{time}} till paus · {{eta}}',
+    pauseAtLayer: 'Paus vid lager {{layer}}',
+    nextPauseAtLayer: 'Nästa paus tillagd i slicern, vid lager {{layer}}',
     plateNumber: 'Platta {{number}}',
     slotOptions: 'Fackalternativ',
     // AMS hover popup
@@ -2213,6 +2216,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Tröskelvärde för sval byggplatta',
     bedCooledThresholdDescription: 'Temperatur under vilken byggplattan anses sval efter en utskrift',
+    pauseWarningMinutes: 'Pausvarning',
+    pauseWarningMinutesDescription: 'Minuter före en paus tillagd i slicern då aviseringen "Paus närmar sig" skickas',
     userNotificationsEnabled: 'Användarnotiser',
     userNotificationsEnabledDescription: 'Aktivera menyn för användarnotiser och e-postnotiser för utskriftshändelser. Kräver avancerad autentisering.',
     userNotificationsDisabledHint: 'Aktivera avancerad autentisering för att använda användarnotiser.',
@@ -6728,6 +6733,9 @@ errors: {
     bedCooledDescription: 'Byggplattan kyld under tröskelvärdet efter utskrift',
     firstLayerCompleteLabel: 'Första skikt klart',
     firstLayerCompleteDescription: 'Notis med ögonblicksbild när första skiktet är klart',
+    pauseUpcomingLabel: 'Paus närmar sig',
+    pauseUpcomingDescription: 'Förvarning före en paus tillagd i slicern',
+    pauseUpcomingBadge: 'Paus',
     connectedApps: 'Anslutna appar',
     appMessages: 'Meddelanden från anslutna appar',
     appMessagesDescription: 'Leverera meddelanden som andra program skickar via Bambuddy, t.ex. Bambuddy Orders',

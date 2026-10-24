@@ -914,6 +914,9 @@ export default {
       openSettings: "Відкрити налаштування",
     },
     estimatedCompletion: "Орієнтовний час виконання",
+    pauseIn: "{{time}} до паузи · {{eta}}",
+    pauseAtLayer: "Пауза на шарі {{layer}}",
+    nextPauseAtLayer: "Наступна пауза, додана в слайсері, на шарі {{layer}}",
     plateNumber: "Пластина {{number}}",
     slotOptions: "Опції слота",
     // AMS hover popup
@@ -2212,6 +2215,8 @@ export default {
     // Notifications
     bedCooledThreshold: "Поріг охолодження столу",
     bedCooledThresholdDescription: "Температура, нижче якої стіл вважається охолодженим після друку",
+    pauseWarningMinutes: "Попередження про паузу",
+    pauseWarningMinutesDescription: "За скільки хвилин до паузи, доданої в слайсері, надсилати сповіщення \"Наближається пауза\"",
     userNotificationsEnabled: "Сповіщення користувача",
     userNotificationsEnabledDescription: "Увімкніть меню сповіщень користувача та сповіщення електронною поштою про події завдань друку. Потрібна розширена автентифікація.",
     userNotificationsDisabledHint: "Увімкніть розширену автентифікацію, щоб використовувати сповіщення користувачів.",
@@ -6720,6 +6725,9 @@ export default {
     bedCooledDescription: "Після друку стіл охолов нижче заданого порога",
     firstLayerCompleteLabel: "Перший шар завершено",
     firstLayerCompleteDescription: "Сповістити зі знімком після завершення першого шару",
+    pauseUpcomingLabel: "Наближається пауза",
+    pauseUpcomingDescription: "Попередження перед паузою, доданою в слайсері",
+    pauseUpcomingBadge: "Пауза",
     connectedApps: 'Підключені застосунки',
     appMessages: 'Повідомлення підключених застосунків',
     appMessagesDescription: 'Доставляти повідомлення, які інші застосунки надсилають через Bambuddy, наприклад Bambuddy Orders',

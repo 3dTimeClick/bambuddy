@@ -910,6 +910,9 @@ export default {
       openSettings: 'Abrir configurações',
     },
     estimatedCompletion: 'Tempo estimado de conclusão',
+    pauseIn: '{{time}} até a pausa · {{eta}}',
+    pauseAtLayer: 'Pausa na camada {{layer}}',
+    nextPauseAtLayer: 'Próxima pausa adicionada no fatiador, na camada {{layer}}',
     plateNumber: 'Placa {{number}}',
     slotOptions: 'Opções de slot',
     // AMS hover popup
@@ -2149,6 +2152,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Limite de Resfriamento da Cama',
     bedCooledThresholdDescription: 'Temperatura abaixo da qual a cama é considerada resfriada após uma impressão',
+    pauseWarningMinutes: 'Aviso de pausa',
+    pauseWarningMinutesDescription: 'Minutos antes de uma pausa adicionada no fatiador para enviar a notificação "Pausa chegando"',
     userNotificationsEnabled: 'Notificações do Usuário',
     userNotificationsEnabledDescription: 'Ativa o menu de notificações do usuário e notificações por e-mail para eventos de impressão. Requer Autenticação Avançada.',
     userNotificationsDisabledHint: 'Ative a Autenticação Avançada para usar as notificações do usuário.',
@@ -6666,6 +6671,9 @@ export default {
     bedCooledDescription: 'Mesa resfriou abaixo do limite após a impressão',
     firstLayerCompleteLabel: 'Primeira camada concluída',
     firstLayerCompleteDescription: 'Notificar com foto quando a primeira camada terminar',
+    pauseUpcomingLabel: 'Pausa chegando',
+    pauseUpcomingDescription: 'Aviso antes de uma pausa adicionada no fatiador',
+    pauseUpcomingBadge: 'Pausa',
     connectedApps: 'Aplicativos conectados',
     appMessages: 'Mensagens de aplicativos conectados',
     appMessagesDescription: 'Entregar mensagens que outros aplicativos enviam pelo Bambuddy, p. ex. Bambuddy Orders',

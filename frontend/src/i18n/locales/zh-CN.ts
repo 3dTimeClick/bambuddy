@@ -910,6 +910,9 @@ export default {
       openSettings: '打开设置',
     },
     estimatedCompletion: '预计完成时间',
+    pauseIn: '距暂停 {{time}} · {{eta}}',
+    pauseAtLayer: '在第 {{layer}} 层暂停',
+    nextPauseAtLayer: '切片软件中添加的下一个暂停，在第 {{layer}} 层',
     plateNumber: '板 {{number}}',
     slotOptions: '槽位选项',
     // AMS hover popup
@@ -2194,6 +2197,8 @@ export default {
     // Notifications
     bedCooledThreshold: '热床冷却阈值',
     bedCooledThresholdDescription: '打印后热床被视为已冷却的温度',
+    pauseWarningMinutes: '暂停提前提醒',
+    pauseWarningMinutesDescription: '在切片软件中添加的暂停前多少分钟发送“即将暂停”通知',
     userNotificationsEnabled: '用户通知',
     userNotificationsEnabledDescription: '启用用户通知菜单和打印任务事件的邮件通知。需要高级身份验证。',
     userNotificationsDisabledHint: '请启用高级身份验证以使用用户通知。',
@@ -6665,6 +6670,9 @@ export default {
     bedCooledDescription: '打印后热床温度降至阈值以下',
     firstLayerCompleteLabel: '首层打印完成',
     firstLayerCompleteDescription: '首层完成时发送带照片的通知',
+    pauseUpcomingLabel: '即将暂停',
+    pauseUpcomingDescription: '切片软件中添加的暂停前提醒',
+    pauseUpcomingBadge: '暂停',
     connectedApps: '已连接的应用',
     appMessages: '来自已连接应用的消息',
     appMessagesDescription: '投递其他应用通过 Bambuddy 发送的消息，例如 Bambuddy Orders',

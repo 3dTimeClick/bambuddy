@@ -909,6 +909,9 @@ export default {
       openSettings: '設定を開く',
     },
     estimatedCompletion: '完了予定時刻',
+    pauseIn: '一時停止まで{{time}} · {{eta}}',
+    pauseAtLayer: 'レイヤー{{layer}}で一時停止',
+    nextPauseAtLayer: 'スライサーで追加した次の一時停止（レイヤー{{layer}}）',
     plateNumber: 'プレート {{number}}',
     slotOptions: 'スロットオプション',
     // AMS hover popup
@@ -2193,6 +2196,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'ベッド冷却しきい値',
     bedCooledThresholdDescription: '印刷後にベッドが冷却されたと見なす温度',
+    pauseWarningMinutes: '一時停止の事前通知',
+    pauseWarningMinutesDescription: 'スライサーで追加した一時停止の何分前に「まもなく一時停止」通知を送るか',
     userNotificationsEnabled: 'ユーザー通知',
     userNotificationsEnabledDescription: 'ユーザー通知メニューと印刷ジョブイベントのメール通知を有効にします。高度な認証が必要です。',
     userNotificationsDisabledHint: 'ユーザー通知を使用するには高度な認証を有効にしてください。',
@@ -6680,6 +6685,9 @@ export default {
     bedCooledDescription: '印刷後にベッドがしきい値以下に冷却',
     firstLayerCompleteLabel: '第1層完了',
     firstLayerCompleteDescription: '第1層完了時にスナップショット付きで通知',
+    pauseUpcomingLabel: 'まもなく一時停止',
+    pauseUpcomingDescription: 'スライサーで追加した一時停止の前に通知',
+    pauseUpcomingBadge: '一時停止',
     connectedApps: '連携アプリ',
     appMessages: '連携アプリからのメッセージ',
     appMessagesDescription: '他のアプリケーションが Bambuddy 経由で送信するメッセージを配信します（例: Bambuddy Orders）',

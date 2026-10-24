@@ -865,6 +865,9 @@ export default {
       openSettings: '설정 열기'
     },
     estimatedCompletion: '예상 완료 시간',
+    pauseIn: '일시정지까지 {{time}} · {{eta}}',
+    pauseAtLayer: '레이어 {{layer}}에서 일시정지',
+    nextPauseAtLayer: '슬라이서에서 추가한 다음 일시정지, 레이어 {{layer}}',
     plateNumber: '플레이트 {{number}}',
     slotOptions: '슬롯 옵션',
     amsPopup: {
@@ -2100,6 +2103,8 @@ export default {
     updateAvailable: '업데이트 가능',
     bedCooledThreshold: '베드 냉각 임계값',
     bedCooledThresholdDescription: '인쇄 후 베드가 냉각된 것으로 간주되는 온도',
+    pauseWarningMinutes: '일시정지 사전 알림',
+    pauseWarningMinutesDescription: '슬라이서에서 추가한 일시정지 몇 분 전에 "곧 일시정지" 알림을 보낼지',
     userNotificationsEnabled: '사용자 알림',
     userNotificationsEnabledDescription: '사용자 알림 메뉴 및 인쇄 작업 이벤트에 대한 이메일 알림을 활성화합니다. 고급 인증이 필요합니다.',
     userNotificationsDisabledHint: '사용자 알림을 사용하려면 고급 인증을 활성화하세요.',
@@ -6399,6 +6404,9 @@ export default {
     bedCooledDescription: '인쇄 후 베드가 임계값 이하로 냉각됨',
     firstLayerCompleteLabel: '첫 번째 레이어 완료',
     firstLayerCompleteDescription: '첫 번째 레이어 완료 시 스냅샷과 함께 알림',
+    pauseUpcomingLabel: '곧 일시정지',
+    pauseUpcomingDescription: '슬라이서에서 추가한 일시정지 전에 알림',
+    pauseUpcomingBadge: '일시정지',
     connectedApps: '연결된 앱',
     appMessages: '연결된 앱의 메시지',
     appMessagesDescription: '다른 애플리케이션이 Bambuddy를 통해 보내는 메시지를 전달합니다(예: Bambuddy Orders)',

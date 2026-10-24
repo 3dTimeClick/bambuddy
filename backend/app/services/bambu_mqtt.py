@@ -1149,6 +1149,11 @@ class PrinterState:
     printable_objects: dict = field(default_factory=dict)
     # Objects that have been skipped during the current print
     skipped_objects: list = field(default_factory=list)
+    # Pauses the slicer put into the running print, from its archived 3MF
+    # (#2984): threemf_tools.PausePoint, in print order. Empty when unknown.
+    pause_points: list = field(default_factory=list)
+    # Layers of those pauses a heads-up notification already went out for.
+    pause_warned_layers: set = field(default_factory=set)
     # Fan speeds (0-100 percentage, None if not available for this model)
     cooling_fan_speed: int | None = None  # Part cooling fan
     big_fan1_speed: int | None = None  # Auxiliary fan
@@ -4465,6 +4470,16 @@ class BambuMQTTClient:
             self._eop_probe_armed = False
             self._eop_probe_last = {}
 
+    @property
+    def layer_before_new_print(self) -> int:
+        """The layer the printer was on when a print start was detected, until
+        it reports another (#3317); 0 when none.
+
+        For a print that is resumed rather than new, which a restart while it
+        was paused makes look new, that is the layer it is still on (#2984).
+        """
+        return self._stale_layer_num
+
     def _is_stale_layer(self, value) -> bool:
         """Whether a frame's `layer_num` is the previous print's last layer (#3317)."""
         if not self._stale_layer_num:
@@ -5800,6 +5815,9 @@ class BambuMQTTClient:
         if is_new_print or is_file_change:
             # Clear any old HMS errors when a new print starts
             self.state.hms_errors = []
+            # The last print's pauses; this one's come from its 3MF (#2984).
+            self.state.pause_points = []
+            self.state.pause_warned_layers = set()
             # Reset layer tracking for new print (needed for layer-based timelapse)
             # #3317: only above 1. Every print reports layer 1 first, which
             # clears a higher value; a previous print that ended on layer 1

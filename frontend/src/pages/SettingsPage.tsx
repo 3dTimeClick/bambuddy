@@ -246,6 +246,15 @@ function SecretHint({ name, value, reenter }: { name: string; value: unknown; re
   );
 }
 
+/**
+ * The pause heads-up lead time as the server takes it: whole minutes, 1-120,
+ * the default for an emptied field (#2984). Compared clamped too, so a value
+ * the server stored clamped does not read as an unsaved change forever.
+ */
+function clampPauseWarningMinutes(minutes: number | undefined): number {
+  return Math.min(120, Math.max(1, Math.round(minutes || 5)));
+}
+
 export function SettingsPage() {
   const [cameraTokenRevision, setCameraTokenRevision] = useState(0);
   const queryClient = useQueryClient();
@@ -1272,6 +1281,7 @@ export function SettingsPage() {
       (baseline.announcements_all_users ?? false) !== (localSettings.announcements_all_users ?? false) ||
       (baseline.local_login_enabled ?? true) !== (localSettings.local_login_enabled ?? true) ||
       (baseline.bed_cooled_threshold ?? 35) !== (localSettings.bed_cooled_threshold ?? 35) ||
+      clampPauseWarningMinutes(baseline.pause_warning_minutes) !== clampPauseWarningMinutes(localSettings.pause_warning_minutes) ||
       baseline.ams_humidity_good !== localSettings.ams_humidity_good ||
       baseline.ams_humidity_fair !== localSettings.ams_humidity_fair ||
       baseline.ams_temp_good !== localSettings.ams_temp_good ||
@@ -1400,6 +1410,7 @@ export function SettingsPage() {
         announcements_all_users: localSettings.announcements_all_users ?? false,
         local_login_enabled: localSettings.local_login_enabled,
         bed_cooled_threshold: localSettings.bed_cooled_threshold,
+        pause_warning_minutes: clampPauseWarningMinutes(localSettings.pause_warning_minutes),
         ams_humidity_good: localSettings.ams_humidity_good,
         ams_humidity_fair: localSettings.ams_humidity_fair,
         ams_temp_good: localSettings.ams_temp_good,
@@ -4094,6 +4105,32 @@ export function SettingsPage() {
                       className="w-16 px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-sm text-center focus:outline-none focus:ring-1 focus:ring-bambu-green"
                     />
                     <span className="text-sm text-bambu-gray">°C</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Pause heads-up lead time (#2984) */}
+            <Card className="mb-4">
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white text-sm font-medium">{t('settings.pauseWarningMinutes')}</p>
+                    <p className="text-xs text-bambu-gray">{t('settings.pauseWarningMinutesDescription')}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      step={1}
+                      value={localSettings.pause_warning_minutes ?? 5}
+                      onChange={(e) => updateSetting('pause_warning_minutes', Number(e.target.value))}
+                      onBlur={() => updateSetting('pause_warning_minutes', clampPauseWarningMinutes(localSettings.pause_warning_minutes))}
+                      aria-label={t('settings.pauseWarningMinutes')}
+                      className="w-16 px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-sm text-center focus:outline-none focus:ring-1 focus:ring-bambu-green"
+                    />
+                    <span className="text-sm text-bambu-gray">{t('common.minutes')}</span>
                   </div>
                 </div>
               </CardContent>

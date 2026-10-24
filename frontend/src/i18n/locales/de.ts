@@ -910,6 +910,9 @@ export default {
       openSettings: 'Einstellungen öffnen',
     },
     estimatedCompletion: 'Geschätzte Fertigstellungszeit',
+    pauseIn: '{{time}} bis Pause · {{eta}}',
+    pauseAtLayer: 'Pause bei Schicht {{layer}}',
+    nextPauseAtLayer: 'Nächste im Slicer gesetzte Pause, bei Schicht {{layer}}',
     plateNumber: 'Platte {{number}}',
     slotOptions: 'Slot-Optionen',
     // AMS hover popup
@@ -2194,6 +2197,8 @@ export default {
     // Notifications
     bedCooledThreshold: 'Bett-Abkühlung Schwellenwert',
     bedCooledThresholdDescription: 'Temperatur, unter der das Bett nach einem Druck als abgekühlt gilt',
+    pauseWarningMinutes: 'Pausen-Vorwarnung',
+    pauseWarningMinutesDescription: 'Minuten vor einer im Slicer gesetzten Pause, zu denen die Benachrichtigung "Pause steht bevor" gesendet wird',
     userNotificationsEnabled: 'Benutzerbenachrichtigungen',
     userNotificationsEnabledDescription: 'Aktiviert das Benutzerbenachrichtigungsmenü und E-Mail-Benachrichtigungen für Druckereignisse. Erfordert Erweiterte Authentifizierung.',
     userNotificationsDisabledHint: 'Erweiterte Authentifizierung aktivieren, um Benutzerbenachrichtigungen zu verwenden.',
@@ -6679,6 +6684,9 @@ export default {
     bedCooledDescription: 'Bett nach dem Druck unter Schwellenwert abgekühlt',
     firstLayerCompleteLabel: 'Erste Schicht fertig',
     firstLayerCompleteDescription: 'Benachrichtigung mit Foto nach erster Schicht',
+    pauseUpcomingLabel: 'Pause steht bevor',
+    pauseUpcomingDescription: 'Vorwarnung vor einer im Slicer gesetzten Pause',
+    pauseUpcomingBadge: 'Pause',
     connectedApps: 'Verbundene Apps',
     appMessages: 'Nachrichten verbundener Apps',
     appMessagesDescription: 'Nachrichten zustellen, die andere Anwendungen über Bambuddy senden, z. B. Bambuddy Orders',

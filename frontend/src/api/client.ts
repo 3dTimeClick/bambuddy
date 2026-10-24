@@ -734,6 +734,9 @@ export interface PrinterStatus {
   last_ams_update: number;
   // Number of printable objects in current print (for skip objects feature)
   printable_objects_count: number;
+  // The next pause the slicer put into the running print (#2984). minutes is
+  // null while the printer reports no time left yet.
+  next_pause?: { layer: number; minutes: number | null } | null;
   // Fan speeds (0-100 percentage, null if not available for this model)
   cooling_fan_speed: number | null;  // Part cooling fan
   big_fan1_speed: number | null;     // Auxiliary fan
@@ -1536,6 +1539,8 @@ export interface AppSettings {
   prometheus_token: string;
   // Bed cooled threshold
   bed_cooled_threshold: number;
+  // Minutes before a slicer pause to send the pause heads-up (#2984)
+  pause_warning_minutes: number;
   // Inventory low stock threshold
   low_stock_threshold: number;
   // Session policy (#1706) — admin-set ceiling, hours, [1, 720]
@@ -3223,6 +3228,7 @@ export interface NotificationProvider {
   on_location_ha_sensor_alert: boolean;
   // First layer complete
   on_first_layer_complete: boolean;
+  on_print_pause_upcoming: boolean;
   on_app_message: boolean;
   // Inventory stock alerts
   on_stock_reorder_alert: boolean;
@@ -3292,6 +3298,7 @@ export interface NotificationProviderCreate {
   on_location_ha_sensor_alert?: boolean;
   // First layer complete
   on_first_layer_complete?: boolean;
+  on_print_pause_upcoming?: boolean;
   on_app_message?: boolean;
   // Inventory stock alerts
   on_stock_reorder_alert?: boolean;
@@ -3354,6 +3361,7 @@ export interface NotificationProviderUpdate {
   on_location_ha_sensor_alert?: boolean;
   // First layer complete
   on_first_layer_complete?: boolean;
+  on_print_pause_upcoming?: boolean;
   on_app_message?: boolean;
   // Inventory stock alerts
   on_stock_reorder_alert?: boolean;
