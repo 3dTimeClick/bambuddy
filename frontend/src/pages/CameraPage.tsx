@@ -12,6 +12,7 @@ import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModa
 import { CameraDiagnoseModal } from '../components/CameraDiagnoseModal';
 import { useStreamImgRef } from '../hooks/useStreamImgRef';
 import { useCameraViewerId } from '../hooks/useCameraViewerId';
+import { isSideways, useSidewaysBox } from '../hooks/useSidewaysBox';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 // The server's Retry-After for a snapshot while a live view starts.
@@ -659,6 +660,13 @@ export function CameraPage() {
 
   const isDisabled = streamLoading || transitioning || isReconnecting;
 
+  // A sideways camera is laid out with the video area's sides swapped. The
+  // viewport is the wrong box: the header and padding leave the area smaller,
+  // and a wide window cut the picture off at the top and bottom (#3362).
+  const videoAreaRef = useRef<HTMLDivElement>(null);
+  const sideways = isSideways(printer?.camera_rotation);
+  const videoArea = useSidewaysBox(videoAreaRef, sideways && id > 0);
+
   if (!id) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -764,7 +772,7 @@ export function CameraPage() {
         onTouchEnd={handleTouchEnd}
         style={{ touchAction: 'none' }}
       >
-        <div className="relative w-full h-full flex items-center justify-center">
+        <div ref={videoAreaRef} className="relative w-full h-full flex items-center justify-center">
           {(streamLoading || transitioning) && !isReconnecting && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
               <div className="text-center">
@@ -825,7 +833,11 @@ export function CameraPage() {
             className="max-w-full max-h-full object-contain select-none"
             style={{
               transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px) rotate(${printer?.camera_rotation || 0}deg)`,
-              ...(printer?.camera_rotation === 90 || printer?.camera_rotation === 270 ? { maxWidth: '100vh', maxHeight: '100vw' } : {}),
+              ...(sideways
+                ? videoArea
+                  ? { maxWidth: videoArea.height, maxHeight: videoArea.width }
+                  : { maxWidth: '100vh', maxHeight: '100vw' }
+                : {}),
               cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default',
             }}
             onError={currentUrl ? handleStreamError : undefined}

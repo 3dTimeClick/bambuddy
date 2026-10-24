@@ -118,6 +118,37 @@ describe('CameraPage', () => {
     });
   });
 
+  // The viewport was the box a sideways camera was swapped against, but the
+  // header and padding leave the video area smaller, so a wide window cut the
+  // picture off at the top and bottom (#3362).
+  describe('a camera turned sideways', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      [90, { maxWidth: '1000px', maxHeight: '1880px' }],
+      [270, { maxWidth: '1000px', maxHeight: '1880px' }],
+    ])('fits a camera turned %i degrees into the video area', async (rotation, expected) => {
+      const isVideoArea = (el: HTMLElement) => el.querySelector(':scope > img') !== null && el.classList.contains('h-full');
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+        return isVideoArea(this) ? 1880 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+        return isVideoArea(this) ? 1000 : 0;
+      });
+      server.use(http.get('/api/v1/printers/:id', () => HttpResponse.json({ ...mockPrinter, camera_rotation: rotation })));
+
+      renderCameraPage(1);
+
+      await waitFor(() => {
+        const img = document.querySelector('img') as HTMLImageElement;
+        expect(img.style.transform).toContain(`rotate(${rotation}deg)`);
+        expect(img).toHaveStyle(expected);
+      });
+    });
+  });
+
   describe('camera controls', () => {
     it('renders without crashing', async () => {
       renderCameraPage(1);

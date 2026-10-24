@@ -10,6 +10,7 @@ import { SkipObjectsModal, SkipObjectsIcon } from './SkipObjectsModal';
 import { CameraDiagnoseModal } from './CameraDiagnoseModal';
 import { useStreamImgRef } from '../hooks/useStreamImgRef';
 import { useCameraViewerId } from '../hooks/useCameraViewerId';
+import { isSideways, useSidewaysBox } from '../hooks/useSidewaysBox';
 
 interface EmbeddedCameraViewerProps {
   printerId: number;
@@ -117,6 +118,12 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
     queryFn: () => api.getPrinter(printerId),
     enabled: printerId > 0,
   });
+
+  // A camera turned sideways is laid out with the video area's sides swapped,
+  // or it is cut off in a wide window and boxed in a tall one (#3362).
+  const videoAreaRef = useRef<HTMLDivElement>(null);
+  const sideways = isSideways(printer?.camera_rotation);
+  const videoArea = useSidewaysBox(videoAreaRef, sideways && !isMinimized);
 
   // Fetch printer status for light toggle and skip objects
   const { data: status } = useQuery({
@@ -656,6 +663,7 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
       {/* Video area */}
       {!isMinimized && (
         <div
+          ref={videoAreaRef}
           className={`relative w-full bg-black flex items-center justify-center overflow-hidden ${isFullscreen ? 'h-[calc(100%-40px)]' : 'h-[calc(100%-40px)]'}`}
           onWheel={handleWheel}
           onMouseMove={handleImageMouseMove}
@@ -711,7 +719,11 @@ export function EmbeddedCameraViewer({ printerId, printerName, viewerIndex = 0, 
             className="max-w-full max-h-full object-contain select-none"
             style={{
               transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px) rotate(${printer?.camera_rotation || 0}deg)`,
-              ...(printer?.camera_rotation === 90 || printer?.camera_rotation === 270 ? { maxWidth: '100%', maxHeight: '100%' } : {}),
+              ...(sideways
+                ? videoArea
+                  ? { maxWidth: videoArea.height, maxHeight: videoArea.width }
+                  : { maxWidth: '100%', maxHeight: '100%' }
+                : {}),
               cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default',
             }}
             onError={handleStreamError}

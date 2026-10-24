@@ -114,3 +114,52 @@ describe('EmbeddedCameraViewer stream lifetime', () => {
     expect(screen.getByAltText('Camera stream').getAttribute('src')).toContain('/api/v1/printers/7/camera/stream');
   });
 });
+
+// A sideways camera was laid out at the window's unswapped size and then
+// turned: cut off in a wide window, boxed in by black bars in a tall one (#3362).
+describe('EmbeddedCameraViewer with a camera turned sideways', () => {
+  function sizeVideoArea(width: number, height: number) {
+    const isVideoArea = (el: HTMLElement) => el.querySelector(':scope > img[alt="Camera stream"]') !== null;
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return isVideoArea(this) ? width : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return isVideoArea(this) ? height : 0;
+    });
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    server.use(http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    [270, 400, 260, { maxWidth: '260px', maxHeight: '400px' }],
+    [90, 260, 400, { maxWidth: '400px', maxHeight: '260px' }],
+  ])('fits a camera turned %i degrees into a %ix%i window', async (rotation, width, height, expected) => {
+    sizeVideoArea(width, height);
+    server.use(http.get('/api/v1/printers/:id', () => HttpResponse.json({ id: 7, name: 'A1 Mini', camera_rotation: rotation })));
+
+    render(viewer());
+
+    const img = await screen.findByAltText('Camera stream');
+    await waitFor(() => expect(img.style.transform).toContain(`rotate(${rotation}deg)`));
+    await waitFor(() => expect(img).toHaveStyle(expected));
+  });
+
+  it('leaves an upright camera alone', async () => {
+    sizeVideoArea(400, 260);
+    server.use(http.get('/api/v1/printers/:id', () => HttpResponse.json({ id: 7, name: 'A1 Mini', camera_rotation: 180 })));
+
+    render(viewer());
+
+    const img = await screen.findByAltText('Camera stream');
+    await waitFor(() => expect(img.style.transform).toContain('rotate(180deg)'));
+    expect(img.style.maxWidth).toBe('');
+    expect(img.style.maxHeight).toBe('');
+  });
+});
