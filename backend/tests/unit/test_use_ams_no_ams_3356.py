@@ -76,3 +76,86 @@ def test_dual_nozzle_is_left_alone(client):
     assert client.start_print("case_body.3mf", ams_mapping=None, use_ams=True)
 
     assert _use_ams(client) is True
+
+
+# The AMS blocks below are shaped like Martin's X1C and H2C captures: the unit
+# list and ams_exist_bits arrive together in every push.
+def _unit(unit_id, trays=4):
+    return {"id": str(unit_id), "tray": [{"id": str(t), "tray_type": "PLA"} for t in range(trays)]}
+
+
+def _push(units, bits):
+    return {"ams": units, "ams_exist_bits": bits, "tray_now": "255", "power_on_flag": False}
+
+
+def _unit_ids(client):
+    return sorted((u["id"] for u in client.state.raw_data["ams"]), key=int)
+
+
+class TestAnUnpluggedAms:
+    def test_the_x1c_unplug_and_replug(self, client):
+        client.model = "X1C"
+        client._handle_ams_data(_push([_unit(1)], "2"))
+
+        client._handle_ams_data(_push([], "0"))
+        assert _unit_ids(client) == []
+
+        client._handle_ams_data(_push([_unit(1)], "2"))
+        assert _unit_ids(client) == ["1"]
+
+    def test_printing_from_the_spool_holder_after_the_unplug(self, client):
+        """No restart needed: the no-AMS rule sees the unplug."""
+        client._handle_ams_data(_push([_unit(0)], "1"))
+        client._handle_ams_data(_push([], "0"))
+
+        assert client.start_print("case_body.3mf", ams_mapping=None, use_ams=True)
+
+        assert _use_ams(client) is False
+
+    def test_a_unit_whose_bit_is_cleared_goes(self, client):
+        client.model = "H2C"
+        client._handle_ams_data(_push([_unit(0), _unit(1), _unit(2), _unit(128, 1)], "17"))
+
+        client._handle_ams_data(_push([_unit(0), _unit(2), _unit(128, 1)], "15"))
+
+        assert _unit_ids(client) == ["0", "2", "128"]
+
+    def test_a_partial_list_keeps_the_units_it_leaves_out(self, client):
+        client.model = "H2C"
+        client._handle_ams_data(_push([_unit(0), _unit(1), _unit(2), _unit(128, 1)], "17"))
+
+        client._handle_ams_data(_push([_unit(0)], "17"))
+
+        assert _unit_ids(client) == ["0", "1", "2", "128"]
+
+    def test_an_ams_ht_next_to_other_units_is_kept(self, client):
+        """Its bit is not read: measured once, on one printer."""
+        client.model = "H2C"
+        client._handle_ams_data(_push([_unit(0), _unit(128, 1)], "11"))
+
+        client._handle_ams_data(_push([_unit(0)], "1"))
+
+        assert _unit_ids(client) == ["0", "128"]
+
+    def test_the_last_ams_ht_goes_with_everything_else(self, client):
+        client._handle_ams_data(_push([_unit(128, 1)], "10"))
+
+        client._handle_ams_data(_push([], "0"))
+
+        assert _unit_ids(client) == []
+
+    def test_a_push_without_bits_changes_nothing(self, client):
+        client._handle_ams_data(_push([_unit(0)], "1"))
+
+        client._handle_ams_data({"ams": []})
+
+        assert _unit_ids(client) == ["0"]
+
+    def test_no_bits_next_to_a_listed_unit_keeps_an_ams_ht(self, client):
+        """All-zero bits while units are still listed is the shutdown pattern
+        (#765), not a report that the AMS HT is gone."""
+        client._handle_ams_data(_push([_unit(0), _unit(128, 1)], "11"))
+
+        client._handle_ams_data(_push([_unit(0)], "0"))
+
+        assert _unit_ids(client) == ["0", "128"]

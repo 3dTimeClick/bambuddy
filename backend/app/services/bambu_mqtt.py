@@ -259,6 +259,29 @@ def resolve_external_spools_in_mapping(ams_mapping: object, ams_mapping2: object
     return resolved
 
 
+def unit_reported_absent(ams_id, ams_list: list, ams_exist_bits) -> bool:
+    """Whether a push that doesn't list AMS unit ``ams_id`` says it is unplugged.
+
+    ``ams_exist_bits`` (hex) has bit n set for AMS unit n, measured on an X1C
+    (unit 1 -> "2", none -> "0") and an H2C (units 0, 1, 2 and HT 128 -> "17").
+    So an AMS unit 0-3 whose bit is clear is gone. An empty unit list with no
+    bits set means no unit at all, which is what the X1C sends with its AMS
+    unplugged. Anything else is kept, as the merge always did: a partial push
+    lists only some units, and the bits of an AMS HT or AMS Lite next to other
+    units are not measured well enough to read.
+    """
+    if ams_exist_bits is None:
+        return False
+    try:
+        bits = int(ams_exist_bits, 16) if isinstance(ams_exist_bits, str) else int(ams_exist_bits)
+        unit = int(ams_id)
+    except (TypeError, ValueError):
+        return False
+    if bits == 0 and not ams_list:
+        return True
+    return 0 <= unit <= 3 and not bits >> unit & 1
+
+
 def apply_tray_exist_bits(
     units: list,
     tray_exist_bits_str: str | int | None,
@@ -3828,6 +3851,16 @@ class BambuMQTTClient:
                     # unit to preserve tray, sn, sw_ver, and other accumulated data.
                     ams_unit = {**existing_unit, **ams_unit}
                 existing_by_id[ams_id] = ams_unit
+
+        # The merge keeps a unit the push doesn't list, so an unplugged AMS used
+        # to stay until Bambuddy restarted (#3356). Drop one only on the
+        # printer's own word that it is gone.
+        if isinstance(ams_data, dict):
+            listed = {ams_unit.get("id") for ams_unit in ams_list}
+            for ams_id in [i for i in existing_by_id if i not in listed]:
+                if unit_reported_absent(ams_id, ams_list, ams_data.get("ams_exist_bits")):
+                    logger.info("[%s] AMS %s no longer attached, removing it", self.serial_number, ams_id)
+                    del existing_by_id[ams_id]
 
         # Convert back to list, sorted by ID for consistent ordering
         merged_ams = sorted(existing_by_id.values(), key=lambda x: x.get("id", 0))
