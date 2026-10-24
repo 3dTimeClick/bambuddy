@@ -3551,9 +3551,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: 'Câmeras',
+    noPrinters: 'Nenhuma impressora',
+    open: 'Mostrar câmera',
+    close: 'Fechar câmera',
+  },
   camera: {
     title: 'Visualização da Câmera',
     invalidPrinterId: 'ID da impressora inválido',
+    popOut: 'Abrir em uma janela própria',
+    popIn: 'Mostrar como sobreposição no Bambuddy',
+    popInNoTab: 'Nenhuma aba do Bambuddy está aberta para mostrar a câmera.',
+    poppedIn: 'Esta câmera agora é exibida no Bambuddy. Você pode fechar esta janela.',
     live: 'Ao Vivo',
     snapshot: 'Captura',
     restartStream: 'Reiniciar transmissão',

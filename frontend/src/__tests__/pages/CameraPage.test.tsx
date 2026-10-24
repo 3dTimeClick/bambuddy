@@ -15,6 +15,7 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { AuthProvider } from '../../contexts/AuthContext';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../../i18n';
+import { listenForCameraPopIn } from '../../utils/camera';
 
 // Mock navigator.sendBeacon which isn't available in jsdom
 vi.stubGlobal('navigator', {
@@ -445,6 +446,72 @@ describe('CameraPage', () => {
         const src = (document.querySelector('img') as HTMLImageElement | null)?.getAttribute('src') || '';
         expect(src).toContain('fps=15');
       });
+    });
+  });
+
+  describe('back into a Bambuddy tab (#2737)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      sessionStorage.clear();
+    });
+
+    it('moves into the open tab as an overlay and closes the window', async () => {
+      const open = vi.fn();
+      const stop = listenForCameraPopIn('t1', open);
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      const fetchSpy = vi.spyOn(global, 'fetch');
+      try {
+        renderCameraPage(1);
+        await screen.findByText('X1 Carbon');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show as an overlay in Bambuddy' }));
+
+        await waitFor(() => expect(close).toHaveBeenCalled());
+        expect(open).toHaveBeenCalledExactlyOnceWith(1, 'X1 Carbon');
+        // A tab the script cannot close says where the camera went, and its
+        // stream is gone with the img.
+        expect(await screen.findByText(/This camera is now shown in Bambuddy/)).toBeInTheDocument();
+        expect(document.querySelector('img')).toBeNull();
+        // The view is gone with its timers, and the backend is told this
+        // viewer left even though the tab itself stays.
+        await waitFor(() =>
+          expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/printers/1/camera/stop'))).toBe(true),
+        );
+      } finally {
+        stop();
+      }
+    });
+
+    it('stays open and says so when no Bambuddy tab is open', async () => {
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      renderCameraPage(1);
+      await screen.findByText('X1 Carbon');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show as an overlay in Bambuddy' }));
+
+      expect(await screen.findByText('No Bambuddy tab is open to show the camera in.')).toBeInTheDocument();
+      expect(close).not.toHaveBeenCalled();
+      expect(document.querySelector('img')).not.toBeNull();
+    });
+
+    it('goes back to the tab it was opened from', async () => {
+      // The popup's sessionStorage is a copy of its opener's.
+      sessionStorage.setItem('bambuddyTabId', 'opener');
+      const other = vi.fn();
+      const opener = vi.fn();
+      const stops = [listenForCameraPopIn('other', other), listenForCameraPopIn('opener', opener)];
+      vi.spyOn(window, 'close').mockImplementation(() => {});
+      try {
+        renderCameraPage(1);
+        await screen.findByText('X1 Carbon');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show as an overlay in Bambuddy' }));
+
+        await waitFor(() => expect(opener).toHaveBeenCalledExactlyOnceWith(1, 'X1 Carbon'));
+        expect(other).not.toHaveBeenCalled();
+      } finally {
+        stops.forEach(s => s());
+      }
     });
   });
 

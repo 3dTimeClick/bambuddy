@@ -3551,9 +3551,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: '摄像头',
+    noPrinters: '没有打印机',
+    open: '显示摄像头',
+    close: '关闭摄像头',
+  },
   camera: {
     title: '摄像头视图',
     invalidPrinterId: '无效的打印机 ID',
+    popOut: '在单独窗口中打开',
+    popIn: '在 Bambuddy 中以浮窗显示',
+    popInNoTab: '没有可显示摄像头的 Bambuddy 标签页。',
+    poppedIn: '此摄像头现已在 Bambuddy 中显示。你可以关闭此窗口。',
     live: '实时',
     snapshot: '快照',
     restartStream: '重启流',

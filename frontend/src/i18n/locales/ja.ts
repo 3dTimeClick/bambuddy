@@ -3564,9 +3564,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: 'カメラ',
+    noPrinters: 'プリンターがありません',
+    open: 'カメラを表示',
+    close: 'カメラを閉じる',
+  },
   camera: {
     title: 'カメラビュー',
     invalidPrinterId: '無効なプリンターID',
+    popOut: '別ウィンドウで開く',
+    popIn: 'Bambuddy でオーバーレイ表示',
+    popInNoTab: 'カメラを表示できる Bambuddy のタブが開いていません。',
+    poppedIn: 'このカメラは Bambuddy に表示されています。このウィンドウは閉じてかまいません。',
     live: 'ライブ',
     snapshot: 'スナップショット',
     restartStream: 'ストリームを再開',

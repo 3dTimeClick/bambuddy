@@ -3551,9 +3551,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: '攝影機',
+    noPrinters: '沒有印表機',
+    open: '顯示攝影機',
+    close: '關閉攝影機',
+  },
   camera: {
     title: '攝影機檢視',
     invalidPrinterId: '無效的印表機 ID',
+    popOut: '在獨立視窗中開啟',
+    popIn: '在 Bambuddy 中以浮動視窗顯示',
+    popInNoTab: '沒有可顯示攝影機的 Bambuddy 分頁。',
+    poppedIn: '此攝影機現已在 Bambuddy 中顯示。你可以關閉此視窗。',
     live: '即時',
     snapshot: '快照',
     restartStream: '重新啟動流',

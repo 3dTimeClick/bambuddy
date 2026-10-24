@@ -163,3 +163,130 @@ describe('EmbeddedCameraViewer with a camera turned sideways', () => {
     expect(img.style.maxHeight).toBe('');
   });
 });
+
+describe('EmbeddedCameraViewer pop-out (#2737)', () => {
+  beforeEach(() => {
+    server.use(
+      http.post('/api/v1/printers/:id/camera/stop', () => HttpResponse.json({ success: true })),
+      http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('opens the camera window and closes the overlay', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onClose = vi.fn();
+    render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={onClose} />);
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in its own window' }));
+
+    expect(open).toHaveBeenCalledWith('/camera/7', 'camera-7', expect.any(String));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the overlay when a popup blocker stopped the window', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const onClose = vi.fn();
+    render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={onClose} />);
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in its own window' }));
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('EmbeddedCameraViewer first position', () => {
+  const originalWidth = window.innerWidth;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: originalWidth });
+    vi.mocked(localStorage.getItem).mockReset();
+  });
+
+  it('moves below the header when the window narrows into the compact layout', async () => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1440 });
+    server.use(http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })));
+    vi.mocked(localStorage.getItem).mockImplementation((key: string) =>
+      key === 'embeddedCameraState_7' ? JSON.stringify({ x: 900, y: 20, width: 400, height: 300 }) : null,
+    );
+    const listeners: Array<(e: { matches: boolean }) => void> = [];
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      ...originalMatchMedia(query),
+      matches: false,
+      addEventListener: (_: string, cb: (e: { matches: boolean }) => void) => listeners.push(cb),
+      removeEventListener: () => {},
+    })) as typeof window.matchMedia;
+    try {
+      const { container } = render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={() => {}} />);
+      await settle();
+      const box = container.querySelector('.fixed') as HTMLElement;
+      expect(box.style.top).toBe('20px');
+
+      await act(async () => listeners.forEach(cb => cb({ matches: true })));
+
+      expect(parseInt(box.style.top, 10)).toBeGreaterThanOrEqual(56);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('cannot be dragged over the compact header', async () => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
+    server.use(http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })));
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ ...originalMatchMedia(query), matches: /max-width/.test(query) })) as typeof window.matchMedia;
+    try {
+      const { container } = render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={() => {}} />);
+      await settle();
+      const box = container.querySelector('.fixed') as HTMLElement;
+
+      fireEvent.mouseDown(screen.getByText('P1S'), { clientX: 100, clientY: 80 });
+      fireEvent.mouseMove(document, { clientX: 100, clientY: 0 });
+      fireEvent.mouseUp(document);
+      expect(parseInt(box.style.top, 10)).toBeGreaterThanOrEqual(56);
+
+      // And by touch, as on a phone.
+      fireEvent.touchStart(screen.getByText('P1S'), { touches: [{ clientX: 100, clientY: 80 }] });
+      fireEvent.touchMove(document, { touches: [{ clientX: 100, clientY: 0 }] });
+      fireEvent.touchEnd(document);
+      expect(parseInt(box.style.top, 10)).toBeGreaterThanOrEqual(56);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('keeps a position saved before the update below the compact header', async () => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
+    server.use(http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })));
+    // The old default, saved by every viewer half a second after it opened.
+    vi.mocked(localStorage.getItem).mockImplementation((key: string) =>
+      key === 'embeddedCameraState_7' ? JSON.stringify({ x: -30, y: 20, width: 400, height: 300 }) : null,
+    );
+
+    const { container } = render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={() => {}} />);
+    await settle();
+
+    const box = container.querySelector('.fixed') as HTMLElement;
+    expect(parseInt(box.style.top, 10)).toBeGreaterThanOrEqual(56);
+  });
+
+  it('opens below the compact header and inside a phone-sized window (#2737)', async () => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 390 });
+    server.use(http.get('/api/v1/printers/:id/camera/status', () => HttpResponse.json({ active: true, stalled: false })));
+
+    const { container } = render(<EmbeddedCameraViewer printerId={7} printerName="P1S" onClose={() => {}} />);
+    await settle();
+
+    const box = container.querySelector('.fixed') as HTMLElement;
+    // The 56px header holds the camera launcher and the bug report.
+    expect(parseInt(box.style.top, 10)).toBeGreaterThanOrEqual(56);
+    expect(parseInt(box.style.left, 10)).toBeGreaterThanOrEqual(0);
+    expect(parseInt(box.style.left, 10) + parseInt(box.style.width, 10)).toBeLessThanOrEqual(390);
+  });
+});

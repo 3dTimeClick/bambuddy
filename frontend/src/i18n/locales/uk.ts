@@ -3591,9 +3591,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: "Камери",
+    noPrinters: "Немає принтерів",
+    open: "Показати камеру",
+    close: "Закрити камеру",
+  },
   camera: {
     title: "Вид з камери",
     invalidPrinterId: "Недійсний ідентифікатор принтера",
+    popOut: "Відкрити в окремому вікні",
+    popIn: "Показати поверх Bambuddy",
+    popInNoTab: "Немає відкритої вкладки Bambuddy, у якій можна показати камеру.",
+    poppedIn: "Ця камера тепер показана в Bambuddy. Це вікно можна закрити.",
     live: "Наживо",
     snapshot: "знімок",
     restartStream: "Перезапустити потік",

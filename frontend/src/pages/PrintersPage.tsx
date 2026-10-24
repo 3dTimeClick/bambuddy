@@ -171,7 +171,7 @@ import { Button } from '../components/Button';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { BulkPrinterToolbar, type PrinterState } from '../components/BulkPrinterToolbar';
 import { FileManagerModal } from '../components/FileManagerModal';
-import { EmbeddedCameraViewer } from '../components/EmbeddedCameraViewer';
+import { useEmbeddedCameras } from '../contexts/EmbeddedCameraContext';
 import { CameraWall } from '../components/CameraWall';
 import { DEFAULT_CAM_WALL_TILE_SIZE } from '../components/camWallTileSize';
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu';
@@ -8897,30 +8897,9 @@ export function PrintersPage() {
   const [chosenCameraViewMode, setChosenCameraViewMode] = useState<CameraViewMode | null>(
     () => readStoredCameraViewMode()
   );
-  // Embedded camera viewer state - supports multiple simultaneous viewers
-  // Persisted to localStorage so cameras reopen after navigation
-  const [embeddedCameraPrinters, setEmbeddedCameraPrinters] = useState<Map<number, { id: number; name: string }>>(() => {
-    const saved = localStorage.getItem('openEmbeddedCameras');
-    if (saved) {
-      try {
-        const cameras = JSON.parse(saved) as Array<{ id: number; name: string }>;
-        return new Map(cameras.map(c => [c.id, c]));
-      } catch {
-        return new Map();
-      }
-    }
-    return new Map();
-  });
-
-  // Persist open cameras to localStorage when they change
-  useEffect(() => {
-    const cameras = Array.from(embeddedCameraPrinters.values());
-    if (cameras.length > 0) {
-      localStorage.setItem('openEmbeddedCameras', JSON.stringify(cameras));
-    } else {
-      localStorage.removeItem('openEmbeddedCameras');
-    }
-  }, [embeddedCameraPrinters]);
+  // The overlays themselves are hosted by the layout, so they stay open on
+  // every page (#2737).
+  const { openEmbeddedCamera } = useEmbeddedCameras();
 
   const { data: printers, isLoading } = useQuery({
     queryKey: ['printers'],
@@ -9893,7 +9872,7 @@ export function PrintersPage() {
             // A wall tile has no room for a split button, so it follows the
             // mode the card buttons last chose.
             if (cameraViewMode === 'embedded') {
-              setEmbeddedCameraPrinters(prev => new Map(prev).set(id, { id, name }));
+              openEmbeddedCamera(id, name);
             } else {
               openCameraWindow(id);
             }
@@ -9988,7 +9967,7 @@ export function PrintersPage() {
                       onUnassignSpoolmanSpool={(id) => unassignSpoolmanMutation.mutate(id)}
                       timeFormat={settings?.time_format || 'system'}
                       cameraViewMode={cameraViewMode}
-                      onOpenEmbeddedCamera={(id, name) => setEmbeddedCameraPrinters(prev => new Map(prev).set(id, { id, name }))}
+                      onOpenEmbeddedCamera={openEmbeddedCamera}
                       onSelectCameraViewMode={selectCameraViewMode}
                       checkPrinterFirmware={firmwareChecksOn}
                       dryingPresets={effectiveDryingPresets}
@@ -10039,7 +10018,7 @@ export function PrintersPage() {
               } : undefined}
               timeFormat={settings?.time_format || 'system'}
               cameraViewMode={cameraViewMode}
-              onOpenEmbeddedCamera={(id, name) => setEmbeddedCameraPrinters(prev => new Map(prev).set(id, { id, name }))}
+              onOpenEmbeddedCamera={openEmbeddedCamera}
               onSelectCameraViewMode={selectCameraViewMode}
               checkPrinterFirmware={firmwareChecksOn}
               dryingPresets={effectiveDryingPresets}
@@ -10126,21 +10105,6 @@ export function PrintersPage() {
           onCancel={() => setBulkConfirmAction(null)}
         />
       )}
-
-      {/* Embedded Camera Viewers - multiple viewers can be open simultaneously */}
-      {Array.from(embeddedCameraPrinters.values()).map((camera, index) => (
-        <EmbeddedCameraViewer
-          key={camera.id}
-          printerId={camera.id}
-          printerName={camera.name}
-          viewerIndex={index}
-          onClose={() => setEmbeddedCameraPrinters(prev => {
-            const next = new Map(prev);
-            next.delete(camera.id);
-            return next;
-          })}
-        />
-      ))}
     </div>
   );
 }

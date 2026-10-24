@@ -3593,9 +3593,19 @@ errors: {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: 'Kameror',
+    noPrinters: 'Inga skrivare',
+    open: 'Visa kamera',
+    close: 'Stäng kamera',
+  },
   camera: {
     title: 'Kameravy',
     invalidPrinterId: 'Ogiltigt skrivar-ID',
+    popOut: 'Öppna i eget fönster',
+    popIn: 'Visa som överlägg i Bambuddy',
+    popInNoTab: 'Ingen Bambuddy-flik är öppen att visa kameran i.',
+    poppedIn: 'Den här kameran visas nu i Bambuddy. Du kan stänga det här fönstret.',
     live: 'Live',
     snapshot: 'Ögonblicksbild',
     restartStream: 'Starta om strömmen',

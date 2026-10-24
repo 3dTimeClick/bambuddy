@@ -3594,9 +3594,19 @@ export default {
   },
 
   // Camera page
+  cameraLauncher: {
+    title: 'Camera\'s',
+    noPrinters: 'Geen printers',
+    open: 'Camera tonen',
+    close: 'Camera sluiten',
+  },
   camera: {
     title: 'Cameraweergave',
     invalidPrinterId: 'Ongeldige printer-ID',
+    popOut: 'In een eigen venster openen',
+    popIn: 'Als overlay in Bambuddy tonen',
+    popInNoTab: 'Er is geen Bambuddy-tabblad open om de camera in te tonen.',
+    poppedIn: 'Deze camera wordt nu in Bambuddy getoond. Je kunt dit venster sluiten.',
     live: 'Live',
     snapshot: 'Momentopname',
     restartStream: 'Stream opnieuw starten',

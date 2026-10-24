@@ -3567,9 +3567,19 @@ export default {
   },
 
   // Kamera sayfası
+  cameraLauncher: {
+    title: 'Kameralar',
+    noPrinters: 'Yazıcı yok',
+    open: 'Kamerayı göster',
+    close: 'Kamerayı kapat',
+  },
   camera: {
     title: 'Kamera Görünümü',
     invalidPrinterId: 'Geçersiz yazıcı ID\'si',
+    popOut: 'Kendi penceresinde aç',
+    popIn: 'Bambuddy içinde kaplama olarak göster',
+    popInNoTab: 'Kamerayı gösterecek açık bir Bambuddy sekmesi yok.',
+    poppedIn: 'Bu kamera artık Bambuddy içinde gösteriliyor. Bu pencereyi kapatabilirsiniz.',
     live: 'Canlı',
     snapshot: 'Anlık Görüntü',
     restartStream: 'Akışı yeniden başlat',

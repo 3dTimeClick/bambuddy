@@ -10,6 +10,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { SliceJobTrackerProvider } from './contexts/SliceJobTrackerContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ColorCatalogProvider } from './contexts/ColorCatalogContext';
+import { EmbeddedCameraProvider } from './contexts/EmbeddedCameraContext';
 import { SpoolBuddyLayout } from './components/spoolbuddy/SpoolBuddyLayout';
 import { PageLoading } from './components/PageLoading';
 import { AuthRetrying } from './components/AuthRetrying';
@@ -229,7 +230,7 @@ function App() {
                 </Route>
 
                 {/* Main app with WebSocket for real-time updates */}
-                <Route element={<ProtectedRoute><WebSocketProvider><Layout /></WebSocketProvider></ProtectedRoute>}>
+                <Route element={<ProtectedRoute><WebSocketProvider><EmbeddedCameraProvider><Layout /></EmbeddedCameraProvider></WebSocketProvider></ProtectedRoute>}>
                   <Route index element={<PrintersPage />} />
                   <Route path="archives" element={<ArchivesPage />} />
                   <Route path="queue" element={<QueuePage />} />

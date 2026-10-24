@@ -3395,9 +3395,19 @@ export default {
     message: '빌드 플레이트에 객체가 감지되었습니다. 인쇄가 자동으로 일시정지되었습니다. 플레이트를 비우고 인쇄를 재개하세요.',
     understand: '확인했습니다'
   },
+  cameraLauncher: {
+    title: '카메라',
+    noPrinters: '프린터 없음',
+    open: '카메라 표시',
+    close: '카메라 닫기',
+  },
   camera: {
     title: '카메라 보기',
     invalidPrinterId: '유효하지 않은 프린터 ID',
+    popOut: '별도 창에서 열기',
+    popIn: 'Bambuddy에서 오버레이로 표시',
+    popInNoTab: '카메라를 표시할 Bambuddy 탭이 열려 있지 않습니다.',
+    poppedIn: '이 카메라는 이제 Bambuddy에 표시됩니다. 이 창을 닫아도 됩니다.',
     live: '실시간',
     snapshot: '스냅샷',
     restartStream: '스트림 재시작',
