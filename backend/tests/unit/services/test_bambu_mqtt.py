@@ -2087,6 +2087,26 @@ class TestRequestTopicIsCaptured:
         assert mqtt_client.get_logs() == []
         assert mqtt_client._captured_ams_mapping == [0, -1, -1, -1]
 
+    def test_a_push_is_logged_as_the_printer_sent_it(self, mqtt_client):
+        """Processing writes Bambuddy's merged AMS list into the payload's
+        "print" dict; the log must keep the printer's own AMS block (#3356)."""
+        unit = {"id": "0", "tray": [{"id": "0", "tray_type": "PLA"}]}
+        self._deliver(mqtt_client, mqtt_client.topic_subscribe, {"print": {"ams": {"ams": [unit]}}})
+        no_ams = {"print": {"command": "push_status", "ams": {"ams": [], "ams_exist_bits": "0"}}}
+        self._deliver(mqtt_client, mqtt_client.topic_subscribe, no_ams)
+
+        assert mqtt_client.get_logs()[1].payload == no_ams
+
+    def test_a_later_message_does_not_change_an_earlier_entry(self, mqtt_client):
+        first = {"print": {"command": "push_status", "vt_tray": {"id": "254", "tray_type": "PLA"}}}
+        self._deliver(mqtt_client, mqtt_client.topic_subscribe, first)
+        self._deliver(mqtt_client, mqtt_client.topic_subscribe, {"print": {"ams": {"ams": [{"id": "0", "tray": []}]}}})
+        self._deliver(mqtt_client, mqtt_client.topic_publish, {"print": {"command": "gcode_line", "param": "M400"}})
+
+        logs = mqtt_client.get_logs()
+        assert logs[0].payload == first
+        assert logs[2].payload == {"print": {"command": "gcode_line", "param": "M400"}}
+
     def test_the_report_topic_is_still_logged_as_incoming(self, mqtt_client):
         """Telemetry keeps its direction -- the two must stay distinguishable."""
         self._deliver(mqtt_client, mqtt_client.topic_subscribe, {"print": {"gcode_state": "IDLE"}})

@@ -2065,6 +2065,23 @@ class BambuMQTTClient:
         if self.on_state_change:
             self.on_state_change(self.state)
 
+    def _log_message(self, topic: str, direction: str, raw: str) -> None:
+        """Record a message for the MQTT Debug log, as it arrived.
+
+        Parsed again from the raw text rather than shared with the handlers:
+        processing keeps the payload's "print" dict as the new raw_data and
+        writes Bambuddy's merged AMS list and other state into it, so a shared
+        dict showed Bambuddy's state instead of what the printer sent (#3356).
+        """
+        self._message_log.append(
+            MQTTLogEntry(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                topic=topic,
+                direction=direction,
+                payload=json.loads(raw),
+            )
+        )
+
     def _on_message(self, client, userdata, msg):
         for handler in self._raw_message_handlers:
             try:
@@ -2106,14 +2123,7 @@ class BambuMQTTClient:
                 # broker's echo, and the pair is itself evidence the command
                 # reached the broker.
                 if self._logging_enabled:
-                    self._message_log.append(
-                        MQTTLogEntry(
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                            topic=msg.topic,
-                            direction="out",
-                            payload=payload,
-                        )
-                    )
+                    self._log_message(msg.topic, "out", raw)
                 self._handle_request_message(payload)
                 return
 
@@ -2129,14 +2139,7 @@ class BambuMQTTClient:
 
             # Log message if logging is enabled
             if self._logging_enabled:
-                self._message_log.append(
-                    MQTTLogEntry(
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        topic=msg.topic,
-                        direction="in",
-                        payload=payload,
-                    )
-                )
+                self._log_message(msg.topic, "in", raw)
             self._process_message(payload)
         except json.JSONDecodeError:
             pass  # Ignore non-JSON MQTT messages (e.g. binary or malformed payloads)
@@ -6419,6 +6422,18 @@ class BambuMQTTClient:
                         "[%s] All filament slots use external spool — setting use_ams=False",
                         self.serial_number,
                     )
+
+            # (c) A single-nozzle printer that reported no AMS at all can only
+            #     print from the spool holder, whatever the mapping says. With
+            #     nothing set on the holder the matcher resolves no mapping, so
+            #     neither (a) nor (b) ran and the print went out as use_ams=True,
+            #     which the firmware refuses with 07FF_8012 "Failed to get AMS
+            #     mapping table" (#3356). An empty raw_data["ams"] is the
+            #     printer's own report of no AMS; a missing key means no AMS
+            #     push has been handled yet (a reconnect), which changes nothing.
+            if use_ams and not is_dual_nozzle and self.state.raw_data.get("ams") == []:
+                use_ams = False
+                logger.info("[%s] Printer has no AMS — setting use_ams=False (#3356)", self.serial_number)
 
             # Unique per-submission identity fields. Hardcoded "0" values caused
             # third-party MQTT observers (OctoEverywhere, etc.) to see reprints as
