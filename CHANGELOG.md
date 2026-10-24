@@ -5,6 +5,7 @@ All notable changes to Bambuddy will be documented in this file.
 ## [1.3.0b1] - Unreleased
 
 ### Added
+- **Egyptian Pound (EGP) as a currency (#3334, requested by @aammash)** — Costs can now be shown in Egyptian Pounds (E£). Pick it under Settings > General > Cost Tracking.
 - **Larger queue thumbnails on hover (#3313, requested by @humplemann)** — A job's thumbnail on a **Queue** card is the quickest way to tell jobs apart, but it is small. Hovering it now shows it at 256x256 next to the card, as the **History** rows already did at 192x192 (now 256x256 too). The preview opens to the left when there is no room on the right, is no longer cut off inside a batch group, and closes when you move away or scroll. Desktop only, as touch screens have no hover. Wiki updated.
 - **The queue says when a job printed in a colour the file didn't ask for (#3279, requested by @Lioncat55)** — With no spool of a slot's colour loaded, the queue can still send the job with another spool of the same material. Nothing showed this until the print came out.
   - **On the queue row:** an amber line per slot, for example "Slot 1 printed in Black (#000000), the file asks for Silver (#A4AAAC)". It stays on the job in **History**.
