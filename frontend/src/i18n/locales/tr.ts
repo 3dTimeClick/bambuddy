@@ -884,6 +884,7 @@ export default {
       partCooling: 'Parça Soğutma Fanı',
       auxiliary: 'Yardımcı Fan',
       leftAuxiliary: 'Sol Yardımcı Fan',
+      rightAuxiliary: 'Sağ Yardımcı Fan',
       exhaust: 'Egzoz',
       chamber: 'Hazne Fanı',
     },

@@ -884,6 +884,7 @@ export default {
       partCooling: 'Ventola raffreddamento parte',
       auxiliary: 'Ventola ausiliaria',
       leftAuxiliary: 'Ventola ausiliaria sinistra',
+      rightAuxiliary: 'Ventola ausiliaria destra',
       exhaust: 'Estrazione',
       chamber: 'Ventola camera',
     },

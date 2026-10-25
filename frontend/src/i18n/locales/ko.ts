@@ -840,6 +840,7 @@ export default {
       partCooling: '파트 냉각 팬',
       auxiliary: '보조 팬',
       leftAuxiliary: '왼쪽 보조 팬',
+      rightAuxiliary: '오른쪽 보조 팬',
       exhaust: '배기',
       chamber: '챔버 팬'
     },

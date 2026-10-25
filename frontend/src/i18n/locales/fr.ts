@@ -884,6 +884,7 @@ export default {
       partCooling: 'Ventilateur pièce',
       auxiliary: 'Ventilateur auxiliaire',
       leftAuxiliary: 'Ventilateur auxiliaire gauche',
+      rightAuxiliary: 'Ventilateur auxiliaire droit',
       exhaust: 'Extraction',
       chamber: 'Ventilateur chambre',
     },

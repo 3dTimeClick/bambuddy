@@ -884,6 +884,7 @@ export default {
       partCooling: 'Ventilador de refrigeración de piezas',
       auxiliary: 'Ventilador auxiliar',
       leftAuxiliary: 'Ventilador auxiliar izquierdo',
+      rightAuxiliary: 'Ventilador auxiliar derecho',
       exhaust: 'Extracción',
       chamber: 'Ventilador de la cámara',
     },

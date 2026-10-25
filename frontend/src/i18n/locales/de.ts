@@ -884,6 +884,7 @@ export default {
       partCooling: 'Bauteilkühlung',
       auxiliary: 'Hilfsventilator',
       leftAuxiliary: 'Linker Hilfsventilator',
+      rightAuxiliary: 'Rechter Hilfsventilator',
       exhaust: 'Abluft',
       chamber: 'Kammerventilator',
     },

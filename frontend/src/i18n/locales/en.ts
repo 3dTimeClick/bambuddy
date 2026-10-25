@@ -891,6 +891,7 @@ export default {
       partCooling: 'Part Cooling Fan',
       auxiliary: 'Auxiliary Fan',
       leftAuxiliary: 'Left Auxiliary Fan',
+      rightAuxiliary: 'Right Auxiliary Fan',
       exhaust: 'Exhaust',
       chamber: 'Chamber Fan',
     },

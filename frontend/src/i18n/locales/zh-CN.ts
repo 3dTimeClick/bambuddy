@@ -884,6 +884,7 @@ export default {
       partCooling: '零件冷却风扇',
       auxiliary: '辅助风扇',
       leftAuxiliary: '左辅助风扇',
+      rightAuxiliary: '右辅助风扇',
       exhaust: '排气',
       chamber: '腔室风扇',
     },

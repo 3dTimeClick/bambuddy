@@ -450,7 +450,9 @@ class PrinterStatus(BaseModel):
     big_fan1_speed: int | None = None  # Auxiliary fan
     big_fan2_speed: int | None = None  # Chamber/exhaust fan
     heatbreak_fan_speed: int | None = None  # Hotend heatbreak fan
-    # Left auxiliary part cooling fan (optional P2S/X2D accessory, airduct part id 10).
+    # Second auxiliary part cooling fan (airduct part id 10). Named for the P2S,
+    # where it is the left fan (an accessory kit); on the X2D it is the RIGHT one
+    # and big_fan1_speed (part 2) the left (#3373). The name stays for API clients.
     # None = not installed / not reported by this model.
     left_aux_fan_speed: int | None = None
     # Chamber exhaust fan present (P2S/X2D External Exhaust Fan kit; airduct part id 3).

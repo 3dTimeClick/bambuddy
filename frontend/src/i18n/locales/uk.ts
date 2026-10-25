@@ -888,6 +888,7 @@ export default {
       partCooling: "Вентилятор охолодження моделі",
       auxiliary: "Допоміжний вентилятор",
       leftAuxiliary: "Лівий допоміжний вентилятор",
+      rightAuxiliary: "Правий допоміжний вентилятор",
       exhaust: "Витяжка",
       chamber: "Камерний вентилятор",
     },

@@ -889,6 +889,7 @@ export default {
       partCooling: 'Delkylningsfläkt',
       auxiliary: 'Hjälpfläkt',
       leftAuxiliary: 'Vänster hjälpfläkt',
+      rightAuxiliary: 'Höger hjälpfläkt',
       exhaust: 'Frånluft',
       chamber: 'Kammarfläkt',
     },

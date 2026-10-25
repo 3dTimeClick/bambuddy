@@ -889,6 +889,7 @@ export default {
       partCooling: 'Onderdeelkoelventilator',
       auxiliary: 'Hulpventilator',
       leftAuxiliary: 'Linker hulpventilator',
+      rightAuxiliary: 'Rechter hulpventilator',
       exhaust: 'Afvoer',
       chamber: 'Kamerventilator',
     },
