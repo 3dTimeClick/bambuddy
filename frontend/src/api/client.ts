@@ -4127,6 +4127,40 @@ export interface SpoolFilamentPreset extends SpoolFilamentPresetInput {
   created_at: string;
 }
 
+/**
+ * What a new spool of one product starts with (#1326): the slicer preset, the
+ * per-model preset overrides and the K profiles. `color_name` "" is the
+ * default for every colour of the product; one with a colour wins over it per
+ * preset and per hotend. Shared by both inventory modes.
+ */
+export interface ProfileDefaultKey {
+  brand: string;
+  material: string;
+  subtype: string;
+  color_name: string;
+}
+
+export interface ProfileDefaultInput extends ProfileDefaultKey {
+  slicer_filament: string | null;
+  slicer_filament_name: string | null;
+  presets: SpoolFilamentPresetInput[];
+  k_profiles: SpoolKProfileInput[];
+}
+
+export interface ProfileDefault extends ProfileDefaultInput {
+  id: number;
+  updated_at: string;
+}
+
+/** Both levels of a product's default merged, as a create applies them. */
+export interface ResolvedProfileDefault {
+  slicer_filament: string | null;
+  slicer_filament_name: string | null;
+  presets: SpoolFilamentPresetInput[];
+  k_profiles: SpoolKProfileInput[];
+  default_ids: number[];
+}
+
 /** One inventory-bound AMS slot, as returned by `/printers/{id}/inventory-remain`. */
 export interface SlotMaterial {
   ams_id: number;
@@ -7121,6 +7155,31 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(presets),
     }),
+  getProfileDefaults: () => request<ProfileDefault[]>('/inventory/profile-defaults'),
+  resolveProfileDefault: (key: ProfileDefaultKey) => {
+    const params = new URLSearchParams({
+      brand: key.brand,
+      material: key.material,
+      subtype: key.subtype,
+      color_name: key.color_name,
+    });
+    return request<ResolvedProfileDefault | null>(`/inventory/profile-defaults/resolve?${params}`);
+  },
+  saveProfileDefault: (data: ProfileDefaultInput) =>
+    request<ProfileDefault>('/inventory/profile-defaults', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteProfileDefault: (defaultId: number) =>
+    request<{ status: string }>(`/inventory/profile-defaults/${defaultId}`, { method: 'DELETE' }),
+  /** Fills in what active spools of the default's product lack; the inventory mode picks the route. */
+  applyProfileDefault: (defaultId: number, spoolmanMode: boolean) =>
+    request<{ updated: number }>(
+      spoolmanMode
+        ? `/spoolman/inventory/profile-defaults/${defaultId}/apply`
+        : `/inventory/profile-defaults/${defaultId}/apply`,
+      { method: 'POST' },
+    ),
   getAssignments: (printerId?: number) =>
     request<SpoolAssignment[]>(`/inventory/assignments${printerId ? `?printer_id=${printerId}` : ''}`),
   assignSpool: (data: { spool_id: number; printer_id: number; ams_id: number; tray_id: number }) =>
