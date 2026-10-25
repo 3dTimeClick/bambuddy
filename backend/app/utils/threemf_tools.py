@@ -326,6 +326,42 @@ def get_cumulative_usage_at_layer(
     return layer_usage.get(max_layer, {})
 
 
+def slicer_grams_at_layer(
+    layer_usage: dict[int, dict[int, float]],
+    target_layer: int,
+    filament_usage: list[dict],
+) -> dict[int, float]:
+    """Grams per 1-based slot for a print stopped at ``target_layer`` (#3317).
+
+    The slicer's weight for each filament, times the share of that filament's
+    whole-print feed the G-code has done by ``target_layer``. A finished print
+    is charged the slicer's weight, and the G-code feeds more than the slicer
+    counts (the start sequence, the purge at a filament change) and ahead of
+    the layers it serves, so its grams on their own charged a print cancelled
+    near the end more than the same print finished.
+
+    Only slots the slicer weighed and the G-code fed by then; the caller
+    converts the others from millimetres.
+    """
+    if not layer_usage:
+        return {}
+    final = layer_usage[max(layer_usage)]
+    at_layer = get_cumulative_usage_at_layer(layer_usage, target_layer)
+    slicer_grams: dict[int, float] = {}
+    for usage in filament_usage:
+        slot_id, used_g = usage.get("slot_id"), usage.get("used_g") or 0
+        if isinstance(slot_id, int) and used_g > 0:
+            slicer_grams.setdefault(slot_id, used_g)
+    grams: dict[int, float] = {}
+    for filament_id, mm in at_layer.items():
+        slot_id = filament_id + 1
+        total_mm = final.get(filament_id, 0)
+        if slot_id in slicer_grams and total_mm > 0:
+            # The end sequence can retract a little after the last snapshot.
+            grams[slot_id] = slicer_grams[slot_id] * min(mm / total_mm, 1.0)
+    return grams
+
+
 def extract_filament_properties_from_3mf(file_path: Path) -> dict[int, dict]:
     """Extract filament properties (density, diameter, type) from 3MF metadata.
 
