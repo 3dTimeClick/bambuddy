@@ -362,6 +362,12 @@ export default {
     ext: 'Extern',
     extL: 'Ext-V',
     extR: 'Ext-H',
+    filamentStrip: {
+      left: 'V',
+      right: 'H',
+      external: 'Extern',
+      remaining: '{{percent}}% kvar',
+    },
     deleteArchives: 'Ta bort utskriftsarkiv',
     noLabel: 'Ingen etikett',
     printPreview: 'Förhandsgranskning av utskrift',

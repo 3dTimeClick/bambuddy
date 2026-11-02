@@ -346,6 +346,12 @@ export default {
     ext: '외부',
     extL: '외부-L',
     extR: '외부-R',
+    filamentStrip: {
+      left: '좌',
+      right: '우',
+      external: '외부',
+      remaining: '{{percent}}% 남음',
+    },
     deleteArchives: '인쇄 아카이브 삭제',
     noLabel: '라벨 없음',
     printPreview: '인쇄 미리보기',

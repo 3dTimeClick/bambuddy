@@ -362,6 +362,12 @@ export default {
     ext: '外置',
     extL: '外置左',
     extR: '外置右',
+    filamentStrip: {
+      left: '左',
+      right: '右',
+      external: '外置',
+      remaining: '剩余 {{percent}}%',
+    },
     deleteArchives: '删除打印归档',
     noLabel: '无标签',
     printPreview: '打印预览',

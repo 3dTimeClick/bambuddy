@@ -362,6 +362,12 @@ export default {
     ext: 'Harici',
     extL: 'Ext-L',
     extR: 'Ext-R',
+    filamentStrip: {
+      left: 'Sol',
+      right: 'Sağ',
+      external: 'Harici',
+      remaining: '%{{percent}} kaldı',
+    },
     deleteArchives: 'Baskı arşivlerini sil',
     noLabel: 'Etiket yok',
     printPreview: 'Baskı önizleme',

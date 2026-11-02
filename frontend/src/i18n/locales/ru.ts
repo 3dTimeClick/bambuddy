@@ -351,6 +351,12 @@ export default {
     ext: "Внешняя",
     extL: "Внешняя, левое",
     extR: "Внешняя, правое",
+    filamentStrip: {
+      left: 'Л',
+      right: 'П',
+      external: 'Внешняя',
+      remaining: 'осталось {{percent}}%',
+    },
     deleteArchives: "Удалить архивы печати",
     noLabel: "Без метки",
     printPreview: "Предпросмотр печати",

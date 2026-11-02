@@ -166,6 +166,7 @@ import { api, discoveryApi, firmwareApi, withMediaToken, ApiError } from '../api
 import { formatDateOnly, formatDateTime, formatETA, formatDuration, formatDurationFromHours, parseUTCDate } from '../utils/date';
 import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
 import { Card, CardContent } from '../components/Card';
+import FilamentSwatchStrip from '../components/FilamentSwatchStrip';
 import { Button } from '../components/Button';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { BulkPrinterToolbar, type PrinterState } from '../components/BulkPrinterToolbar';
@@ -2517,6 +2518,17 @@ function PrinterCard({
     ? currentTrayNow
     : cachedTrayNow.current;
 
+  const filamentStrip = (
+    <FilamentSwatchStrip
+      ams={amsData}
+      vtTray={status?.vt_tray ?? []}
+      trayNow={effectiveTrayNow}
+      isDualNozzle={printer.nozzle_count === 2 || status?.temperatures?.nozzle_2 !== undefined}
+      activeExtruder={status?.active_extruder}
+      amsExtruderMap={amsExtruderMap}
+    />
+  );
+
   // Runout / filament-replacement guidance (#2587). The backend fills these only
   // while the print is PAUSED (global tray IDs, or null when idle/unresolvable):
   //   expectedTray = the slot the firmware now expects filament in
@@ -3968,6 +3980,7 @@ function PrinterCard({
                     </span>
                   )}
                 </p>
+                {viewMode === 'expanded' && filamentStrip}
               </div>
             </div>
           </div>
@@ -4364,6 +4377,7 @@ function PrinterCard({
                         </span>
                       )}
                     </div>
+                    {filamentStrip}
                   </>
                 );
               })()
