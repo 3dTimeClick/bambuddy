@@ -362,6 +362,12 @@ export default {
     ext: '外接',
     extL: '外接左',
     extR: '外接右',
+    filamentStrip: {
+      left: '左',
+      right: '右',
+      external: '外接',
+      remaining: '剩餘 {{percent}}%',
+    },
     deleteArchives: '刪除列印歸檔',
     noLabel: '無標籤',
     printPreview: '列印預覽',

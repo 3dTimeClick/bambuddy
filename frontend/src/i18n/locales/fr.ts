@@ -362,6 +362,12 @@ export default {
     ext: 'Externe',
     extL: 'Ext-L',
     extR: 'Ext-R',
+    filamentStrip: {
+      left: 'G',
+      right: 'D',
+      external: 'Externe',
+      remaining: '{{percent}}% restant',
+    },
     deleteArchives: 'Supprimer les archives d\'impression',
     noLabel: 'Pas d\'étiquette',
     printPreview: 'Aperçu avant impression',

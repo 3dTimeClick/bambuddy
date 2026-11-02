@@ -361,6 +361,12 @@ export default {
     ext: '外部',
     extL: 'Ext-L',
     extR: 'Ext-R',
+    filamentStrip: {
+      left: '左',
+      right: '右',
+      external: '外部',
+      remaining: '残り{{percent}}%',
+    },
     deleteArchives: '印刷アーカイブを削除',
     noLabel: 'ラベルなし',
     printPreview: '印刷プレビュー',
